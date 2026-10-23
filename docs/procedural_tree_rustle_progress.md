@@ -1,5 +1,12 @@
 # Procedural Tree Rustle Progress
 
+> Historical prototype/tuning record. The non-runtime `docs/audio/wind_ref.wav`
+> was subsequently deleted at the owner's request to keep only runtime SFX.
+> Measurements below describe the former reference, not a bundled file.
+> To rerun reference analysis, supply a lawful external recording via
+> `export RUSTLE_REFERENCE_WAV=/absolute/path/to/reference.wav`; section timings
+> must be adjusted for the new recording. Do not re-add reference audio to Git.
+
 ## Goal
 
 Improve the procedural tree wind/rustle prototype so it sounds like natural wind moving through leaves rather than synthetic white-noise crackle or plastic-bag crinkle.
@@ -26,7 +33,7 @@ Relevant files:
 - `tools/tree_rustle_live_config.json` - live tuner defaults and presets
 - `tools/record_system_audio.py` - records computer playback from monitor source, not microphone
 - `tools/analyze_tree_rustle.py` - dependency-free WAV metrics for rustle band/envelope checks
-- `docs/audio/wind_ref.wav` - current high-quality reference capture
+- `docs/audio/wind_ref.wav` - former reference capture, now removed
 - `target/audio-captures/analysis/wind_ref_metrics.json` - generated reference metrics
 - `target/audio-captures/analysis/wind_ref_spectrogram.png` - generated spectrogram for the reference
 - `target/audio-captures/analysis/wind_ref_clean_wind_2p4_8p8.wav` - trimmed clean wind section
@@ -107,13 +114,14 @@ Use the reference as a qualitative target, with ratios more important than absol
 
 ## Verification Method
 
-Reference-capture checks:
+Reference-capture checks (external recording required):
 
 ```bash
+: "${RUSTLE_REFERENCE_WAV:?Set an absolute path to a lawful external recording}"
 ffprobe -v error \
   -show_entries stream=codec_name,channels,sample_rate,bits_per_sample,duration:format=duration,size \
   -of default=nw=1 \
-  docs/audio/wind_ref.wav
+  "$RUSTLE_REFERENCE_WAV"
 
 cd tools
 uv run python record_system_audio.py --list-devices
@@ -149,7 +157,8 @@ uv run python prototype_tree_rustle.py \
   --no-play \
   --out ../target/audio-prototypes/tree_rustle_reference_compare_dense.wav
 
-uv run python analyze_tree_rustle.py ../docs/audio/wind_ref.wav \
+: "${RUSTLE_REFERENCE_WAV:?Set an absolute path to a lawful external recording}"
+uv run python analyze_tree_rustle.py "$RUSTLE_REFERENCE_WAV" \
   --section clean_wind 2.4 8.8 \
   --section leaf_rise 8.8 16.6 \
   --write-json ../target/audio-captures/analysis/wind_ref_metrics.json

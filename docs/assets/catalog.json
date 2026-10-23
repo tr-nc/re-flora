@@ -1,5 +1,5 @@
 {
-  "reviewed_revision": "b5ab327890259756e1df17b7321adfd71dd802e5",
+  "reviewed_revision": "29307bce128b897b0b96636a17a914e0069eb64b",
   "reviewed_on": "2026-10-23",
   "groups": [
     {
@@ -190,44 +190,29 @@
     },
     {
       "id": "sound-armoury",
-      "name": "地形编辑循环与 UI 按键",
+      "name": "Sound Armoury 共用来源音效（地形/UI/蝉鸣）",
       "patterns": [
         "assets/sfx/ROCKMisc*",
         "assets/sfx/MECHSwtch*",
-        "assets/sfx/SOUND-ARMOURY*"
+        "assets/sfx/SOUND-ARMOURY*",
+        "assets/sfx/summer_cicadas/*"
       ],
       "exclude": [],
-      "usage": "运行时预加载 / 事件播放",
+      "usage": "运行时预加载 / 操作反馈与生态触发",
       "decision": "游戏内可商用；公开原件需许可、拆出或替换",
-      "source": "Sound Armoury SFX Mega Bundle；2025-07-09 购买确认；itch.io 专用 EULA 已保存",
-      "gap": "未取得原始 WAV 公开分发许可；历史处理、原始包版本和购买时条款未恢复",
+      "source": "用户确认四条共用 Sound Armoury SFX Mega Bundle 采购来源；2025-07-09 购买，当前 itch.io EULA 已保存",
+      "gap": "公开 WAV（含修改版）仍需明确许可；历史原始包版本/购买时条款及地形/UI 历史处理未恢复",
       "evidence": [
         "src/audio/runtime_assets.rs",
         "src/app/core/input.rs",
         "assets/sfx/SOUND-ARMOURY.md",
-        "assets/sfx/SOUND-ARMOURY-LICENSE.txt"
-      ],
-      "purpose": "岩石移动循环用于地形编辑；Game Boy 按键录音用于物品栏操作反馈"
-    },
-    {
-      "id": "cicadas",
-      "name": "夏蝉音效",
-      "patterns": [
-        "assets/sfx/summer_cicadas/*"
-      ],
-      "exclude": [],
-      "usage": "运行时预加载 / 生态触发",
-      "decision": "游戏内可商用；公开原件需许可、拆出或替换",
-      "source": "Sound Armoury SynFauna: Crickets & Cicadas；套餐购买确认，现有包名/处理记录吻合，EULA 已保存",
-      "gap": "未取得修改后 WAV 公开分发许可；历史套餐/原始包版本和购买时条款未恢复",
-      "evidence": [
-        "src/audio/runtime_assets.rs",
+        "assets/sfx/SOUND-ARMOURY-LICENSE.txt",
         "src/audio/summer_cicadas.rs",
         "assets/sfx/summer_cicadas/README.md",
         "assets/sfx/summer_cicadas/provenance.json",
         "assets/sfx/summer_cicadas/LICENSE.txt"
       ],
-      "purpose": "树上/地面生态点位触发两种夏蝉鸣叫"
+      "purpose": "同一采购来源的 4 条音效：岩石循环用于地形编辑，按键用于物品栏反馈，两种蝉鸣用于生态点位"
     },
     {
       "id": "tool-icons",
@@ -336,22 +321,6 @@
       "purpose": "标量用于阴影旋转/体积光抖动、2D 向量用于阴影 UV 抖动；另两组加载但未找到实际采样"
     },
     {
-      "id": "wind-reference",
-      "name": "风声参考录音",
-      "patterns": [
-        "docs/audio/wind_ref.wav"
-      ],
-      "exclude": [],
-      "usage": "研究/分析参考，非游戏输入",
-      "decision": "先核来源，必要时隔离",
-      "source": "文档称 reference capture，未写原音源授权",
-      "gap": "补录制对象、原始来源与许可；capture 不等于自己拥有声音",
-      "evidence": [
-        "docs/procedural_tree_rustle_progress.md"
-      ],
-      "purpose": "分析/调音时对比程序树叶声的参考录音，不在运行时清单"
-    },
-    {
       "id": "splash-promo",
       "name": "README 宣传图",
       "patterns": [
@@ -359,12 +328,13 @@
       ],
       "exclude": [],
       "usage": "README 引用 / 发行包复制",
-      "decision": "先补来源",
-      "source": "未找到同目录制作说明",
-      "gap": "确认截图还是绘制/生成图及素材来源；不是游戏启动屏加载图",
+      "decision": "保留公开：项目自有游戏截图",
+      "source": "项目所有者确认由团队截取游戏运行画面；同目录来源说明和 SHA-256 已补",
+      "gap": "无待确认的制作来源；原始截图日期/构建版本未记录，不影响自有截图确认",
       "evidence": [
         "README.md",
-        "scripts/package_release.py"
+        "scripts/package_release.py",
+        "demo/img/README.md"
       ],
       "purpose": "根 README 宣传图，随发行包复制；不是原生启动屏贴图"
     },

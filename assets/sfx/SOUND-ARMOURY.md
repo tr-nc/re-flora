@@ -11,8 +11,9 @@
   receipt or a grant of ownership to repository users.
 
 The public bundle listing includes **Rocks & Bricks**, **Buttons**, and
-**SynFauna: Crickets & Cicadas**. The owner identified this bundle as the source
-of the questioned sound effects. The first two WAVs' `encoded_by` tags identify
+**SynFauna: Crickets & Cicadas**. The owner explicitly confirmed that the terrain loop, UI button and both cicada
+calls share this bundle purchase as their source. They are grouped together in
+the asset catalog; this does not merge their playback roles or change WAV paths. The first two WAVs' `encoded_by` tags identify
 Sound Armoury, and their library suffixes match the listed products. The cicada
 package name, original filenames and conversion hashes were recorded earlier.
 This audit did not download the purchased archives or compare the first two WAVs
