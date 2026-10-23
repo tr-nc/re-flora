@@ -1,5 +1,5 @@
 {
-  "reviewed_revision": "a64a07b9d1baccb66a9a49156d207b371c36176a",
+  "reviewed_revision": "1067833b1b0f439726433dd5e2d2aabdd131ea21",
   "reviewed_on": "2026-10-23",
   "groups": [
     {
@@ -61,12 +61,13 @@
       "exclude": [],
       "usage": "编译时嵌入 / 网页预览",
       "decision": "保留公开基础资源",
-      "source": "项目 Blender v5 制作，有源工程和导出记录",
-      "gap": "源清单 art_basis 提到旧手绘参考，参考来源仍应补明",
+      "source": "项目 Blender v5 制作；项目所有者确认由助手发起的蝴蝶实验为项目自有内容",
+      "gap": "当前制作源已保留；旧实验仅因不再需要而删除，不按版权风险处理",
       "evidence": [
         "src/model_assets.rs",
         "assets/models/README.md",
-        "experiments/butterfly-method-comparison/blender-v5/source-manifest.json"
+        "experiments/butterfly-method-comparison/blender-v5/source-manifest.json",
+        "docs/assets/cleanup-unused.md"
       ]
     },
     {
@@ -211,90 +212,6 @@
       ]
     },
     {
-      "id": "sprinkler",
-      "name": "喷水器候选",
-      "patterns": [
-        "assets/sfx/sprinkler/*"
-      ],
-      "exclude": [],
-      "usage": "未接入运行时",
-      "decision": "拆出隔离；商用先重制/获许可",
-      "source": "ElevenLabs Free 生成；设置/原件或处理信息随包",
-      "gap": "Free 输出不可商用；私有化不补商用权；原始音频公开分发另受限制",
-      "evidence": [
-        "assets/sfx/sprinkler/README.md",
-        "src/audio/runtime_assets.rs",
-        "docs/research/elevenlabs-sfx-commercial-license.md"
-      ]
-    },
-    {
-      "id": "apple-dirt",
-      "name": "苹果落地候选",
-      "patterns": [
-        "assets/sfx/apple-dirt/*"
-      ],
-      "exclude": [],
-      "usage": "未接入运行时",
-      "decision": "拆出隔离；商用先重制/获许可",
-      "source": "ElevenLabs Free 生成；设置/原件或处理信息随包",
-      "gap": "Free 输出不可商用；私有化不补商用权；原始音频公开分发另受限制",
-      "evidence": [
-        "assets/sfx/apple-dirt/README.md",
-        "src/audio/runtime_assets.rs",
-        "docs/research/elevenlabs-sfx-commercial-license.md"
-      ]
-    },
-    {
-      "id": "leaves-breeze",
-      "name": "微风叶片候选",
-      "patterns": [
-        "assets/sfx/leaves-breeze/*"
-      ],
-      "exclude": [],
-      "usage": "未接入运行时",
-      "decision": "拆出隔离；商用先重制/获许可",
-      "source": "ElevenLabs Free 生成；设置/原件或处理信息随包",
-      "gap": "Free 输出不可商用；私有化不补商用权；原始音频公开分发另受限制",
-      "evidence": [
-        "assets/sfx/leaves-breeze/README.md",
-        "src/audio/runtime_assets.rs",
-        "docs/research/elevenlabs-sfx-commercial-license.md"
-      ]
-    },
-    {
-      "id": "leaves-strong-wind",
-      "name": "强风叶片候选",
-      "patterns": [
-        "assets/sfx/leaves-strong-wind/*"
-      ],
-      "exclude": [],
-      "usage": "未接入运行时",
-      "decision": "拆出隔离；商用先重制/获许可",
-      "source": "ElevenLabs Free 生成；设置/原件或处理信息随包",
-      "gap": "Free 输出不可商用；私有化不补商用权；原始音频公开分发另受限制",
-      "evidence": [
-        "assets/sfx/leaves-strong-wind/README.md",
-        "src/audio/runtime_assets.rs",
-        "docs/research/elevenlabs-sfx-commercial-license.md"
-      ]
-    },
-    {
-      "id": "old-tree-loop",
-      "name": "旧树叶循环",
-      "patterns": [
-        "assets/sfx/tree_sound_48k_pregain_40db.wav"
-      ],
-      "exclude": [],
-      "usage": "未发现有效播放引用",
-      "decision": "归档/移出，先核来源",
-      "source": "文件名表明预增益，但没有完整来源记录",
-      "gap": "补原始来源和处理参数；当前树叶声为程序合成",
-      "evidence": [
-        "src/audio/tree_audio_manager.rs",
-        "src/audio/runtime_assets.rs"
-      ]
-    },
-    {
       "id": "tool-icons",
       "name": "当前工具图标",
       "patterns": [
@@ -311,30 +228,15 @@
       "usage": "运行时加载",
       "decision": "先补来源，再定是否拆出",
       "source": "Git 导入记录只有 add icons",
-      "gap": "请确认自制/生成/购买来源及许可；暂不能认定为项目自有",
+      "gap": "请确认这 8 个图标的自制/生成/购买来源及许可；未使用的 tree.png 已删除",
       "evidence": [
         "src/app/core/ui_style.rs",
         "src/app/core/mod.rs"
       ]
     },
     {
-      "id": "tool-tree-icon",
-      "name": "未使用树图标",
-      "patterns": [
-        "assets/texture/tool_icons/tree.png"
-      ],
-      "exclude": [],
-      "usage": "未发现游戏引用",
-      "decision": "归档候选，先核来源",
-      "source": "与工具图标同批导入",
-      "gap": "同上；无引用不等于已经授权删除",
-      "evidence": [
-        "src/app/core/ui_style.rs"
-      ]
-    },
-    {
       "id": "farm-fallback",
-      "name": "农具图标：7 个备用项",
+      "name": "农具图标：7 个备用项及许可",
       "patterns": [
         "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/10_Wooden_Shovel.PNG",
         "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/4_Wooden_Staff.PNG",
@@ -342,7 +244,8 @@
         "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/28_Copper_Sickle.PNG",
         "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/30_Copper_Watering_Can.PNG",
         "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/24_Copper_Pickaxe.PNG",
-        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/11_Wooden_Hoe.PNG"
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/11_Wooden_Hoe.PNG",
+        "assets/texture/Pixel_Farming_Tools_IconSet_16px/README.txt"
       ],
       "exclude": [],
       "usage": "条件加载：主图标缺失时",
@@ -356,34 +259,11 @@
       ]
     },
     {
-      "id": "farm-unused",
-      "name": "农具图标：其余图片与许可",
-      "patterns": [
-        "assets/texture/Pixel_Farming_Tools_IconSet_16px/*"
-      ],
-      "exclude": [
-        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/10_Wooden_Shovel.PNG",
-        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/4_Wooden_Staff.PNG",
-        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/26_Copper_Hoe.PNG",
-        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/28_Copper_Sickle.PNG",
-        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/30_Copper_Watering_Can.PNG",
-        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/24_Copper_Pickaxe.PNG",
-        "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/11_Wooden_Hoe.PNG"
-      ],
-      "usage": "未发现游戏引用",
-      "decision": "拆出私有或归档",
-      "source": "同包限制再分发",
-      "gap": "补作者/商品 URL/购买记录",
-      "evidence": [
-        "assets/texture/Pixel_Farming_Tools_IconSet_16px/README.txt",
-        "src/app/core/ui_style.rs"
-      ]
-    },
-    {
       "id": "sun",
-      "name": "太阳贴图",
+      "name": "太阳贴图及许可",
       "patterns": [
-        "assets/texture/Planets_16x16/Sun.png"
+        "assets/texture/Planets_16x16/Sun.png",
+        "assets/texture/Planets_16x16/License.txt"
       ],
       "exclude": [],
       "usage": "运行时加载",
@@ -393,40 +273,6 @@
       "evidence": [
         "src/tracer/resources.rs",
         "assets/texture/Planets_16x16/License.txt"
-      ]
-    },
-    {
-      "id": "planets16-unused",
-      "name": "16px 行星包其余图片与许可",
-      "patterns": [
-        "assets/texture/Planets_16x16/*"
-      ],
-      "exclude": [
-        "assets/texture/Planets_16x16/Sun.png"
-      ],
-      "usage": "未发现游戏引用",
-      "decision": "拆出私有或归档",
-      "source": "同包限制再分发",
-      "gap": "缺作者、商品 URL 和购买凭证",
-      "evidence": [
-        "assets/texture/Planets_16x16/License.txt",
-        "src/tracer/resources.rs"
-      ]
-    },
-    {
-      "id": "other-planets",
-      "name": "其余两个行星包",
-      "patterns": [
-        "assets/texture/Planets/*",
-        "assets/texture/Planet_Pack_bycancer/*"
-      ],
-      "exclude": [],
-      "usage": "未发现游戏引用",
-      "decision": "归档/隔离，先核来源",
-      "source": "其中一包仅目录名 bycancer；无完整来源说明",
-      "gap": "补商品 URL、作者和许可",
-      "evidence": [
-        "src/tracer/resources.rs"
       ]
     },
     {
@@ -561,22 +407,6 @@
       ]
     },
     {
-      "id": "butterfly-ai",
-      "name": "失败的 AI 蝴蝶候选",
-      "patterns": [
-        "experiments/butterfly-method-comparison/ai-route-a*.png"
-      ],
-      "exclude": [],
-      "usage": "历史实验，非游戏输入",
-      "decision": "隔离/归档，先核生成许可",
-      "source": "manifest: 内置 image_gen；保留两次输出及缩放图",
-      "gap": "缺确切服务/模型、完整提交提示、生成时条款；不猜商业权限",
-      "evidence": [
-        "experiments/butterfly-method-comparison/ai-route-a-manifest.json",
-        "experiments/butterfly-method-comparison/README.md"
-      ]
-    },
-    {
       "id": "butterfly-v5-source",
       "name": "批准蝴蝶 Blender 源工程与导出 GLB",
       "patterns": [
@@ -586,12 +416,13 @@
       "exclude": [],
       "usage": "当前制作源，非游戏直接输入",
       "decision": "保留制作源或独立公开制作仓库",
-      "source": "Blender v5；正式产物发布到 assets/models",
-      "gap": "不要把当前制作源当废弃文件；旧手绘参考出处需补",
+      "source": "项目自有 Blender v5 制作源；项目所有者已确认实验归属",
+      "gap": "v2 调色板依赖已迁入 v5/palette.py；完整 Blender 重导出本次未执行",
       "evidence": [
         "experiments/butterfly-method-comparison/blender-v5/README.md",
         "experiments/butterfly-method-comparison/blender-v5/source-manifest.json",
-        "assets/models/README.md"
+        "assets/models/README.md",
+        "docs/assets/cleanup-unused.md"
       ]
     },
     {
@@ -603,45 +434,11 @@
       "exclude": [],
       "usage": "离线制作/回归证据",
       "decision": "可归档，保留源工程关联",
-      "source": "v5 制作流程派生输出",
-      "gap": "不被游戏读取；注意 README 中旧验收描述的历史时效",
+      "source": "项目自有 v5 制作流程派生输出",
+      "gap": "保留当前制作验证证据；不被游戏读取",
       "evidence": [
         "experiments/butterfly-method-comparison/blender-v5/README.md",
         "experiments/butterfly-method-comparison/blender-v5/source-manifest.json"
-      ]
-    },
-    {
-      "id": "butterfly-old",
-      "name": "旧蝴蝶 Blender v1–v4 输出",
-      "patterns": [
-        "experiments/butterfly-method-comparison/blender/*",
-        "experiments/butterfly-method-comparison/blender-v2/*",
-        "experiments/butterfly-method-comparison/blender-v3/*",
-        "experiments/butterfly-method-comparison/blender-v4/*"
-      ],
-      "exclude": [],
-      "usage": "历史制作/实验记录",
-      "decision": "可独立归档；不是必须私有",
-      "source": "各版本 source-manifest 与脚本可追溯",
-      "gap": "art_basis 涉及旧手绘参考；保留证据时不要声称原始参考已完全移除",
-      "evidence": [
-        "experiments/butterfly-method-comparison/README.md",
-        "experiments/butterfly-method-comparison/blender/source-manifest.json"
-      ]
-    },
-    {
-      "id": "butterfly-resolution",
-      "name": "蝴蝶分辨率研究图片",
-      "patterns": [
-        "experiments/butterfly-method-comparison/resolution-study/*.png"
-      ],
-      "exclude": [],
-      "usage": "研究记录",
-      "decision": "可归档，先核参考来源",
-      "source": "项目分辨率实验；README 记录方法",
-      "gap": "参考输入许可需追溯，非运行时贴图",
-      "evidence": [
-        "experiments/butterfly-method-comparison/resolution-study/README.md"
       ]
     },
     {
@@ -659,21 +456,6 @@
         "docs/research/splash-prototype.md",
         "scripts/build-splash-prototype.mjs",
         "assets/font/OFL.txt"
-      ]
-    },
-    {
-      "id": "butterfly-html",
-      "name": "内嵌旧蝴蝶参考图的 HTML",
-      "patterns": [
-        "experiments/butterfly-method-comparison/butterfly-art-workflow.html"
-      ],
-      "exclude": [],
-      "usage": "历史研究网页",
-      "decision": "隔离/清理候选，先核参考许可",
-      "source": "HTML 内嵌 Blue.png 等旧参考，独立 PNG 已退役",
-      "gap": "原参考来源/许可未闭合；仅删除外部 PNG 不能移除内嵌副本",
-      "evidence": [
-        "experiments/butterfly-method-comparison/butterfly-art-workflow.html"
       ]
     },
     {

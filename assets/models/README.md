@@ -15,8 +15,10 @@ Apples use `apple-source.mjs` as the single geometry recipe for the HTML preview
 
 Authoring projects may live elsewhere. The approved butterfly authoring project and provenance
 remain under `experiments/butterfly-method-comparison/blender-v5/`; publish its GLB here after an
-intentional art change. The old experiment GLBs are historical outputs, not active game/preview
-inputs. Updating this canonical file updates both consumers (rebuild the game; reload the browser).
+intentional art change. The old v1–v4 experiment GLBs were removed on 2026-10-23; the approved v5
+source and current preview dependencies remain. The owner confirmed the butterfly
+experiments are project-owned; removal was housekeeping, not a rights concern.
+See [cleanup record](../../docs/assets/cleanup-unused.md). Updating this canonical file updates both consumers (rebuild the game; reload the browser).
 
 The shared loader supports opaque triangle meshes and node-transform animation (linear/step TRS,
 quaternion slerp). Unsupported skinning/morph/cubic animation fails explicitly rather than producing

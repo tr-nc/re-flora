@@ -1,5 +1,15 @@
 # Handoff: drive the sprinkler from the selected audio rhythm
 
+## Superseded asset selection — 2026-10-23
+
+The user requested deletion of unused assets, including the selected sprinkler
+bundle. It is no longer in the current tree. The timing below is historical,
+not an instruction to integrate a missing or commercially uncleared recording.
+Choose an approved replacement before resuming audio integration; do not change
+the other machine's unpushed driver based on this archived handoff.
+See [cleanup record](../assets/cleanup-unused.md); the original bundle/provenance
+can be inspected with `git show 1067833b:assets/sfx/sprinkler/README.md`.
+
 ## Status and boundary
 
 **Not implemented.** The user confirmed that the newer sprinkler driver and its frequency/duty-cycle Debug controls exist as **unpushed changes on another machine**. Do not recreate, replace, or remove those changes based on this older checkout. Perform runtime integration on the machine/worktree containing that implementation, after inspecting its current diff and instructions.
@@ -29,7 +39,7 @@ assets/sfx/sprinkler/
   sprinkler-first-6-loop.wav     # 1.56 s selected in-game loop
 ```
 
-See the self-contained [asset note](../../assets/sfx/sprinkler/README.md). It records the exact user-supplied ElevenLabs prompt, **SFX v3**, **loop on**, **8 s**, **Prompt Influence 30%**, and **prompt improve on**. The effective improved prompt was not supplied. The new provenance rule applies to all future image/audio imports, not just this sound.
+See the self-contained asset note (deleted from the current tree; see the historical Git path above). It records the exact user-supplied ElevenLabs prompt, **SFX v3**, **loop on**, **8 s**, **Prompt Influence 30%**, and **prompt improve on**. The effective improved prompt was not supplied. The new provenance rule applies to all future image/audio imports, not just this sound.
 
 Use `sprinkler-first-6-loop.wav`, **not** the original, previous 5.22-second crop, de-clicked versions, or HTML-prototype water bed. Those alternatives were rejected/removed. Later parts of the original had clicks the user disliked; the chosen loop uses only its first six bursts.
 

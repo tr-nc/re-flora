@@ -2,6 +2,13 @@
 
 Checked: **2026-10-23**. This is a source-based licensing summary, not legal advice or a substitute for a separate agreement with ElevenLabs.
 
+## Asset cleanup update — 2026-10-23
+
+The four unused bundles listed below have since been deleted at the user's
+request. This page preserves the licensing findings for the old selections;
+it no longer describes files present in the current checkout. Deletion does not
+rewrite Git history or retroactively grant rights. See [cleanup record](../assets/cleanup-unused.md).
+
 ## Conclusion for this project
 
 The user reports using the **Free plan** for the recently imported ElevenLabs SFX. Under the current published policy, these outputs are **not cleared for commercial use**, including the planned commercial game. Attribution does not replace a commercial license. Upgrading later does not automatically license outputs created before the paid subscription. [1]

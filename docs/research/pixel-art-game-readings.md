@@ -7,7 +7,7 @@
 - [Game Direction](../game_direction.md) 将项目定义为可居住、可自由种植的 3D Restorative Garden，并确认探索普通光栅建筑模型与可编辑体素土壤、植物共存的屋顶餐厅方向。[Rooftop PoC](../rooftop_poc.md) 记录的是实验候选，不能据此宣称已完成美术管线或获用户认可。
 - [`scene_resolution.rs`](../../src/tracer/scene_resolution.rs) 已区分显示像素网格与源图采样密度，采用整数屏幕像素块、nearest 展示及原生 UI。因此只讲“降低 RenderTexture 分辨率”的教程，对本项目增量有限。不要把历史实验中的固定 0.125 比例当作当前唯一实现。
 - [`camera/controller.rs`](../../src/gameplay/camera/controller.rs) 使用透视投影；项目还有 orbit、缩放与自由观察。因此正交相机的像素对齐方案只能条件性借鉴，不能保证直接解决透视运动中的全部跳变。
-- [已有高分辨率像素化调研](high-resolution-pixelization.md) 和 [蝴蝶 3D-to-pixel 调研](../../experiments/butterfly-method-comparison/blender-v2/research-3d-to-pixel.md) 已涉及 ProPixelizer、Dead Cells 和 Blender Studio。本清单把这些资料放回整体美术学习路线，不把它们当作本轮首次发现。
+- [已有高分辨率像素化调研](high-resolution-pixelization.md) 和 蝴蝶 3D-to-pixel 调研（历史文件已删除，见[清理记录](../assets/cleanup-unused.md)；原路径 `../../experiments/butterfly-method-comparison/blender-v2/research-3d-to-pixel.md`） 已涉及 ProPixelizer、Dead Cells 和 Blender Studio。本清单把这些资料放回整体美术学习路线，不把它们当作本轮首次发现。
 
 优先选作者亲述、工具作者文档与已完成游戏的制作资料。事实与迁移建议分开：以下“对 Re: Flora 的价值”均是阅读者的判断，不是来源对本项目效果的保证。资料以英文为主。
 
