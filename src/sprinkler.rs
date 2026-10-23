@@ -332,6 +332,57 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires Slang CPU executable backend; explicit rendering regression"]
+    fn sprinkler_spray_uses_the_rendered_discrete_birth_pose() {
+        use std::process::Command;
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("sprinkler-discrete.slang");
+        let executable = directory.path().join("sprinkler-discrete");
+        std::fs::write(&source, r#"
+import sprinkler_animation;
+import sprinkler_spray;
+export __extern_cpp int main() {
+    if(SPRINKLER_ROTARY_FRAMES!=__FRAMES__u)return 4;
+    uint cases=0;
+    for(uint i=0;i<256;++i) for(uint r=0;r<3;++r) for(uint t=0;t<5;++t) {
+        float now=float(i)*6.28318530718/251.0;
+        float phase=0.213, rpm=float(r)*30.0, age=float(t)*0.17;
+        float birth=now+phase*6.28318530718-age*rpm*6.28318530718/60.0;
+        float baked=float(sprinklerRotaryFrame(birth))*6.28318530718/16.0;
+        MistSpraySource s=mistRotaryKinematics(age,0.01,0.8,now,phase,rpm,30.0);
+        if(length(s.outlet-sprinklerRotaryOutlet(baked))>0.000001) {
+            printf("outlet mismatch angle=%f birth=%f frame=%u\n",now,birth,sprinklerRotaryFrame(birth)); return 1;
+        }
+        if(length(s.velocity-mistSprayDeflectedVelocity(baked,0.8))>0.00001) return 2;
+        if(abs(s.angular_velocity)>0.00001) return 3;
+        ++cases;
+    }
+    printf("%u discrete birth-pose cases passed\n",cases); return 0;
+}
+"#.replace("__FRAMES__", &ROTARY_FRAMES.to_string())).unwrap();
+        let compile = Command::new(std::env::var_os("SLANGC").unwrap_or_else(|| "slangc".into()))
+            .arg(&source)
+            .args(["-std", "2025", "-I"])
+            .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/shader/slang"))
+            .args(["-target", "executable", "-o"])
+            .arg(&executable)
+            .output()
+            .unwrap();
+        assert!(
+            compile.status.success(),
+            "{}",
+            String::from_utf8_lossy(&compile.stderr)
+        );
+        let output = Command::new(executable).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        print!("{}", String::from_utf8_lossy(&output.stdout));
+    }
+
+    #[test]
     #[ignore = "requires Slang CPU executable backend; explicit render validation"]
     fn sprinkler_shader_pose_matches_water_outlets() {
         use std::{fmt::Write, process::Command};

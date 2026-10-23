@@ -16,12 +16,22 @@ public void sprinklerAnimation(uint tick, float tickSeconds, float animationPhas
     extension = 0.5 - 0.5 * cos(pairPhase * 6.28318530718);
 }
 
-// Only the hardware image is quantized. The shared water source remains continuous.
+// One frame selection for the baked hardware AND each water sample's birth pose.
+// Keep the CPU bake count checked against this constant by the native Slang contract test.
+public static const uint SPRINKLER_ROTARY_FRAMES=16u;
 public uint sprinklerRotaryFrame(float angle)
 {
-    return uint(floor(frac(angle/6.28318530718)*16.0+0.5))%16u;
+    return uint(floor(frac(angle/6.28318530718)*float(SPRINKLER_ROTARY_FRAMES)+0.5))%SPRINKLER_ROTARY_FRAMES;
 }
-// These functions own the continuous water rotor pose.
+public float sprinklerRotaryPoseAngle(float angle)
+{
+    return float(sprinklerRotaryFrame(angle))*6.28318530718/float(SPRINKLER_ROTARY_FRAMES);
+}
+public float sprinklerLaunchAngle(float angleNow,float phase,float rpm,float age)
+{
+    return sprinklerRotaryPoseAngle(angleNow+frac(phase)*6.28318530718-age*rpm*6.28318530718/60.0);
+}
+// Continuous clock history; emission quantizes the resulting birth pose, not this clock.
 public uint sprinklerRotaryTicks(float seconds)
 {
     return max(uint(floor(4.0/max(seconds,1.0/240.0)+0.5)),4u);

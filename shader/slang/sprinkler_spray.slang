@@ -37,7 +37,7 @@ public float3 mistSprayDeflectedVelocity(float angle,float reach)
 }
 public float3 mistSprayLaunchVelocity(float birth,float seconds,float phase,float reach=1.0)
 {
-    return mistSprayDeflectedVelocity(sprinklerRotaryAngleAtTick(birth,seconds,phase),reach);
+    return mistSprayDeflectedVelocity(sprinklerRotaryPoseAngle(sprinklerRotaryAngleAtTick(birth,seconds,phase)),reach);
 }
 
 public float3 mistSprayTarget(float2 wind,bool rotary)
@@ -94,9 +94,11 @@ public MistSpraySource mistRotaryKinematics(float age,float width,float reach,
 {
     MistSpraySource s;
     s.age=age;s.width=width;s.nozzle=0u;s.emission=1.0;
-    s.angular_velocity=rpm*6.28318530718/60.0;
+    // The launch pose is stationary within a hardware frame; don't add a continuous
+    // rotational tangent that would smear water between discrete directions.
+    s.angular_velocity=0.0;
     s.spread=tan(angleDegrees*3.14159265359/360.0);
-    float angle=angleNow+frac(phase)*6.28318530718-age*s.angular_velocity;
+    float angle=sprinklerLaunchAngle(angleNow,phase,rpm,age);
     s.outlet=sprinklerRotaryOutlet(angle);
     s.velocity=mistSprayDeflectedVelocity(angle,reach);
     s.velocity_span=float3(0);
@@ -114,7 +116,7 @@ public MistSpraySource mistRotarySource(uint index,uint count,float angleNow,flo
         // height planes forever. Temporal stratification integrates that same
         // continuous distribution without painting or jittering soil receivers.
         lerp(range.x,range.y,quadrature),angleNow,phase,rpm,angleDegrees);
-    float angle=angleNow+frac(phase)*6.28318530718-s.age*s.angular_velocity;
+    float angle=sprinklerLaunchAngle(angleNow,phase,rpm,s.age);
     s.velocity_span=mistSprayDeflectedVelocity(angle,range.y)-mistSprayDeflectedVelocity(angle,range.x);
     float weight=(mistSprayReferenceRangeSquared(range.y)-mistSprayReferenceRangeSquared(range.x))/
         (mistSprayReferenceRangeSquared(1)-mistSprayReferenceRangeSquared(0));
