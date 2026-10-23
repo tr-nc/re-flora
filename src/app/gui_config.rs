@@ -2260,7 +2260,6 @@ mod tests {
                 p.id.as_str(),
                 "sprinkler_pulse_frequency" | "sprinkler_pulse_duty"
             )));
-        assert!(loaded.adjustables.sprinkler_mist_flow.value);
         assert_eq!(
             loaded.adjustables.sprinkler_wet_patch_size.value,
             default_patch_size
@@ -2274,7 +2273,6 @@ mod tests {
             loaded.adjustables.sprinkler_pixel_resolution.value = n;
             let density = if enabled { 0.0 } else { 1.75 };
             loaded.adjustables.sprinkler_mist_density.value = density;
-            loaded.adjustables.sprinkler_mist_flow.value = !enabled;
             loaded.adjustables.sprinkler_wet_patch_size.value = n as f32;
             loaded.adjustables.sprinkler_wetting_speed.value = density;
             loaded.save_to_path(&path).unwrap();
@@ -2283,7 +2281,6 @@ mod tests {
             assert_eq!(gui.sprinkler_cache_enabled.value, enabled);
             assert_eq!(gui.sprinkler_pixel_resolution.value, n);
             assert_eq!(gui.sprinkler_mist_density.value, density);
-            assert_eq!(gui.sprinkler_mist_flow.value, !enabled);
             assert_eq!(gui.sprinkler_wet_patch_size.value, n as f32);
             assert_eq!(gui.sprinkler_wetting_speed.value, density);
             assert_eq!(gui.apple_pixel_resolution.value, 12);

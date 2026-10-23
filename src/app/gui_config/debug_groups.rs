@@ -126,7 +126,7 @@ const GROUPS: &[ControlGroup] = &[
         title: "Hardware Appearance",
         description: "Sprinklers: unchecked keeps the original curved arm; checked selects a brass impact, garden pulse, or enclosed rotor candidate. Appearance only: the same water outlet, rotation and irrigation. Arms are posed, not a spring/impact simulation. Only the selected design is pre-cached; native geometry appears while its 16 whole-assembly poses bake. Saved with Save.",
         initially_open: false,
-        params: &["sprinkler_design_variants", "sprinkler_design"],
+        params: &["sprinkler_design"],
     },
     ControlGroup {
         parent: None,
@@ -147,7 +147,7 @@ const GROUPS: &[ControlGroup] = &[
         title: "Mist & Scattering",
         description: "Mist supplies the spray body; optional small droplets follow the same nozzle, launch law, wind, valve and terrain. Intensity changes mist only (2 is twice the former default); zero leaves enabled droplets visible. Droplets are optical only and never add irrigation. Volumetric-air mist is a coarse current-frame scattering approximation using the existing volumetric-light shadow path; unchecked keeps the original analytic mist. Thin shapes and terrain edges soften; no refraction, fog self-shadowing or temporal mist history. It only applies to directional mist. Droplets, irrigation and sound are unchanged; Save remembers the comparison. The directional-mist switch still compares the old soft dome.",
         initially_open: false,
-        params: &["sprinkler_mist_flow", "sprinkler_mist_air", "sprinkler_mist_density", "sprinkler_mist_particles"],
+        params: &["sprinkler_mist_air", "sprinkler_mist_density", "sprinkler_mist_particles"],
     },
     ControlGroup {
         parent: None,

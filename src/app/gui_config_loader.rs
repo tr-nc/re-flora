@@ -200,19 +200,30 @@ impl GuiConfigLoader {
         }
         Self::migrate_model_surface_cache(&mut config);
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_density");
-        Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_flow");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_air");
-        Self::add_missing_param(&mut config, "Debug", "sprinkler_design_variants");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_design");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_particles");
-        // Retire saved oscillator overrides at the load boundary; do not rewrite user files.
+        // Retire obsolete sprinkler settings at the load boundary; do not rewrite user files.
         for section in &mut config.section {
             section.param.retain(|p| {
                 !matches!(
                     p.id.as_str(),
-                    "sprinkler_pulse_frequency" | "sprinkler_pulse_duty"
+                    "sprinkler_pulse_frequency"
+                        | "sprinkler_pulse_duty"
+                        | "sprinkler_mist_flow"
+                        | "sprinkler_design_variants"
                 )
             });
+            for param in &mut section.param {
+                if param.enabled_if.as_ref().is_some_and(|condition| {
+                    matches!(
+                        condition.param.as_str(),
+                        "sprinkler_mist_flow" | "sprinkler_design_variants"
+                    )
+                }) {
+                    param.enabled_if = None;
+                }
+            }
         }
         for p in config
             .section
@@ -1387,61 +1398,75 @@ impl GuiConfigLoader {
 mod tests {
     #[test]
     fn hardware_candidates_load_old_files_and_preserve_saved_choices_without_writing() {
+        use crate::app::gui_config_model::{GuiParamConditionValue, GuiParamEnabledIf};
         for existing in [false, true] {
-            let mut config: GuiConfigFile =
-                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
-            for section in &mut config.section {
-                if !existing {
-                    section.param.retain(|p| {
-                        p.id != "sprinkler_design" && p.id != "sprinkler_design_variants"
+            for old_enabled in [false, true] {
+                let mut config: GuiConfigFile =
+                    toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+                let section = config
+                    .section
+                    .iter_mut()
+                    .find(|s| s.name == "Debug")
+                    .unwrap();
+                let template = section
+                    .param
+                    .iter()
+                    .find(|p| p.id == "sprinkler_cache_enabled")
+                    .unwrap()
+                    .clone();
+                for id in ["sprinkler_design_variants", "sprinkler_mist_flow"] {
+                    let mut obsolete = template.clone();
+                    obsolete.id = id.into();
+                    obsolete.value = super::GuiParamValue::Bool { value: old_enabled };
+                    section.param.push(obsolete);
+                }
+                for (id, dependency) in [
+                    ("sprinkler_design", "sprinkler_design_variants"),
+                    ("sprinkler_mist_air", "sprinkler_mist_flow"),
+                ] {
+                    let param = section.param.iter_mut().find(|p| p.id == id).unwrap();
+                    param.enabled_if = Some(GuiParamEnabledIf {
+                        param: dependency.into(),
+                        equals: GuiParamConditionValue::Bool(true),
                     });
-                } else {
-                    for p in &mut section.param {
-                        if p.id == "sprinkler_design" {
-                            if let super::GuiParamValue::Choice { value, .. } = &mut p.value {
-                                *value = 2;
-                            }
-                        }
-                        if p.id == "sprinkler_design_variants" {
-                            if let super::GuiParamValue::Bool { value } = &mut p.value {
-                                *value = true;
-                            }
+                    if id == "sprinkler_design" {
+                        if let super::GuiParamValue::Choice { value, .. } = &mut param.value {
+                            *value = 2;
                         }
                     }
                 }
+                if !existing {
+                    section.param.retain(|p| p.id != "sprinkler_design");
+                }
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("gui.toml");
+                let original = toml::to_string_pretty(&config).unwrap();
+                std::fs::write(&path, &original).unwrap();
+                let loaded = GuiConfigLoader::load_from_path(&path);
+                assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+                let params: Vec<_> = loaded.section.iter().flat_map(|s| &s.param).collect();
+                assert!(!params.iter().any(|p| matches!(
+                    p.id.as_str(),
+                    "sprinkler_design_variants" | "sprinkler_mist_flow"
+                )));
+                let design = params.iter().find(|p| p.id == "sprinkler_design").unwrap();
+                assert_eq!(
+                    design.value.get_choice().unwrap().0,
+                    if existing { 2 } else { 0 }
+                );
+                assert!(design.enabled_if.is_none());
+                assert!(params
+                    .iter()
+                    .find(|p| p.id == "sprinkler_mist_air")
+                    .unwrap()
+                    .enabled_if
+                    .is_none());
+                GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+                assert_eq!(
+                    serde_json::to_value(&loaded).unwrap(),
+                    serde_json::to_value(GuiConfigLoader::load_from_path(&path)).unwrap()
+                );
             }
-            let dir = tempfile::tempdir().unwrap();
-            let path = dir.path().join("gui.toml");
-            let original = toml::to_string_pretty(&config).unwrap();
-            std::fs::write(&path, &original).unwrap();
-            let loaded = GuiConfigLoader::load_from_path(&path);
-            assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
-            let params: Vec<_> = loaded.section.iter().flat_map(|s| &s.param).collect();
-            assert_eq!(
-                params
-                    .iter()
-                    .find(|p| p.id == "sprinkler_design")
-                    .unwrap()
-                    .value
-                    .get_choice()
-                    .unwrap()
-                    .0,
-                if existing { 2 } else { 0 }
-            );
-            assert_eq!(
-                params
-                    .iter()
-                    .find(|p| p.id == "sprinkler_design_variants")
-                    .unwrap()
-                    .value
-                    .get_bool(),
-                Some(existing)
-            );
-            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
-            assert_eq!(
-                serde_json::to_value(&loaded).unwrap(),
-                serde_json::to_value(GuiConfigLoader::load_from_path(&path)).unwrap()
-            );
         }
     }
 

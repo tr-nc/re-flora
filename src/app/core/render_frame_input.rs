@@ -41,10 +41,8 @@ pub(super) fn model_cache_inputs(settings: &DebugSettings) -> crate::tracer::Mod
         views: gui.model_pixel_view_count.value,
         apple_resolution: gui.apple_pixel_resolution.value,
         surfaces: crate::tracer::ModelSurfaceCacheOptions {
-            sprinkler_design: crate::sprinkler::Design::comparison(
-                gui.sprinkler_design_variants.value,
-                gui.sprinkler_design.value,
-            ) as u32,
+            sprinkler_design: crate::sprinkler::Design::comparison(true, gui.sprinkler_design.value)
+                as u32,
             views: gui.model_pixel_view_count.value,
             resolutions: [
                 gui.apple_pixel_resolution.value,
@@ -269,7 +267,7 @@ pub(super) fn freeze_render_frame_inputs(
         sprinkler_mist_density: gui.sprinkler_mist_density.value,
         sprinkler_mist_particles: gui.sprinkler_mist_particles.value,
         sprinkler_pulse_frequency: crate::sprinkler::PULSE_FREQUENCY,
-        sprinkler_mist_flow: gui.sprinkler_mist_flow.value,
+        sprinkler_mist_flow: true,
         sprinkler_mist_air: gui.sprinkler_mist_air.value,
         sky_light_strength: gui.sky_light_strength.value,
         lens_flare_intensity: gui.lens_flare_intensity.value,
@@ -365,7 +363,6 @@ mod tests {
     #[test]
     fn hardware_candidates_only_change_the_sprinkler_cache_selection() {
         let mut settings = DebugSettings::load();
-        settings.adjustables.sprinkler_design_variants.value = false;
         let before = model_cache_inputs(&settings);
         let freeze = |settings: &DebugSettings| {
             freeze_render_frame_inputs(
@@ -387,29 +384,24 @@ mod tests {
             )
         };
         let before_frame = freeze(&settings);
-        for enabled in [false, true] {
-            for candidate in 0..3 {
-                settings.adjustables.sprinkler_design_variants.value = enabled;
-                settings.adjustables.sprinkler_design.value = candidate;
-                let after = model_cache_inputs(&settings);
-                // No water, clock, optics, material or vegetation input changes:
-                // the selected hardware cache family is the only variation.
-                let mut after_frame = freeze(&settings);
-                after_frame.terrain.model_surface_cache.sprinkler_design =
-                    before_frame.terrain.model_surface_cache.sprinkler_design;
-                assert_eq!(after_frame, before_frame);
+        assert!(before_frame.environment.sprinkler_mist_flow);
+        for candidate in 0..3 {
+            settings.adjustables.sprinkler_design.value = candidate;
+            let after = model_cache_inputs(&settings);
+            // No water, clock, optics, material or vegetation input changes:
+            // the selected hardware cache family is the only variation.
+            let mut after_frame = freeze(&settings);
+            after_frame.terrain.model_surface_cache.sprinkler_design =
+                before_frame.terrain.model_surface_cache.sprinkler_design;
+            assert_eq!(after_frame, before_frame);
+            assert_eq!(after.surfaces.sprinkler_design, candidate + 1);
+            assert_eq!(after.views, before.views);
+            assert_eq!(after.flowers, before.flowers);
+            for kind in 0..4 {
                 assert_eq!(
-                    after.surfaces.sprinkler_design,
-                    if enabled { candidate + 1 } else { 0 }
+                    after.surfaces.for_kind(kind),
+                    before.surfaces.for_kind(kind)
                 );
-                assert_eq!(after.views, before.views);
-                assert_eq!(after.flowers, before.flowers);
-                for kind in 0..4 {
-                    assert_eq!(
-                        after.surfaces.for_kind(kind),
-                        before.surfaces.for_kind(kind)
-                    );
-                }
             }
         }
     }
@@ -587,7 +579,6 @@ mod tests {
         let sprinkler_pulse_duty = crate::sprinkler::PULSE_DUTY_PERCENT;
         let sprinkler_pulse_frequency = crate::sprinkler::PULSE_FREQUENCY;
         gui.sprinkler_mist_particles.value = false;
-        gui.sprinkler_mist_flow.value = false;
         let sun_display_luminance = float!(sun_display_luminance);
         let god_ray_max_depth = float!(god_ray_max_depth);
         let god_ray_max_checks = uint!(god_ray_max_checks);
@@ -816,7 +807,7 @@ mod tests {
                 sprinkler_mist_density,
                 sprinkler_mist_particles: false,
                 sprinkler_pulse_frequency,
-                sprinkler_mist_flow: false,
+                sprinkler_mist_flow: true,
                 sprinkler_mist_air: false,
                 sky_light_strength,
                 lens_flare_intensity,

@@ -3704,7 +3704,7 @@ impl App {
                     self.sprinkler_diagnostic_timing.duty_percent;
                 frame_inputs.wind.field = self.wind_prototype.field.frame();
                 if let Some(review) = &mut self.sprinkler_review {
-                    review.apply_air_render_inputs(&mut frame_inputs);
+                    review.apply_render_inputs(&mut frame_inputs);
                 }
                 if let Some(review) = &self.sprinkler_audio_review {
                     review.apply_render_inputs(&mut frame_inputs);

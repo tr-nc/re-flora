@@ -18,6 +18,9 @@ struct WettingSamples {
 
 pub(super) struct Review {
     mode: String,
+    // Legacy renderer comparisons are native-fixture facts, never saved GUI overrides.
+    mist_flow: bool,
+    hardware_enabled: bool,
     frame: u32,
     base: Option<Vec3>,
     control_step: usize,
@@ -37,7 +40,12 @@ impl Review {
             .is_none_or(|r| r.world_running(self.frame))
     }
 
-    pub fn apply_air_render_inputs(&mut self, inputs: &mut crate::tracer::RenderFrameInputs) {
+    pub fn apply_render_inputs(&mut self, inputs: &mut crate::tracer::RenderFrameInputs) {
+        inputs.environment.sprinkler_mist_flow = self.mist_flow;
+        if !self.hardware_enabled {
+            inputs.terrain.model_surface_cache.sprinkler_design =
+                crate::sprinkler::Design::Current as u32;
+        }
         if let Some(air) = self.air.as_mut() {
             air.apply_render_inputs(self.frame, inputs);
         }
@@ -217,6 +225,8 @@ impl Review {
         );
         Ok(Some(Self {
             mode,
+            mist_flow: true,
+            hardware_enabled: true,
             frame: 0,
             base: None,
             control_step: 0,
@@ -593,7 +603,7 @@ impl App {
                 let diagnostic = crate::tracer::SprinklerOpticalDiagnostic::parse(&mode)?;
                 let gui = &self.debug_settings.adjustables;
                 ensure!(
-                    gui.sprinkler_mist_flow.value
+                    review.mist_flow
                         && gui.sprinkler_mist_density.value > 0.0
                         && gui.sprinkler_mist_particles.value
                         && self.render_flags.enable_particles,
@@ -711,10 +721,7 @@ impl App {
                 .sprinkler_mist_particles
                 .value = review.mode.contains("particles") && !review.mode.ends_with("disabled");
             self.sprinkler_diagnostic_timing.frequency = 4.0;
-            self.debug_settings
-                .adjustables
-                .sprinkler_design_variants
-                .value = false;
+            review.hardware_enabled = false;
             if review.is_rotary() {
                 let gui = &mut self.debug_settings.adjustables;
                 gui.sprinkler_spray_angle.value = 40.0;
@@ -722,7 +729,7 @@ impl App {
                 self.sprinkler_diagnostic_timing.duty_percent = 100.0;
                 gui.sprinkler_cache_enabled.value = true;
                 gui.sprinkler_pixel_resolution.value = 32;
-                gui.sprinkler_mist_flow.value = !review.mode.ends_with("-legacy");
+                review.mist_flow = !review.mode.ends_with("-legacy");
                 gui.sprinkler_mist_density.value = if review.mode.contains("mist")
                     || matches!(
                         review.mode.as_str(),
@@ -735,7 +742,7 @@ impl App {
             }
             if review.mode.starts_with("rotary-design-") {
                 let gui = &mut self.debug_settings.adjustables;
-                gui.sprinkler_design_variants.value =
+                review.hardware_enabled =
                     review.mode != "rotary-design-current" && review.mode != "rotary-design-switch";
                 gui.sprinkler_design.value = match review.mode.as_str() {
                     "rotary-design-garden" => 1,
@@ -944,8 +951,7 @@ impl App {
             });
             if review.mode.starts_with("mist-") {
                 self.debug_settings.adjustables.sprinkler_mist_density.value = 1.0;
-                self.debug_settings.adjustables.sprinkler_mist_flow.value =
-                    !review.mode.ends_with("-legacy");
+                review.mist_flow = !review.mode.ends_with("-legacy");
             }
             if review.mode.starts_with("mist-thin-wall")
                 || review.mode.starts_with("mist-corner")
@@ -1165,7 +1171,7 @@ impl App {
         }
         if review.mode == "mist-flow-controls" {
             let flow = (review.frame / 40) % 2 == 0;
-            self.debug_settings.adjustables.sprinkler_mist_flow.value = flow;
+            review.mist_flow = flow;
             if review.frame % 40 == 0 && review.frame <= 160 {
                 log::info!(
                     "[SPRINKLER_FLOW_REVIEW] step={} flow={flow} density=1 saved=false",
@@ -1308,7 +1314,7 @@ impl App {
             ];
             if let Some(&(enabled, candidate, cached)) = STEPS.get(review.control_step) {
                 let gui = &mut self.debug_settings.adjustables;
-                gui.sprinkler_design_variants.value = enabled;
+                review.hardware_enabled = enabled;
                 gui.sprinkler_design.value = candidate;
                 gui.sprinkler_cache_enabled.value = cached;
                 let selected = crate::sprinkler::Design::comparison(enabled, candidate) as u32;
@@ -1418,7 +1424,7 @@ impl App {
                 self.review_sprinkler_wetting(&mut review, base, true)?;
             }
             if (review.mode.starts_with("mist-") || review.is_rotary())
-                && self.debug_settings.adjustables.sprinkler_mist_flow.value
+                && review.mist_flow
                 && (!review.is_rotary() || self.sprinkler_diagnostic_timing.duty_percent > 0.0)
                 && self.debug_settings.adjustables.sprinkler_mist_density.value > 0.0
                 && review.mode != "rotary-perf"

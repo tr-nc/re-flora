@@ -314,15 +314,9 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "sprinkler_design_variants",
-        kind: "bool",
-        label: "Sprinklers: alternative hardware designs (A/B)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "sprinkler_design",
         kind: "choice",
-        label: "Sprinklers: hardware candidate",
+        label: "Sprinklers: hardware design",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -353,12 +347,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "soil_drying_speed",
         kind: "float",
         label: "Soil: drying speed multiplier",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
-        id: "sprinkler_mist_flow",
-        kind: "bool",
-        label: "Sprinklers: directional terrain-aware mist (A/B)",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -1828,14 +1816,12 @@ pub struct GuiAdjustables {
     pub butterfly_cache_enabled: crate::gui_adjustables::BoolParam,
     pub model_flower_cache_enabled: crate::gui_adjustables::BoolParam,
     pub sprinkler_cache_enabled: crate::gui_adjustables::BoolParam,
-    pub sprinkler_design_variants: crate::gui_adjustables::BoolParam,
     pub sprinkler_design: crate::gui_adjustables::ChoiceParam,
     pub sprinkler_spray_angle: crate::gui_adjustables::FloatParam,
     pub sprinkler_rotation_speed: crate::gui_adjustables::FloatParam,
     pub sprinkler_wet_patch_size: crate::gui_adjustables::FloatParam,
     pub sprinkler_wetting_speed: crate::gui_adjustables::FloatParam,
     pub soil_drying_speed: crate::gui_adjustables::FloatParam,
-    pub sprinkler_mist_flow: crate::gui_adjustables::BoolParam,
     pub sprinkler_mist_air: crate::gui_adjustables::BoolParam,
     pub sprinkler_mist_density: crate::gui_adjustables::FloatParam,
     pub sprinkler_mist_particles: crate::gui_adjustables::BoolParam,
@@ -2133,14 +2119,12 @@ impl GuiAdjustables {
         let mut butterfly_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut model_flower_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut sprinkler_design_variants_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_design_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut sprinkler_spray_angle_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_rotation_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_wet_patch_size_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_wetting_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut soil_drying_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut sprinkler_mist_flow_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_mist_air_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_mist_density_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_mist_particles_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -2673,11 +2657,6 @@ impl GuiAdjustables {
                             sprinkler_cache_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
-                    "sprinkler_design_variants" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            sprinkler_design_variants_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
                     "sprinkler_design" => {
                         if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
                             sprinkler_design_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
@@ -2716,11 +2695,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             soil_drying_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "sprinkler_mist_flow" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            sprinkler_mist_flow_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "sprinkler_mist_air" => {
@@ -4357,14 +4331,12 @@ impl GuiAdjustables {
             butterfly_cache_enabled: butterfly_cache_enabled_field.expect("Missing parameter: butterfly_cache_enabled"),
             model_flower_cache_enabled: model_flower_cache_enabled_field.expect("Missing parameter: model_flower_cache_enabled"),
             sprinkler_cache_enabled: sprinkler_cache_enabled_field.expect("Missing parameter: sprinkler_cache_enabled"),
-            sprinkler_design_variants: sprinkler_design_variants_field.expect("Missing parameter: sprinkler_design_variants"),
             sprinkler_design: sprinkler_design_field.expect("Missing parameter: sprinkler_design"),
             sprinkler_spray_angle: sprinkler_spray_angle_field.expect("Missing parameter: sprinkler_spray_angle"),
             sprinkler_rotation_speed: sprinkler_rotation_speed_field.expect("Missing parameter: sprinkler_rotation_speed"),
             sprinkler_wet_patch_size: sprinkler_wet_patch_size_field.expect("Missing parameter: sprinkler_wet_patch_size"),
             sprinkler_wetting_speed: sprinkler_wetting_speed_field.expect("Missing parameter: sprinkler_wetting_speed"),
             soil_drying_speed: soil_drying_speed_field.expect("Missing parameter: soil_drying_speed"),
-            sprinkler_mist_flow: sprinkler_mist_flow_field.expect("Missing parameter: sprinkler_mist_flow"),
             sprinkler_mist_air: sprinkler_mist_air_field.expect("Missing parameter: sprinkler_mist_air"),
             sprinkler_mist_density: sprinkler_mist_density_field.expect("Missing parameter: sprinkler_mist_density"),
             sprinkler_mist_particles: sprinkler_mist_particles_field.expect("Missing parameter: sprinkler_mist_particles"),
@@ -4896,8 +4868,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "butterfly_cache_enabled" => Some(&adjustables.butterfly_cache_enabled),
         "model_flower_cache_enabled" => Some(&adjustables.model_flower_cache_enabled),
         "sprinkler_cache_enabled" => Some(&adjustables.sprinkler_cache_enabled),
-        "sprinkler_design_variants" => Some(&adjustables.sprinkler_design_variants),
-        "sprinkler_mist_flow" => Some(&adjustables.sprinkler_mist_flow),
         "sprinkler_mist_air" => Some(&adjustables.sprinkler_mist_air),
         "sprinkler_mist_particles" => Some(&adjustables.sprinkler_mist_particles),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
@@ -5235,8 +5205,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "butterfly_cache_enabled" => Some(&mut adjustables.butterfly_cache_enabled),
         "model_flower_cache_enabled" => Some(&mut adjustables.model_flower_cache_enabled),
         "sprinkler_cache_enabled" => Some(&mut adjustables.sprinkler_cache_enabled),
-        "sprinkler_design_variants" => Some(&mut adjustables.sprinkler_design_variants),
-        "sprinkler_mist_flow" => Some(&mut adjustables.sprinkler_mist_flow),
         "sprinkler_mist_air" => Some(&mut adjustables.sprinkler_mist_air),
         "sprinkler_mist_particles" => Some(&mut adjustables.sprinkler_mist_particles),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
