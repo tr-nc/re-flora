@@ -1401,10 +1401,19 @@ impl App {
             HoverObservation::Unavailable => TerrainEditHoverObservation::Unavailable,
             HoverObservation::Resolved(pick) => {
                 match self.filter_pointer_pick(pick, super::SHOVEL_RAY_QUERY_DISTANCE) {
-                    Some(center) => TerrainEditHoverObservation::Hit(TerrainEditHover {
-                        center,
-                        is_editable: self.terrain_edit_preview_position_is_editable(center),
-                    }),
+                    Some(center) => {
+                        let center = if self.is_place_tool_selected() {
+                            self.current_placeable_kind().placement_position(center)
+                        } else {
+                            Some(center)
+                        };
+                        center.map_or(TerrainEditHoverObservation::Miss, |center| {
+                            TerrainEditHoverObservation::Hit(TerrainEditHover {
+                                center,
+                                is_editable: self.terrain_edit_preview_position_is_editable(center),
+                            })
+                        })
+                    }
                     None => TerrainEditHoverObservation::Miss,
                 }
             }
@@ -1655,6 +1664,12 @@ impl App {
         match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
             Ok(Some(center)) => {
                 self.stop_terrain_edit_loop_sound();
+                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
+                    return;
+                }
+                let Some(center) = placeable_kind.placement_position(center) else {
+                    return;
+                };
                 if !self.terrain_edit_endpoint_within_editable_chunk(center) {
                     return;
                 }

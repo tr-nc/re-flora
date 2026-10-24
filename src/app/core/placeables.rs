@@ -33,6 +33,23 @@ pub(super) enum PlaceableKind {
     Sprinkler,
 }
 
+impl PlaceableKind {
+    /// Canonical placement target, shared by preview and committed records.
+    /// Sprinklers occupy the center of the containing voxel on all three axes.
+    pub(super) fn placement_position(self, target: Vec3) -> Option<Vec3> {
+        if !target.is_finite() {
+            return None;
+        }
+        if self == Self::Tree {
+            return Some(target);
+        }
+        let voxel_center = (target * VOXELS_PER_WORLD_UNIT).floor() + Vec3::splat(0.5);
+        // Reject coordinates too large for f32 to represent a half-voxel center.
+        (voxel_center.is_finite() && voxel_center - voxel_center.floor() == Vec3::splat(0.5))
+            .then_some(voxel_center / VOXELS_PER_WORLD_UNIT)
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct SprinklerRecord {
     id: u32,
@@ -222,7 +239,11 @@ impl SprinklerRuntime {
         target: Vec3,
         emitter_component: Option<RasterEmitterComponent>,
     ) -> Result<SprinklerPlacementPlan> {
-        let base_position = target;
+        let base_position = PlaceableKind::Sprinkler
+            .placement_position(target)
+            .ok_or_else(|| {
+                anyhow!("sprinkler position must have a finite, representable voxel center")
+            })?;
         let id = u32::try_from(self.next_id)
             .map_err(|_| anyhow!("sprinkler identity space exhausted; ids are never reused"))?;
         let animation_phase = sprinkler_animation_phase(id, base_position);
@@ -262,6 +283,7 @@ impl SprinklerRuntime {
         base_position: Vec3,
         component: RasterEmitterComponent,
     ) -> Option<SprinklerEmitterUpdatePlan> {
+        let base_position = PlaceableKind::Sprinkler.placement_position(base_position)?;
         let record = self
             .records
             .iter()
@@ -728,7 +750,7 @@ mod tests {
     #[test]
     fn sprinkler_runtime_plans_then_atomically_commits_lifecycle_changes() {
         let mut runtime = SprinklerRuntime::new();
-        let base_position = Vec3::new(0.5, 0.25, 0.75);
+        let base_position = Vec3::new(0.5, 0.25, 0.75) + Vec3::splat(0.5 / 256.0);
         let placement = runtime.plan_placement(base_position).unwrap();
 
         assert!(runtime.is_empty());
@@ -761,6 +783,69 @@ mod tests {
         assert_eq!(runtime.commit_removal(removal), 1);
         assert!(runtime.is_empty());
         assert_eq!(runtime.records.len(), runtime.moisture_sources().len());
+    }
+
+    #[test]
+    fn sprinkler_preview_and_all_committed_consumers_share_voxel_centers() {
+        for voxel in [
+            Vec3::ZERO,
+            Vec3::new(127.0, 63.0, 191.0),
+            Vec3::new(-3.0, -2.0, -1.0),
+        ] {
+            let expected = (voxel + Vec3::splat(0.5)) / 256.0;
+            for fraction in [0.0, 0.001, 0.499, 0.5, 0.999] {
+                let raw = (voxel + Vec3::splat(fraction)) / 256.0;
+                let preview = PlaceableKind::Sprinkler.placement_position(raw).unwrap();
+                assert_eq!(preview, expected);
+                assert_eq!(
+                    PlaceableKind::Sprinkler.placement_position(preview),
+                    Some(preview)
+                );
+                assert_eq!(PlaceableKind::Tree.placement_position(raw), Some(raw));
+                let mut runtime = SprinklerRuntime::new();
+                let plan = runtime.plan_placement(raw).unwrap();
+                assert_eq!(plan.base_position(), preview);
+                assert_eq!(plan.render_instances()[0].base_position, preview);
+                runtime.commit_placement(plan);
+                assert_eq!(runtime.render_instances()[0].base_position, expected);
+                assert_eq!(runtime.moisture_sources()[0].base_position, expected);
+                assert_eq!(runtime.audio_sources()[0].position, expected);
+                // Alignment is not only a mouse-input fix: programmatic moves are snapped too.
+                let entity = runtime.records[0].raster_entity_id();
+                let component = test_raster_emitter(expected, 1.0);
+                let moved = raw + Vec3::splat(3.0 / 256.0);
+                let update = runtime
+                    .plan_emitter_update(entity, moved, component)
+                    .unwrap();
+                runtime.commit_emitter_update(update);
+                let position = expected + Vec3::splat(3.0 / 256.0);
+                assert_eq!(runtime.audio_sources()[0].position, position);
+                assert_eq!(runtime.render_instances()[0].base_position, position);
+                assert_eq!(runtime.moisture_sources()[0].base_position, position);
+                let revision = runtime.revision();
+                let noop = runtime
+                    .plan_emitter_update(entity, position + Vec3::splat(0.49 / 256.0), component)
+                    .unwrap();
+                assert!(!noop.changed());
+                runtime.commit_emitter_update(noop);
+                assert_eq!(runtime.revision(), revision);
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_sprinkler_positions_do_not_create_records() {
+        let runtime = SprinklerRuntime::new();
+        for raw in [
+            Vec3::splat(f32::NAN),
+            Vec3::splat(f32::INFINITY),
+            Vec3::splat(f32::MAX),
+        ] {
+            assert!(PlaceableKind::Sprinkler.placement_position(raw).is_none());
+            assert!(runtime.plan_placement(raw).is_err());
+            assert!(runtime.is_empty());
+            assert_eq!(runtime.revision(), 0);
+        }
     }
 
     #[test]
@@ -804,7 +889,7 @@ mod tests {
     #[test]
     fn emissive_sprinkler_update_keeps_identity_and_noop_keeps_all_revisions() {
         let mut runtime = SprinklerRuntime::new();
-        let initial_position = Vec3::new(0.25, 0.5, 0.75);
+        let initial_position = Vec3::new(0.25, 0.5, 0.75) + Vec3::splat(0.5 / 256.0);
         let initial_component = test_raster_emitter(initial_position, 2.0);
         let placement = runtime
             .plan_placement_with_emitter(initial_position, Some(initial_component))
@@ -849,7 +934,7 @@ mod tests {
             revisions_before_noop
         );
 
-        let moved_position = Vec3::new(0.5, 0.5, 0.75);
+        let moved_position = Vec3::new(0.5, 0.5, 0.75) + Vec3::splat(0.5 / 256.0);
         let moved_component = test_raster_emitter(moved_position, 4.0);
         let update = runtime
             .plan_emitter_update(entity, moved_position, moved_component)

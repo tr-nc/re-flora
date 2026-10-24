@@ -124,7 +124,7 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Hardware Appearance",
-        description: "Sprinklers: overall size scales the complete hardware around its ground anchor, including the spray outlet. It does not scale launch speed, spray angle, RPM, sound or watering strength; changing nozzle height can naturally shift ground coverage. Choose a brass impact, garden pulse or enclosed rotor head. Size applies live to native and pre-cached models without rebaking. Saved with Save.",
+        description: "Sprinklers: placement snaps the anchor to a voxel center on X/Y/Z. Overall size scales the complete hardware around that anchor, including the spray outlet. It does not scale launch speed, spray angle, RPM, sound or watering strength; changing nozzle height can naturally shift ground coverage. Choose a brass impact, garden pulse or enclosed rotor head. Size applies live to native and pre-cached models without rebaking. Saved with Save.",
         initially_open: false,
         params: &["sprinkler_size_scale", "sprinkler_design"],
     },

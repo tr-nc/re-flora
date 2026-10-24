@@ -83,6 +83,25 @@ Debug → Hardware Appearance → **Sprinklers: overall size (x)**，0.25–4 �
 - `cargo fmt --check`、`cargo check`、Release 构建及普通隐藏静音 smoke 通过。
   本轮未自动启动可见游戏，未声称人工视觉验收；用户原有 mixer 配置保留。
 
+## Voxel 中心对齐
+
+洒水器的 X/Y/Z 放置锚点统一使用 `(floor(target * 256) + 0.5) / 256`，
+即命中位置所在 voxel 的中心，而不是格子边界。负坐标同样使用 floor。
+预览与点击放置共用转换；运行时记录所有者在普通/发光放置及程序移动入口再次执行
+幂等规范化，不能靠绕过鼠标入口留下未对齐位置。模型、喷水/浇灌、声音和草地抑制
+均从这份规范位置派生。已有大小滑杆围绕该位置缩放，不重新移动锚点。
+
+- 纯逻辑回归覆盖正/负坐标、边界、同格内不同命中点、预览与所有消费者一致、
+  程序移动、同格移动不增加 revision，以及非有限/不可表示坐标拒绝。
+- 完整 `cargo test`：应用 1690 passed / 13 ignored，另有 4 collision 和
+  1 display-authorization 测试通过；placeables 专项 11 项通过。
+- Release `rotary-contact-controls` 在对齐后的坐标
+  `(0.7519531, 0.45117188, 1.2519531)` 上通过五种大小与水流启停检查。
+- 四来源原生音频 fixture 的实际放置坐标均位于 voxel 中心，暂停/恢复/删除通过，
+  最终 `slots=(0,0,0,0)`。两场景退出 failures=0，无 ERROR/VUID/panic。
+- 最终 `cargo check`、Release 构建及普通隐藏静音 smoke 通过。
+  证据保留在 `target/sprinkler-size-grid-validation/`；没有自动启动可见游戏。
+
 ## 历史实现及验证（scope v3，以下程序 DSP 描述已被上文替代）
 
 ## 交付行为与所有权
