@@ -5,7 +5,7 @@
 - **1 / Grow** is the unified planting tool. Hand has been removed; **2** is unassigned. Clicking the active tool again clears selection, with no toolbar slot highlighted. Other numeric bindings are unchanged.
 - The right-hand panel has **Type: Flora / Tree**, followed by **Variety**. Its frame stays at half the viewport height for both catalogs; the variety list fills the remaining space and scrolls internally.
 - Flora retains exactly `PLAYER_FLORA_PAINT_SELECTIONS`: Grass Mix and the existing model-flower catalog. Left hold paints; right hold removes flora.
-- Tree offers **Garden Tree** and the experimental **Conifer**. Garden Tree keeps existing authoring; Conifer uses its own architectural preset. Left click plants one tree; holding does not repeat. The geometry preview and next-placement random seed remain in use.
+- Tree offers **Apple Tree**, **Pine** and **Weeping Willow**. Apple has a low, spreading scaffold crown and real apples; Pine has irregular branch stations and upswept sprays; Willow has pendant leafy shoots. Left click plants one tree; holding does not repeat. The geometry preview and next-placement random seed remain in use. Legacy Garden Tree / Conifer remain loadable from saved gardens without changing their generators, but are no longer offered for new planting. See `docs/evidence/garden-tree-species.md`.
 - The standalone Tree toolbar item and Z shortcut are removed. X / Sprinkler remains separate.
 - Type remembers its own variety. Tab cycles only within the active Type. Changing Type or variety cancels the previous continuous stroke; it does not resume from a still-pressed pointer button.
 - Selection is session state, not a new Debug setting or saved configuration field.
@@ -16,10 +16,10 @@
 
 - `PlantType`: category enumeration and category catalog.
 - `PlantVariety`: typed Flora or Tree identity; labels and category identity are independent of toolbar indices.
-- `TreeSpecies` (re-exported from `src/tree_gen/species.rs`): persistent tree variety identity, `ALL`, label and mature description resolution.
+- `TreeSpecies` (re-exported from `src/tree_gen/species.rs`): persistent tree identity, `PLANTABLE`, label and mature description resolution. Test-only `ALL` includes legacy identities as well. Serde's absent-species default remains legacy Garden Tree; session selection defaults to Apple Tree.
 - `PlantingSelection`: active Type plus remembered flora index and tree species. The flora index remains available to existing scene/benchmark authoring callers inside this shared structure.
 
-To add a tree variety, add its `TreeSpecies` variant in `src/tree_gen/species.rs`, register it in `ALL`, and implement its label and `mature_desc`. Both preview refresh and next placement use this resolver before applying age and seed. Planted trees now persist species, individual seed, architecture mode and mature description through existing garden snapshots. This does not guarantee that arbitrary topology edits preserve old branch indices. See `docs/conifer_axis_candidate.md` for the axis model and runtime A/B.
+To add a tree variety, add its `TreeSpecies` variant in `src/tree_gen/species.rs`, register it in `PLANTABLE` and test `ALL`, and implement its label, mature profile, architecture and fruit policy. Both preview refresh and next placement use this resolver before applying age and seed. Planted trees persist species, individual seed, architecture mode and mature description through existing garden snapshots. New species use the shared bounded axis compiler; legacy generators are retained. This does not guarantee that arbitrary future topology edits preserve branch indices. `docs/conifer_axis_candidate.md` describes the retained legacy Conifer A/B, not the new Pine.
 
 `player_tools.rs` owns pointer routing: Grow/Flora maps to existing continuous flora actions; Grow/Tree maps to discrete `PlantTree`. Grow stays the selected toolbar tool in both cases. Sprinkler remains a placeable. Type/variety changes cancel stale continuous holds.
 

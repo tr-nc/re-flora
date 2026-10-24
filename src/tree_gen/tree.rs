@@ -24,7 +24,8 @@ fn mature_tree_growth_age() -> f32 {
 #[serde(default)]
 pub struct TreeDesc {
     pub species: super::TreeSpecies,
-    /// Per-individual A/B architecture, retained by garden snapshots.
+    /// Legacy Conifer A/B architecture, retained by garden snapshots. New species always use
+    /// their own axes; missing fields must still reconstruct old Garden Trees unchanged.
     pub axis_model: bool,
     pub branching: BranchingDesc,
     #[serde(skip, default = "mature_tree_growth_age")]
@@ -254,16 +255,14 @@ impl Tree {
         let mut subdivision_rng =
             StdRng::seed_from_u64(branching_desc.seed ^ 0x63D8_3595_B529_7A4D);
         let base_thickness = desc.trunk_thickness * desc.size;
-        let (segments, axis_segments) =
-            if desc.species == super::TreeSpecies::Conifer && desc.axis_model {
-                let skeleton = super::axis::conifer(desc);
-                (skeleton.segments, skeleton.metadata)
-            } else {
-                (
-                    generate_branch_skeleton_with_rng(&branching_desc, &mut skeleton_rng).segments,
-                    Vec::new(),
-                )
-            };
+        let (segments, axis_segments) = if let Some(skeleton) = super::axis::generate(desc) {
+            (skeleton.segments, skeleton.metadata)
+        } else {
+            (
+                generate_branch_skeleton_with_rng(&branching_desc, &mut skeleton_rng).segments,
+                Vec::new(),
+            )
+        };
         let visible_branch_levels =
             visible_branch_levels(desc.growth_age, branching_desc.iterations);
 
@@ -291,7 +290,12 @@ impl Tree {
                 if axis_segments.is_empty() {
                     segment.level.saturating_add(1) == leaf_level
                 } else {
-                    axis_segments[*i].order == 2 || Some(*i) == last_visible_trunk
+                    let meta = &axis_segments[*i];
+                    // Apple's foliage masses sit on twig tips, not on every sampling point.
+                    // Pendant willow shoots and pine sprays retain foliage along the whole axis.
+                    let leafy_twig = meta.order == 2
+                        && (desc.species != super::TreeSpecies::AppleTree || meta.u_end == 1.);
+                    leafy_twig || Some(*i) == last_visible_trunk
                 }
             })
             .map(|(branch_index, segment)| {

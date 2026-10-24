@@ -91,14 +91,7 @@ pub(super) fn edit_branching_desc(ui: &mut egui::Ui, desc: &mut BranchingDesc) -
     changed |= angle_mean_changed || angle_variation_changed;
 
     ui.add_space(6.0);
-    ui.heading("Seed");
-    changed |= ui
-        .add(
-            egui::DragValue::new(&mut desc.seed)
-                .speed(1.0)
-                .prefix("Seed: "),
-        )
-        .changed();
+    changed |= edit_branching_seed(ui, desc);
 
     if changed {
         set_branch_angle_mean_variation_degrees(desc, angle_mean_deg, angle_variation_deg);
@@ -106,6 +99,16 @@ pub(super) fn edit_branching_desc(ui: &mut egui::Ui, desc: &mut BranchingDesc) -
     }
 
     changed
+}
+
+pub(super) fn edit_branching_seed(ui: &mut egui::Ui, desc: &mut BranchingDesc) -> bool {
+    crate::app::ui_text::section(ui, "Seed");
+    ui.add(
+        egui::DragValue::new(&mut desc.seed)
+            .speed(1.0)
+            .prefix("Seed: "),
+    )
+    .changed()
 }
 
 fn branch_angle_mean_variation_degrees(desc: &BranchingDesc) -> (f32, f32) {

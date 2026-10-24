@@ -2,7 +2,7 @@ use crate::tree_gen::TreeDesc;
 
 mod branching;
 
-use branching::edit_branching_desc;
+use branching::{edit_branching_desc, edit_branching_seed};
 
 pub(super) fn edit_tree_desc(
     ui: &mut egui::Ui,
@@ -22,14 +22,23 @@ pub(super) fn edit_tree_desc(
     changed |= ui
         .add(egui::Slider::new(&mut tree.trunk_thickness, 0.01..=5.0).text("Trunk Thickness"))
         .changed();
-    changed |= ui
-        .add(
-            egui::Slider::new(&mut tree.thickness_reduction, 0.0..=1.0).text("Thickness Reduction"),
-        )
-        .changed();
-
-    ui.add_space(6.0);
-    changed |= edit_branching_desc(ui, &mut tree.branching);
+    let axes = tree.species.uses_axis_model(tree.axis_model);
+    if axes {
+        crate::app::ui_text::hint(ui, &format!(
+            "{}: species architecture owns the branch layout and taper. Size, trunk thickness, seed and foliage settings remain editable.",
+            tree.species.label()
+        ));
+        changed |= edit_branching_seed(ui, &mut tree.branching);
+    } else {
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut tree.thickness_reduction, 0.0..=1.0)
+                    .text("Thickness Reduction"),
+            )
+            .changed();
+        ui.add_space(6.0);
+        changed |= edit_branching_desc(ui, &mut tree.branching);
+    }
 
     ui.add_space(6.0);
     ui.heading("Subdivision");
@@ -70,14 +79,16 @@ pub(super) fn edit_tree_desc(
                 .text("Leaves Size Level (2^level)"),
         )
         .changed();
+    if !axes {
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut tree.leaf_offset, 0..=tree.branching.iterations.max(1))
+                    .text("Leaf Offset (levels from end)"),
+            )
+            .changed();
+    }
     changed |= ui
-        .add(
-            egui::Slider::new(&mut tree.leaf_offset, 0..=tree.branching.iterations.max(1))
-                .text("Leaf Offset (levels from end)"),
-        )
-        .changed();
-    changed |= ui
-        .add(egui::Slider::new(&mut tree.leaf_density, 0.005..=0.2).text("Leaf Density"))
+        .add(egui::Slider::new(&mut tree.leaf_density, 0.005..=0.3).text("Leaf Density"))
         .changed();
     changed |= ui
         .add(
@@ -98,6 +109,10 @@ pub(super) fn edit_tree_desc(
         .changed();
 
     ui.add_space(6.0);
+    if !tree.species.bears_apples() {
+        crate::app::ui_text::hint(ui, "This species does not produce apples.");
+        return changed;
+    }
     ui.heading("Fruit");
     changed |= ui
         .add(
@@ -171,7 +186,12 @@ mod tests {
 
     #[test]
     fn untouched_tree_editor_preserves_the_description_and_reports_no_change() {
-        let before = TreeDesc::default();
+        for species in crate::tree_gen::TreeSpecies::ALL {
+            check_untouched(species.mature_desc(&TreeDesc::default()));
+        }
+    }
+
+    fn check_untouched(before: TreeDesc) {
         let mut edited = before.clone();
         let mut render_leaves = true;
         let mut changed = true;

@@ -71,15 +71,14 @@ impl TreeSnapshot {
             );
             let branching =
                 u64::from(branch.branch_count_max + u32::from(branch.continue_main_axis)).max(1);
-            let segment_budget =
-                if desc.species == crate::tree_gen::TreeSpecies::Conifer && desc.axis_model {
-                    // Bounded authored axes do not inherit the recursive generator's exponential cost.
-                    crate::tree_gen::MAX_AXIS_SEGMENTS as u64
-                } else {
-                    branching
-                        .checked_pow(branch.iterations)
-                        .context("saved tree complexity overflow")?
-                };
+            let segment_budget = if desc.species.uses_axis_model(desc.axis_model) {
+                // Bounded authored axes do not inherit the recursive generator's exponential cost.
+                crate::tree_gen::MAX_AXIS_SEGMENTS as u64
+            } else {
+                branching
+                    .checked_pow(branch.iterations)
+                    .context("saved tree complexity overflow")?
+            };
             let budget = segment_budget
                 .checked_mul(u64::from(desc.subdivision_count_max.max(1)))
                 .context("saved tree complexity overflow")?;
@@ -399,6 +398,18 @@ mod tests {
                 mature_desc: desc,
             });
         }
+        for (index, species) in crate::tree_gen::TreeSpecies::PLANTABLE
+            .into_iter()
+            .enumerate()
+        {
+            let mut desc = species.mature_desc(&TreeDesc::default());
+            desc.branching.seed = 900 + index as u64;
+            snapshot.trees.push(SavedTree {
+                id: 10 + index as u32,
+                position: [0.5 + index as f32 * 0.5, 0.5, 1.5],
+                mature_desc: desc,
+            });
+        }
         let decoded: TreeSnapshot =
             serde_json::from_slice(&serde_json::to_vec(&snapshot).unwrap()).unwrap();
         assert_eq!(snapshot, decoded);
@@ -410,13 +421,28 @@ mod tests {
             assert_eq!(saved.id, published.tree_id);
             let expected = Tree::new(saved.mature_desc.at_age(snapshot.age));
             assert_eq!(expected.branches(), published.record.rest_tree.branches());
-            if saved.mature_desc.species == crate::tree_gen::TreeSpecies::Conifer {
+            if !saved.mature_desc.species.bears_apples() {
                 assert!(published.record.fruit_specs.is_empty());
-                assert_eq!(
-                    !published.record.rest_tree.axis_segments().is_empty(),
-                    saved.mature_desc.axis_model
-                );
             }
+            assert_eq!(
+                !published.record.rest_tree.axis_segments().is_empty(),
+                saved
+                    .mature_desc
+                    .species
+                    .uses_axis_model(saved.mature_desc.axis_model)
+            );
+            assert_eq!(
+                published.record.leaf_render_positions,
+                TreePlacementService::compile(
+                    saved.mature_desc.clone(),
+                    Vec3::from_array(saved.position),
+                    UAabb3::default(),
+                    snapshot.age,
+                    1,
+                    8
+                )
+                .quantized_leaf_render_positions
+            );
         }
     }
 

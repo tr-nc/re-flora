@@ -26,7 +26,7 @@ impl PlantType {
                 .copied()
                 .map(PlantVariety::Flora)
                 .collect(),
-            Self::Tree => TreeSpecies::ALL
+            Self::Tree => TreeSpecies::PLANTABLE
                 .iter()
                 .copied()
                 .map(PlantVariety::Tree)
@@ -58,12 +58,22 @@ impl PlantVariety {
 }
 
 /// Each category remembers its variety when switching Type or leaving Grow.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub(super) struct PlantingSelection {
     pub(super) plant_type: PlantType,
     // Retain index access for existing flora benchmark/scene authoring callers.
     pub(super) flora_index: usize,
     pub(super) tree_species: TreeSpecies,
+}
+
+impl Default for PlantingSelection {
+    fn default() -> Self {
+        Self {
+            plant_type: PlantType::Flora,
+            flora_index: 0,
+            tree_species: TreeSpecies::AppleTree,
+        }
+    }
 }
 
 impl PlantingSelection {
@@ -119,7 +129,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_preserves_all_flora_and_registers_both_tree_species() {
+    fn catalog_preserves_flora_and_offers_three_distinct_garden_tree_species() {
         use crate::tree_gen::TreeDesc;
         assert_eq!(
             PlantType::Flora.varieties(),
@@ -132,8 +142,9 @@ mod tests {
         assert_eq!(
             PlantType::Tree.varieties(),
             vec![
-                PlantVariety::Tree(TreeSpecies::GardenTree),
-                PlantVariety::Tree(TreeSpecies::Conifer)
+                PlantVariety::Tree(TreeSpecies::AppleTree),
+                PlantVariety::Tree(TreeSpecies::Pine),
+                PlantVariety::Tree(TreeSpecies::WeepingWillow)
             ]
         );
         let authored = TreeDesc::default();
@@ -147,20 +158,21 @@ mod tests {
         assert!(selection.select_variety(flower));
         assert!(selection.select_type(PlantType::Tree));
         assert_eq!(
+            selection.variety(),
+            PlantVariety::Tree(TreeSpecies::AppleTree)
+        );
+        assert_eq!(
             selection.next_variety(),
-            PlantVariety::Tree(TreeSpecies::Conifer)
+            PlantVariety::Tree(TreeSpecies::Pine)
         );
         assert!(selection.select_variety(selection.next_variety()));
         assert_eq!(
             selection.next_variety(),
-            PlantVariety::Tree(TreeSpecies::GardenTree)
+            PlantVariety::Tree(TreeSpecies::WeepingWillow)
         );
         assert!(selection.select_type(PlantType::Flora));
         assert!(selection.select_type(PlantType::Tree));
-        assert_eq!(
-            selection.variety(),
-            PlantVariety::Tree(TreeSpecies::Conifer)
-        );
+        assert_eq!(selection.variety(), PlantVariety::Tree(TreeSpecies::Pine));
         assert!(selection.select_type(PlantType::Flora));
         assert_eq!(selection.variety(), flower);
         assert!(

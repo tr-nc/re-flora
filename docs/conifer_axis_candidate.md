@@ -1,5 +1,9 @@
 # Conifer axis-model candidate
 
+> Historical candidate: new planting now offers **Apple Tree / Pine / Weeping Willow**.
+> Legacy Conifer saves and their A/B generator remain supported; the old Conifer is no longer a
+> Grow catalog item. See [current species validation](evidence/garden-tree-species.md).
+
 ## Try-out
 
 1. Select **1 / Grow → Type: Tree → Conifer** and left-click plantable terrain.

@@ -137,6 +137,22 @@ remain visible; the text toolbar is always borderless.
 | **N** | Stone | Left mouse places one terrain rock or slab |
 | **V** | Pave | Left-drag on soil; **R → Pavement** switches paving/low walls; **Tab** changes material; **Shift + wheel** adjusts width |
 
+### Trees
+
+**1 / Grow → Type: Tree** offers **Apple Tree**, **Pine** and **Weeping Willow**. Click terrain
+to plant one tree; **Tab** cycles varieties. Each placement receives its own repeatable seed.
+The default startup tree is now an Apple Tree. Old Garden Tree / Conifer garden snapshots retain
+their original generators; loading a garden does not automatically replace its trees.
+
+Apple Trees use the existing apple growth, hanging, falling and interaction systems. Pine and
+Willow do not produce apples. All three share the existing pixel-leaf renderer, palette, wind,
+editing and save/load systems; literal needles, pine cones and additional fruit types are not
+part of this iteration.
+
+**R → Flora → Tree** retains size, trunk thickness, seed and foliage authoring for the tuned
+tree. Species-owned axes replace the old recursive branching controls where those controls no
+longer apply. Save persists these settings; **Terrain & Plants → Save/Load** persists planted trees.
+
 ### Stone Placement
 
 Press **N**, aim at terrain and click to place a stone. **R → Stone → Geometry** selects a rock

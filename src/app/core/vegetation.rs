@@ -1,5 +1,7 @@
 use super::launch_owners;
 mod snapshot;
+mod species_review;
+pub(super) use species_review::TreeSpeciesReview;
 mod surface;
 mod trunk_checkpoint;
 use super::particles::TreeLeafEmitterRuntime;
@@ -332,6 +334,10 @@ fn tree_fruit_specs(
     leaf_positions: &[UVec3],
     position_scale: f32,
 ) -> Vec<TreeFruitSpec> {
+    // Fruit identity belongs to the species, not to a copied probability slider.
+    if !tree_desc.species.bears_apples() {
+        return Vec::new();
+    }
     let seed = tree_desc.branching.seed;
     let mut fruits = Vec::new();
     for (leaf_index, leaf_pos) in leaf_positions.iter().copied().enumerate() {
@@ -2517,11 +2523,8 @@ impl App {
             .collect();
         self.debug_settings.adjustables.tree_age.value = 0.5;
         self.update_all_tree_ages_from_gui()?;
-        self.select_plant_variety(super::plant_catalog::PlantVariety::Tree(
-            TreeSpecies::Conifer,
-        ));
-        self.advance_tree_placement_preview()?;
-        let desc = self.tree_placement_preview_desc.clone();
+        // Legacy Conifers remain reconstructible, but aren't in the new planting catalog.
+        let desc = TreeSpecies::Conifer.mature_desc(&self.debug_settings.tree.desc);
         anyhow::ensure!(
             desc.growth_age == 1. && desc.axis_model,
             "placement must retain a mature axis description"
@@ -5531,6 +5534,16 @@ mod tests {
         assert_eq!(centered_variation(7.0, 2.0, 0.0), 5.0);
         assert_eq!(centered_variation(7.0, 2.0, 0.5), 7.0);
         assert_eq!(centered_variation(7.0, 2.0, 1.0), 9.0);
+    }
+
+    #[test]
+    fn only_fruit_bearing_species_produce_apples_even_with_copied_settings() {
+        for species in crate::tree_gen::TreeSpecies::ALL {
+            let mut desc = species.mature_desc(&TreeDesc::default());
+            desc.fruit_spawn_probability = 1.;
+            let fruit = tree_fruit_specs(&desc, Vec3::splat(100.), &[UVec3::splat(120)], 1.);
+            assert_eq!(!fruit.is_empty(), species.bears_apples());
+        }
     }
 
     #[test]

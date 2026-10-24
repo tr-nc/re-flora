@@ -1889,8 +1889,17 @@ mod tests {
                 }
                 Value::String(v) if v == "Darting" => Value::from("Original"),
                 Value::String(v) if v == "Original" => Value::from("Darting"),
-                Value::String(v) if v == "garden_tree" => Value::from("conifer"),
-                Value::String(v) if v == "conifer" => Value::from("garden_tree"),
+                Value::String(v) if path == "/tree/desc/species" => {
+                    let current: crate::tree_gen::TreeSpecies =
+                        serde_json::from_value(Value::String(v.clone())).unwrap();
+                    serde_json::to_value(
+                        crate::tree_gen::TreeSpecies::ALL
+                            .into_iter()
+                            .find(|&species| species != current)
+                            .unwrap(),
+                    )
+                    .unwrap()
+                }
                 _ => panic!("New custom leaf {path} needs a valid alternate-value policy"),
             };
             let mut settings = DebugSettings::load();

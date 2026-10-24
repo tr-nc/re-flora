@@ -4,7 +4,22 @@ use glam::Vec3;
 use rand::{rngs::StdRng, RngExt, SeedableRng};
 use std::f32::consts::TAU;
 
-use super::TreeDesc;
+use super::{TreeDesc, TreeSpecies};
+
+mod garden;
+
+/// The legacy compiler stays untouched so saved Conifers retain their original topology.
+/// New species always use axes; the old A/B bit applies only to legacy Conifers.
+pub(super) fn generate(desc: &TreeDesc) -> Option<AxisSkeleton> {
+    match desc.species {
+        TreeSpecies::GardenTree => None,
+        TreeSpecies::Conifer if !desc.axis_model => None,
+        TreeSpecies::Conifer => Some(conifer(desc)),
+        TreeSpecies::AppleTree => Some(garden::broadleaf(desc, false)),
+        TreeSpecies::Pine => Some(garden::pine(desc)),
+        TreeSpecies::WeepingWillow => Some(garden::broadleaf(desc, true)),
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AxisSegment {
@@ -18,6 +33,7 @@ pub struct AxisSegment {
     pub reveal_age: f32,
 }
 
+#[derive(Default)]
 pub(super) struct AxisSkeleton {
     pub segments: Vec<BranchSegment>,
     pub metadata: Vec<AxisSegment>,
@@ -48,6 +64,7 @@ impl Default for ConiferProfile {
 
 pub(crate) const MAX_AXIS_SEGMENTS: usize = 4096;
 
+#[derive(Default)]
 struct Compiler {
     skeleton: AxisSkeleton,
     next_axis: u32,

@@ -504,6 +504,7 @@ pub struct App {
     sprinkler_diagnostic_timing: crate::sprinkler::DiagnosticTiming,
     sprinkler_audio_review: Option<sprinkler_audio_review::SprinklerAudioReview>,
     tree_leaf_audio_review: Option<tree_leaf_audio_review::Review>,
+    tree_species_review: Option<vegetation::TreeSpeciesReview>,
     sprinkler_review: Option<sprinkler_review::Review>,
     climbing_plants: climbing_plants::ClimbingPlants,
     particle_animation_time_sec: f32,
@@ -1426,7 +1427,7 @@ impl App {
             ),
         )?;
         let mut tree_placement_preview_desc =
-            crate::tree_gen::TreeSpecies::GardenTree.mature_desc(&debug_settings.tree.desc);
+            crate::tree_gen::TreeSpecies::AppleTree.mature_desc(&debug_settings.tree.desc);
         tree_placement_preview_desc.branching.seed = rand::rng().random::<u64>();
         let mut render_flags = render.flags.clone();
         if render_flags.enable_flora {
@@ -1645,6 +1646,7 @@ impl App {
             particle_snapshots,
             fallen_leaf_review: fallen_leaf_review::FallenLeafReview::from_env()?,
             flower_model_review: flower_model_review::FlowerModelReview::from_env()?,
+            tree_species_review: vegetation::TreeSpeciesReview::from_env()?,
             model_view_review,
             flower_model_bench: flower_model_bench::FlowerModelBench::from_env()?,
             apple_pixel_review_frame: apple_pixel_review.then_some(0),
@@ -2437,6 +2439,8 @@ impl App {
                     .expect("sprinkler model review fixture");
                 self.prepare_flower_model_review()
                     .expect("flower model review fixture");
+                self.prepare_tree_species_review()
+                    .expect("tree species review fixture");
                 self.prepare_apple_pixel_review();
                 self.prepare_butterfly_foraging_review();
                 self.prepare_model_view_review()

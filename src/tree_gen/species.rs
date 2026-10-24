@@ -8,15 +8,43 @@ pub enum TreeSpecies {
     #[default]
     GardenTree,
     Conifer,
+    AppleTree,
+    Pine,
+    WeepingWillow,
 }
 
 impl TreeSpecies {
-    pub const ALL: [Self; 2] = [Self::GardenTree, Self::Conifer];
+    #[cfg(test)]
+    pub const ALL: [Self; 5] = [
+        Self::GardenTree,
+        Self::Conifer,
+        Self::AppleTree,
+        Self::Pine,
+        Self::WeepingWillow,
+    ];
+
+    /// Legacy identities remain loadable, but new gardens offer the finished species.
+    pub const PLANTABLE: [Self; 3] = [Self::AppleTree, Self::Pine, Self::WeepingWillow];
+
+    pub fn uses_axis_model(self, legacy_axis_model: bool) -> bool {
+        match self {
+            Self::GardenTree => false,
+            Self::Conifer => legacy_axis_model,
+            Self::AppleTree | Self::Pine | Self::WeepingWillow => true,
+        }
+    }
+
+    pub fn bears_apples(self) -> bool {
+        matches!(self, Self::GardenTree | Self::AppleTree)
+    }
 
     pub fn label(self) -> &'static str {
         match self {
             Self::GardenTree => "Garden Tree",
-            Self::Conifer => "Conifer",
+            Self::Conifer => "Conifer (legacy)",
+            Self::AppleTree => "Apple Tree",
+            Self::Pine => "Pine",
+            Self::WeepingWillow => "Weeping Willow",
         }
     }
 
@@ -26,6 +54,54 @@ impl TreeSpecies {
                 let mut desc = authored.clone();
                 desc.species = Self::GardenTree;
                 desc.axis_model = false;
+                desc
+            }
+            Self::AppleTree | Self::Pine | Self::WeepingWillow => {
+                // Keep live authoring for the tuned species; switching species starts its own
+                // coherent profile, carrying only the shared planting size and individual seed.
+                if authored.species == self {
+                    let mut desc = authored.clone();
+                    desc.axis_model = true;
+                    return desc;
+                }
+                let mut desc = TreeDesc {
+                    species: self,
+                    axis_model: true,
+                    size: authored.size,
+                    trunk_thickness: 0.32,
+                    leaves_size_level: 5,
+                    leaf_offset: 0,
+                    leaf_density: 0.035,
+                    leaf_spray_width_ratio: 0.95,
+                    leaf_spray_thickness_ratio: 0.85,
+                    leaf_spray_tip_offset_ratio: 0.10,
+                    fruit_spawn_probability: 0.45,
+                    fruit_side_offset_voxels: 1.,
+                    fruit_side_offset_variance_voxels: 2.,
+                    fruit_down_offset_voxels: 14.,
+                    fruit_down_offset_variance_voxels: 4.,
+                    enable_subdivision: false,
+                    ..TreeDesc::default()
+                };
+                desc.branching.seed = authored.branching.seed;
+                if self != Self::AppleTree {
+                    desc.leaves_size_level = 4;
+                }
+                if self == Self::Pine {
+                    desc.trunk_thickness = 0.19;
+                    desc.leaf_density = 0.09;
+                    desc.leaf_spray_width_ratio = 0.75;
+                    desc.leaf_spray_thickness_ratio = 0.45;
+                } else if self == Self::WeepingWillow {
+                    desc.trunk_thickness = 0.38;
+                    desc.leaf_density = 0.22;
+                    desc.leaf_spray_width_ratio = 0.35;
+                    desc.leaf_spray_thickness_ratio = 0.22;
+                    desc.leaf_spray_tip_offset_ratio = -0.35;
+                }
+                if !self.bears_apples() {
+                    desc.fruit_spawn_probability = 0.;
+                }
                 desc
             }
             Self::Conifer => {
