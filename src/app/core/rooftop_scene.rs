@@ -1112,7 +1112,11 @@ impl App {
                     .collect::<Vec<_>>(),
             "unlimited Soil mutated normal inventory"
         );
-        self.player_tools.select_item_panel_slot(slot);
+        if let Some(slot) = slot {
+            self.player_tools.select_item_panel_slot(slot);
+        } else {
+            self.player_tools.clear_selected_tool();
+        }
         self.debug_settings
             .adjustables
             .soil_deposition_batch_size

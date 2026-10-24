@@ -2,7 +2,7 @@
 
 ## Player behavior
 
-- **1 / Grow** is the unified planting tool; **2 / Hand** clears the active tool. Other numeric bindings are unchanged.
+- **1 / Grow** is the unified planting tool. Hand has been removed; **2** is unassigned. Clicking the active tool again clears selection, with no toolbar slot highlighted. Other numeric bindings are unchanged.
 - The right-hand panel has **Type: Flora / Tree**, followed by **Variety**. Its frame stays at half the viewport height for both catalogs; the variety list fills the remaining space and scrolls internally.
 - Flora retains exactly `PLAYER_FLORA_PAINT_SELECTIONS`: Grass Mix and the existing model-flower catalog. Left hold paints; right hold removes flora.
 - Tree offers **Garden Tree** and the experimental **Conifer**. Garden Tree keeps existing authoring; Conifer uses its own architectural preset. Left click plants one tree; holding does not repeat. The geometry preview and next-placement random seed remain in use.

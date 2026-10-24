@@ -40,7 +40,6 @@ pub(crate) const ITEM_PANEL_TILLER_ICON_PATH: &str = "assets/texture/tool_icons/
 pub(crate) const ITEM_PANEL_TILLER_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/11_Wooden_Hoe.PNG";
 pub(crate) const GROW_SLOT_INDEX: usize = 0;
-pub(crate) const HAND_SLOT_INDEX: usize = 1;
 pub(crate) const SHOVEL_SLOT_INDEX: usize = 2;
 pub(crate) const SMOOTH_SLOT_INDEX: usize = 3;
 pub(crate) const HOE_SLOT_INDEX: usize = 4;
@@ -1350,7 +1349,7 @@ mod hover_layout_tests {
         let context = egui::Context::default();
         let slot = ToolPanelSlot {
             index: 0,
-            label: "Hand",
+            label: "Grow",
             key_hint: "1",
             category: Some("FREE"),
             icon: None,

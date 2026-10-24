@@ -169,7 +169,7 @@ use std::time::{Duration, Instant};
 use ui_style::{
     apply_gui_style, draw_center_card, draw_item_panel, draw_plant_panel, draw_voxel_palette,
     ItemPanelSlot, PlantPanelEntry, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH,
-    GOLD_ACCENT, GROW_SLOT_INDEX, HAND_SLOT_INDEX, HOE_SLOT_INDEX, HOE_TOOL_ACCENT,
+    GOLD_ACCENT, GROW_SLOT_INDEX, HOE_SLOT_INDEX, HOE_TOOL_ACCENT,
     ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
     ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
     ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
@@ -2356,7 +2356,6 @@ impl App {
                 {
                     let target_slot = match event.physical_key {
                         PhysicalKey::Code(KeyCode::Digit1) => Some(0),
-                        PhysicalKey::Code(KeyCode::Digit2) => Some(1),
                         PhysicalKey::Code(KeyCode::Digit3) => Some(2),
                         PhysicalKey::Code(KeyCode::Digit4) => Some(3),
                         PhysicalKey::Code(KeyCode::Digit5) => Some(4),
@@ -3071,15 +3070,6 @@ impl App {
                                 enabled: true,
                             },
                             ItemPanelSlot {
-                                index: HAND_SLOT_INDEX,
-                                label: "Hand",
-                                key_hint: "2",
-                                category: Some("FREE"),
-                                icon: None,
-                                accent: SAGE_ACCENT,
-                                enabled: true,
-                            },
-                            ItemPanelSlot {
                                 index: SHOVEL_SLOT_INDEX,
                                 label: if infinite_materials { "Edit" } else { "Dig" },
                                 key_hint: "3",
@@ -3191,7 +3181,7 @@ impl App {
                         let item_panel_response = draw_item_panel(
                             ctx,
                             &item_panel_slots,
-                            Some(selected_item_panel_display_slot),
+                            selected_item_panel_display_slot,
                             self.window_state.is_cursor_visible(),
                         );
                         clicked_item_panel_slot = item_panel_response.clicked_slot;

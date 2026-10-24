@@ -6,7 +6,7 @@ use winit::event::{ElementState, MouseButton};
 use super::placeables::PlaceableKind;
 use super::plant_catalog::{PlantType, PlantVariety, PlantingSelection};
 use super::ui_style::{
-    GROW_SLOT_INDEX, HAND_SLOT_INDEX, HOE_SLOT_INDEX, SHOVEL_SLOT_INDEX, SMOOTH_SLOT_INDEX,
+    GROW_SLOT_INDEX, HOE_SLOT_INDEX, SHOVEL_SLOT_INDEX, SMOOTH_SLOT_INDEX,
     SOIL_INSPECTOR_SLOT_INDEX, SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX,
     TILLER_SLOT_INDEX, WATERING_SLOT_INDEX, WIND_SLOT_INDEX,
 };
@@ -14,7 +14,7 @@ use super::ui_style::{
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum PlayerTool {
     #[default]
-    Hand,
+    Idle,
     Mower,
     Grow,
     Shovel,
@@ -33,7 +33,6 @@ pub(super) enum PlayerTool {
 impl PlayerTool {
     fn from_item_panel_slot(slot_idx: usize) -> Option<Self> {
         match slot_idx {
-            HAND_SLOT_INDEX => Some(Self::Hand),
             super::ui_style::STONE_SLOT_INDEX => Some(Self::Stone),
             super::ui_style::PAVEMENT_SLOT_INDEX => Some(Self::Pavement),
             super::ui_style::MOWER_SLOT_INDEX => Some(Self::Mower),
@@ -50,9 +49,9 @@ impl PlayerTool {
         }
     }
 
-    fn item_panel_slot(self) -> usize {
-        match self {
-            Self::Hand => HAND_SLOT_INDEX,
+    fn item_panel_slot(self) -> Option<usize> {
+        Some(match self {
+            Self::Idle => return None,
             Self::Stone => super::ui_style::STONE_SLOT_INDEX,
             Self::Pavement => super::ui_style::PAVEMENT_SLOT_INDEX,
             Self::Mower => super::ui_style::MOWER_SLOT_INDEX,
@@ -66,13 +65,13 @@ impl PlayerTool {
             Self::Tiller => TILLER_SLOT_INDEX,
             Self::Wind => WIND_SLOT_INDEX,
             Self::Placeable => SPRINKLER_SLOT_INDEX,
-        }
+        })
     }
 
     pub(super) fn uses_terrain_edit_radius(self) -> bool {
         !matches!(
             self,
-            Self::Hand | Self::Wind | Self::Mower | Self::Stone | Self::Pavement
+            Self::Idle | Self::Wind | Self::Mower | Self::Stone | Self::Pavement
         )
     }
 }
@@ -367,7 +366,7 @@ pub(super) struct PlayerToolRuntime {
 impl Default for PlayerToolRuntime {
     fn default() -> Self {
         Self {
-            selected_tool: PlayerTool::Hand,
+            selected_tool: PlayerTool::Idle,
             selected_placeable: PlaceableKind::Sprinkler,
             pointer: ToolPointerState::default(),
             strokes: TerrainStrokeRuntime::default(),
@@ -391,15 +390,12 @@ impl PlayerToolRuntime {
         self.selected_placeable
     }
 
-    pub(super) fn selected_item_panel_display_slot(&self) -> usize {
-        if self.selected_tool != PlayerTool::Placeable {
-            return self.selected_tool.item_panel_slot();
-        }
-        SPRINKLER_SLOT_INDEX
+    pub(super) fn selected_item_panel_display_slot(&self) -> Option<usize> {
+        self.selected_tool.item_panel_slot()
     }
 
     pub(super) fn clear_selected_tool(&mut self) -> PlayerToolSelectionUpdate {
-        self.change_active_tool(PlayerTool::Hand)
+        self.change_active_tool(PlayerTool::Idle)
     }
 
     pub(super) fn select_item_panel_slot(&mut self, slot_idx: usize) -> PlayerToolSelectionUpdate {
@@ -414,7 +410,7 @@ impl PlayerToolRuntime {
         let Some(requested_tool) = PlayerTool::from_item_panel_slot(slot_idx) else {
             return PlayerToolSelectionUpdate::default();
         };
-        if requested_tool == self.selected_tool && requested_tool != PlayerTool::Hand {
+        if requested_tool == self.selected_tool {
             self.clear_selected_tool()
         } else {
             self.change_active_tool(requested_tool)
@@ -735,15 +731,19 @@ mod tests {
     use winit::event::{ElementState, MouseButton};
 
     #[test]
-    fn hand_is_the_default_player_tool() {
-        let runtime = PlayerToolRuntime::default();
+    fn no_tool_is_selected_by_default() {
+        let mut runtime = PlayerToolRuntime::default();
 
-        assert_eq!(runtime.selected_tool(), PlayerTool::Hand);
+        assert_eq!(runtime.selected_tool(), PlayerTool::Idle);
         assert_eq!(runtime.selected_placeable(), PlaceableKind::Sprinkler);
-        assert_eq!(
-            runtime.selected_item_panel_display_slot(),
-            super::HAND_SLOT_INDEX
-        );
+        assert_eq!(runtime.selected_item_panel_display_slot(), None);
+        assert!(!runtime.selected_tool().uses_terrain_edit_radius());
+        assert!(runtime.begin_pointer_action(MouseButton::Left).is_none());
+        assert!(runtime.begin_pointer_action(MouseButton::Right).is_none());
+        // The retired Hand slot is not a selectable tool or a clear shortcut.
+        runtime.select_item_panel_slot(super::GROW_SLOT_INDEX);
+        assert!(!runtime.select_item_panel_slot(1).changed());
+        assert_eq!(runtime.selected_tool(), PlayerTool::Grow);
     }
 
     #[test]
@@ -779,7 +779,7 @@ mod tests {
         runtime.set_pointer_button_state(MouseButton::Left, ElementState::Released);
         assert!(!runtime.finish_pointer_release());
         runtime.select_item_panel_slot(crate::app::core::ui_style::PAVEMENT_SLOT_INDEX);
-        assert_eq!(runtime.selected_tool(), PlayerTool::Hand);
+        assert_eq!(runtime.selected_tool(), PlayerTool::Idle);
     }
 
     #[test]
@@ -821,7 +821,6 @@ mod tests {
     #[test]
     fn item_panel_slots_are_translated_at_the_runtime_boundary() {
         let tool_cases = [
-            (super::HAND_SLOT_INDEX, PlayerTool::Hand),
             (super::GROW_SLOT_INDEX, PlayerTool::Grow),
             (super::SHOVEL_SLOT_INDEX, PlayerTool::Shovel),
             (
@@ -843,7 +842,7 @@ mod tests {
             let mut runtime = PlayerToolRuntime::default();
             runtime.select_item_panel_slot(slot);
             assert_eq!(runtime.selected_tool(), expected);
-            assert_eq!(runtime.selected_item_panel_display_slot(), slot);
+            assert_eq!(runtime.selected_item_panel_display_slot(), Some(slot));
         }
 
         let placeable_cases = [(
@@ -858,13 +857,13 @@ mod tests {
             assert_eq!(runtime.selected_placeable(), expected_placeable);
             assert_eq!(
                 runtime.selected_item_panel_display_slot(),
-                expected_display_slot
+                Some(expected_display_slot)
             );
         }
 
         let mut runtime = PlayerToolRuntime::default();
         assert!(!runtime.select_item_panel_slot(usize::MAX).changed());
-        assert_eq!(runtime.selected_tool(), PlayerTool::Hand);
+        assert_eq!(runtime.selected_tool(), PlayerTool::Idle);
     }
 
     #[test]
@@ -928,28 +927,34 @@ mod tests {
         assert_eq!(runtime.selected_tool(), PlayerTool::Wind);
         assert_eq!(
             runtime.selected_item_panel_display_slot(),
-            super::WIND_SLOT_INDEX
+            Some(super::WIND_SLOT_INDEX)
         );
         assert!(!runtime.continuous_hold_active());
         assert!(!runtime.selected_tool().uses_terrain_edit_radius());
         assert!(runtime.begin_pointer_action(MouseButton::Left).is_none());
         assert!(runtime.begin_pointer_action(MouseButton::Right).is_none());
         runtime.select_item_panel_slot(super::WIND_SLOT_INDEX);
-        assert_eq!(runtime.selected_tool(), PlayerTool::Hand);
+        assert_eq!(runtime.selected_tool(), PlayerTool::Idle);
         runtime.select_item_panel_slot(super::GROW_SLOT_INDEX);
         assert_eq!(runtime.selected_tool(), PlayerTool::Grow);
     }
 
     #[test]
-    fn selecting_the_active_tool_toggles_back_to_hand() {
+    fn selecting_the_active_tool_clears_selection() {
         let mut runtime = PlayerToolRuntime::default();
         assert!(runtime
             .select_item_panel_slot(super::SHOVEL_SLOT_INDEX)
             .active_tool_changed());
+        runtime.set_pointer_button_state(MouseButton::Left, ElementState::Pressed);
+        runtime.begin_pointer_action(MouseButton::Left);
+        assert!(runtime.continuous_hold_active());
         let update = runtime.select_item_panel_slot(super::SHOVEL_SLOT_INDEX);
 
         assert!(update.active_tool_changed());
-        assert_eq!(runtime.selected_tool(), PlayerTool::Hand);
+        assert_eq!(runtime.selected_tool(), PlayerTool::Idle);
+        assert_eq!(runtime.selected_item_panel_display_slot(), None);
+        assert!(!runtime.continuous_hold_active());
+        assert!(runtime.begin_pointer_action(MouseButton::Left).is_none());
     }
 
     #[test]
@@ -962,7 +967,7 @@ mod tests {
 
         let cleared = runtime.select_placeable_tool(super::SPRINKLER_PLACEABLE_SLOT_INDEX);
         assert!(cleared.active_tool_changed());
-        assert_eq!(runtime.selected_tool(), PlayerTool::Hand);
+        assert_eq!(runtime.selected_tool(), PlayerTool::Idle);
 
         assert!(!runtime.select_placeable_tool(usize::MAX).changed());
     }
@@ -1061,7 +1066,7 @@ mod tests {
         assert_eq!(runtime.selected_tool(), PlayerTool::Grow);
         assert_eq!(
             runtime.selected_item_panel_display_slot(),
-            super::GROW_SLOT_INDEX
+            Some(super::GROW_SLOT_INDEX)
         );
         assert_eq!(
             runtime.begin_pointer_action(MouseButton::Left),
