@@ -35,7 +35,8 @@ pub(super) enum PlaceableKind {
 
 impl PlaceableKind {
     /// Canonical placement target, shared by preview and committed records.
-    /// Sprinklers occupy the center of the containing voxel on all three axes.
+    /// Sprinklers sit on a voxel top face, centered horizontally.
+    /// An already aligned face must stay fixed when preview is committed again.
     pub(super) fn placement_position(self, target: Vec3) -> Option<Vec3> {
         if !target.is_finite() {
             return None;
@@ -43,10 +44,17 @@ impl PlaceableKind {
         if self == Self::Tree {
             return Some(target);
         }
-        let voxel_center = (target * VOXELS_PER_WORLD_UNIT).floor() + Vec3::splat(0.5);
-        // Reject coordinates too large for f32 to represent a half-voxel center.
-        (voxel_center.is_finite() && voxel_center - voxel_center.floor() == Vec3::splat(0.5))
-            .then_some(voxel_center / VOXELS_PER_WORLD_UNIT)
+        let scaled = target * VOXELS_PER_WORLD_UNIT;
+        let top_center = Vec3::new(
+            scaled.x.floor() + 0.5,
+            scaled.y.ceil(),
+            scaled.z.floor() + 0.5,
+        );
+        // Validate the supporting cell's center too: large f32 coordinates may
+        // represent integer faces but not the half-voxel resolution we require.
+        let support_center = top_center - Vec3::Y * 0.5;
+        (support_center.is_finite() && support_center - support_center.floor() == Vec3::splat(0.5))
+            .then_some(top_center / VOXELS_PER_WORLD_UNIT)
     }
 }
 
@@ -242,7 +250,7 @@ impl SprinklerRuntime {
         let base_position = PlaceableKind::Sprinkler
             .placement_position(target)
             .ok_or_else(|| {
-                anyhow!("sprinkler position must have a finite, representable voxel center")
+                anyhow!("sprinkler position must have a finite, representable voxel top center")
             })?;
         let id = u32::try_from(self.next_id)
             .map_err(|_| anyhow!("sprinkler identity space exhausted; ids are never reused"))?;
@@ -750,7 +758,7 @@ mod tests {
     #[test]
     fn sprinkler_runtime_plans_then_atomically_commits_lifecycle_changes() {
         let mut runtime = SprinklerRuntime::new();
-        let base_position = Vec3::new(0.5, 0.25, 0.75) + Vec3::splat(0.5 / 256.0);
+        let base_position = Vec3::new(0.5, 0.25, 0.75) + Vec3::new(0.5, 0.0, 0.5) / 256.0;
         let placement = runtime.plan_placement(base_position).unwrap();
 
         assert!(runtime.is_empty());
@@ -786,14 +794,16 @@ mod tests {
     }
 
     #[test]
-    fn sprinkler_preview_and_all_committed_consumers_share_voxel_centers() {
+    fn sprinkler_preview_and_all_consumers_share_voxel_top_centers() {
         for voxel in [
             Vec3::ZERO,
             Vec3::new(127.0, 63.0, 191.0),
             Vec3::new(-3.0, -2.0, -1.0),
         ] {
-            let expected = (voxel + Vec3::splat(0.5)) / 256.0;
             for fraction in [0.0, 0.001, 0.499, 0.5, 0.999] {
+                // A hit inside soil moves to its top face; an exact face stays there.
+                let expected =
+                    (voxel + Vec3::new(0.5, if fraction == 0.0 { 0.0 } else { 1.0 }, 0.5)) / 256.0;
                 let raw = (voxel + Vec3::splat(fraction)) / 256.0;
                 let preview = PlaceableKind::Sprinkler.placement_position(raw).unwrap();
                 assert_eq!(preview, expected);
@@ -824,7 +834,11 @@ mod tests {
                 assert_eq!(runtime.moisture_sources()[0].base_position, position);
                 let revision = runtime.revision();
                 let noop = runtime
-                    .plan_emitter_update(entity, position + Vec3::splat(0.49 / 256.0), component)
+                    .plan_emitter_update(
+                        entity,
+                        position + Vec3::new(0.49, -0.49, 0.49) / 256.0,
+                        component,
+                    )
                     .unwrap();
                 assert!(!noop.changed());
                 runtime.commit_emitter_update(noop);
@@ -889,7 +903,7 @@ mod tests {
     #[test]
     fn emissive_sprinkler_update_keeps_identity_and_noop_keeps_all_revisions() {
         let mut runtime = SprinklerRuntime::new();
-        let initial_position = Vec3::new(0.25, 0.5, 0.75) + Vec3::splat(0.5 / 256.0);
+        let initial_position = Vec3::new(0.25, 0.5, 0.75) + Vec3::new(0.5, 0.0, 0.5) / 256.0;
         let initial_component = test_raster_emitter(initial_position, 2.0);
         let placement = runtime
             .plan_placement_with_emitter(initial_position, Some(initial_component))
@@ -934,7 +948,7 @@ mod tests {
             revisions_before_noop
         );
 
-        let moved_position = Vec3::new(0.5, 0.5, 0.75) + Vec3::splat(0.5 / 256.0);
+        let moved_position = Vec3::new(0.5, 0.5, 0.75) + Vec3::new(0.5, 0.0, 0.5) / 256.0;
         let moved_component = test_raster_emitter(moved_position, 4.0);
         let update = runtime
             .plan_emitter_update(entity, moved_position, moved_component)
