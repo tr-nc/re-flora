@@ -78,7 +78,7 @@ impl Review {
     pub fn freezes_drying(&self) -> bool {
         self.isolates_wetting()
             || self.checks_spray_contact()
-            || self.mode == "rotary-terraces"
+            || self.mode.starts_with("rotary-terraces")
             || (self.isolates_drying() && self.frame > 180)
     }
 
@@ -136,7 +136,10 @@ impl Review {
             "rotary-design-rotor",
             "rotary-design-switch",
             "rotary-terraces",
+            "rotary-terraces-wide",
             "rotary-contact-continuous",
+            "rotary-contact-wide",
+            "rotary-contact-wide-rotation",
             "rotary-contact-pulse",
             "rotary-contact-off",
             "rotary-contact-invisible",
@@ -838,6 +841,16 @@ impl App {
                 } else {
                     100.0
                 };
+                if review.mode.starts_with("rotary-contact-wide") {
+                    gui.sprinkler_rotation_speed.value = 0.0;
+                    gui.sprinkler_spray_angle.value = 60.0;
+                    if review.mode.ends_with("-rotation") {
+                        gui.sprinkler_rotation_speed.value = 5.0;
+                        self.sprinkler_diagnostic_timing.duty_percent = 30.0;
+                        self.sprinkler_diagnostic_timing.frequency =
+                            crate::sprinkler::PULSE_FREQUENCY;
+                    }
+                }
                 if review.mode.ends_with("-fast") {
                     gui.sprinkler_rotation_speed.value = 60.0;
                     gui.sprinkler_spray_angle.value = 60.0;
@@ -856,7 +869,14 @@ impl App {
                     }
                 }
             }
-            if review.mode == "rotary-terraces" {
+            if review.mode.starts_with("rotary-terraces") {
+                if review.mode.ends_with("-wide") {
+                    self.debug_settings.adjustables.sprinkler_spray_angle.value = 60.0;
+                    self.debug_settings
+                        .adjustables
+                        .sprinkler_rotation_speed
+                        .value = 0.0;
+                }
                 base = self.stamp_sprinkler_terraces(base)?;
                 let gui = &mut self.debug_settings.adjustables;
                 gui.sprinkler_wetting_speed.value = 3.0;
@@ -1242,7 +1262,7 @@ impl App {
             "rotary-mist-back" => -Vec3::new(sun.x, 0.0, sun.z).normalize() * 0.36 + Vec3::Y * 0.14,
             "rotary-mist-front" => Vec3::new(sun.x, 0.0, sun.z).normalize() * 0.36 + Vec3::Y * 0.14,
             "rotary-mist-top" => Vec3::new(0.001, 0.45, 0.001),
-            "rotary-terraces" => Vec3::new(0.28, 0.52, 0.40),
+            "rotary-terraces" | "rotary-terraces-wide" => Vec3::new(0.28, 0.52, 0.40),
             _ if review.mode.contains("rotary-mist") => Vec3::new(0.50, 0.10, 0.42),
             "garden" => Vec3::new(0.20, 0.19, 0.32),
             "mist-back" | "mist-off" | "mist-controls" | "mist-night" => -sun * 0.36,
@@ -1409,7 +1429,13 @@ impl App {
             }
             log::info!("[SPRINKLER_PERF_PUBLICATION] instances={count} all_instances_live=true readback=warmup_only");
         }
-        if review.frame == 180 {
+        if review.frame
+            == if review.mode == "rotary-contact-wide-rotation" {
+                1800
+            } else {
+                180
+            }
+        {
             if review.mode.starts_with("rotary-design-") {
                 log::info!(
                     "[SPRINKLER_DESIGN_REVIEW] mode={} status={:?}",
@@ -1417,7 +1443,7 @@ impl App {
                     self.tracer.sprinkler_cache_status()
                 );
             }
-            if review.mode == "rotary-terraces" {
+            if review.mode.starts_with("rotary-terraces") {
                 self.review_sprinkler_terraces(base)?;
             }
             if review.checks_spray_contact() {
@@ -1567,8 +1593,9 @@ impl App {
                 "sprinkler review final publication"
             );
             log::info!(
-                "[SPRINKLER_REVIEW] passed mode={} frames=180 instances={expected} saved=false",
-                review.mode
+                "[SPRINKLER_REVIEW] passed mode={} frames={} instances={expected} saved=false",
+                review.mode,
+                review.frame
             );
         }
         review.frame += 1;
