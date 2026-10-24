@@ -389,9 +389,10 @@ mod tests {
             }
             assert!(rim.len() >= 20, "one real outlet rim for {design:?}");
             let center = rim.iter().sum::<Vec3>() / rim.len() as f32;
-            for frame in 0..16 {
+            for frame in 0..crate::sprinkler::ROTARY_FRAMES {
                 let pose = crate::sprinkler::RotorPose {
-                    angle: frame as f32 * std::f32::consts::TAU / 16.,
+                    angle: frame as f32 * std::f32::consts::TAU
+                        / crate::sprinkler::ROTARY_FRAMES as f32,
                 };
                 assert!(pose.rotate(center).distance(pose.outlet()) < 1e-6);
             }

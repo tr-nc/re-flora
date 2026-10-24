@@ -30,7 +30,7 @@ public void sprinklerAnimation(uint tick, float tickSeconds, float animationPhas
 
 // One frame selection for the baked hardware AND each water sample's birth pose.
 // Keep the CPU bake count checked against this constant by the native Slang contract test.
-public static const uint SPRINKLER_ROTARY_FRAMES=16u;
+public static const uint SPRINKLER_ROTARY_FRAMES=32u;
 public uint sprinklerRotaryFrame(float angle)
 {
     return uint(floor(frac(angle/6.28318530718)*float(SPRINKLER_ROTARY_FRAMES)+0.5))%SPRINKLER_ROTARY_FRAMES;

@@ -78,7 +78,7 @@ impl Pose {
 
 #[cfg(test)]
 pub(crate) const ROTARY_PERIOD_SECONDS: f32 = 4.0;
-pub(crate) const ROTARY_FRAMES: u32 = 16;
+pub(crate) const ROTARY_FRAMES: u32 = 32;
 
 /// Appearance only. Stable indices select complete assemblies, never water sources.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -351,7 +351,7 @@ export __extern_cpp int main() {
         float now=float(i)*6.28318530718/251.0;
         float phase=0.213, rpm=float(r)*30.0, age=float(t)*0.17;
         float birth=now+phase*6.28318530718-age*rpm*6.28318530718/60.0;
-        float baked=float(sprinklerRotaryFrame(birth))*6.28318530718/16.0;
+        float baked=float(sprinklerRotaryFrame(birth))*6.28318530718/float(SPRINKLER_ROTARY_FRAMES);
         float3 base=float3(1.3,0.4,-0.7);
         ModelPixelFrame hardware=sprinklerHardwareFrame(base,sizes[scale]);
         if(length(hardware.center-base)>0.000001 || hardware.scale!=sizes[scale]) return 5;

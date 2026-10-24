@@ -576,7 +576,7 @@ mod tests {
         let source = super::super::model_geometry::source(crate::flora::models::Shape::default());
         assert_eq!(
             source.sprinkler_parts.len(),
-            crate::sprinkler::Design::ALL.len() * 16
+            crate::sprinkler::Design::ALL.len() * crate::sprinkler::ROTARY_FRAMES as usize
         );
         for design in crate::sprinkler::Design::ALL {
             for n in [8, 16, 32] {
@@ -591,8 +591,9 @@ mod tests {
                     &AtomicBool::new(false),
                 )
                 .unwrap();
-                assert_eq!(data.samples.len(), 16 * 8 * (n * n) as usize);
-                let parts = &source.sprinkler_parts[design as usize * 16..][..16];
+                let frames = crate::sprinkler::ROTARY_FRAMES as usize;
+                assert_eq!(data.samples.len(), frames * 8 * (n * n) as usize);
+                let parts = &source.sprinkler_parts[design as usize * frames..][..frames];
                 for part in parts {
                     let expected = data.entries[parts[0].range[2] as usize].bounds;
                     let entry = data.entries[part.range[2] as usize];
@@ -613,7 +614,8 @@ mod tests {
                     }
                 }
                 for (entry, range) in data.entries.iter().zip(&source.ranges) {
-                    if range[2] != 5 || range[3] / 16 != design as u32 {
+                    if range[2] != 5 || range[3] / crate::sprinkler::ROTARY_FRAMES != design as u32
+                    {
                         assert_eq!(
                             entry.layout, [0; 4],
                             "inactive candidates must use native geometry, not a stale cache"

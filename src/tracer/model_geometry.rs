@@ -383,16 +383,16 @@ mod tests {
         assert_eq!(geometry.flower_parts.len(), models::flowers().len() * 4);
     }
     #[test]
-    fn sprinkler_assembly_has_sixteen_complete_poses() {
+    fn sprinkler_assembly_has_all_discrete_complete_poses() {
         let g = source(Shape::default());
         assert_eq!(
             g.sprinkler_parts.len(),
-            crate::sprinkler::Design::ALL.len() * 16
+            crate::sprinkler::Design::ALL.len() * crate::sprinkler::ROTARY_FRAMES as usize
         );
-        for (design, parts) in crate::sprinkler::Design::ALL
-            .into_iter()
-            .zip(g.sprinkler_parts.chunks(16))
-        {
+        for (design, parts) in crate::sprinkler::Design::ALL.into_iter().zip(
+            g.sprinkler_parts
+                .chunks(crate::sprinkler::ROTARY_FRAMES as usize),
+        ) {
             let (_, indices) = super::super::sprinkler_mesh::build_design(design);
             let bounds = g.cache_bounds[parts[0].range[2] as usize];
             for frame in parts {
@@ -412,14 +412,15 @@ mod tests {
     #[test]
     fn sprinkler_poses_keep_static_geometry_bit_identical_and_rotate_only_the_head() {
         let g = source(Shape::default());
-        for (design, parts) in crate::sprinkler::Design::ALL
-            .into_iter()
-            .zip(g.sprinkler_parts.chunks(16))
-        {
+        for (design, parts) in crate::sprinkler::Design::ALL.into_iter().zip(
+            g.sprinkler_parts
+                .chunks(crate::sprinkler::ROTARY_FRAMES as usize),
+        ) {
             let (vertices, indices) = super::super::sprinkler_mesh::build_design(design);
             for (frame, part) in parts.iter().enumerate() {
                 let pose = crate::sprinkler::RotorPose {
-                    angle: frame as f32 * std::f32::consts::TAU / 16.,
+                    angle: frame as f32 * std::f32::consts::TAU
+                        / crate::sprinkler::ROTARY_FRAMES as f32,
                 };
                 let bounds = g.cache_bounds[part.range[2] as usize].unwrap();
                 let triangles = &g.triangles[part.range[0] as usize..][..part.range[1] as usize];

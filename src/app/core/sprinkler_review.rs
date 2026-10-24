@@ -1167,8 +1167,8 @@ impl App {
                 !live.is_empty() && live.iter().all(|l| l.tangent_rotary[3] > 0.5),
                 "retired alternating spray became active"
             );
-            log::info!("[SPRINKLER_ROTARY_REVIEW] step={} whole_assembly=true internal_poses=16 live_samples={} explicit_readback=true",
-                review.frame / 40, live.len());
+            log::info!("[SPRINKLER_ROTARY_REVIEW] step={} whole_assembly=true internal_poses={} live_samples={} explicit_readback=true",
+                review.frame / 40, crate::sprinkler::ROTARY_FRAMES, live.len());
         }
         if review.mode == "mist-flow-controls" {
             let flow = (review.frame / 40) % 2 == 0;
@@ -1217,7 +1217,9 @@ impl App {
                 // every candidate; a head-on view hides the arm silhouettes.
                 let phase = self.sprinklers.render_instances()[0].animation_phase;
                 let pose = crate::sprinkler::RotorPose {
-                    angle: (phase * 16.0).round() * std::f32::consts::TAU / 16.0,
+                    angle: (phase * crate::sprinkler::ROTARY_FRAMES as f32).round()
+                        * std::f32::consts::TAU
+                        / crate::sprinkler::ROTARY_FRAMES as f32,
                 };
                 let forward = crate::sprinkler::RotorPose { angle: 0.0 }.direction();
                 let side = Vec3::new(-forward.z, 0.0, forward.x);
