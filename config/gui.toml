@@ -780,6 +780,15 @@ type = "Bool"
 value = true
 
 [[section.param]]
+id = "sprinkler_particle_quads"
+kind = "bool"
+label = "Sprinklers: screen-facing quad droplets (unchecked: soft spheres)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "sprinkler_pixel_resolution"
 kind = "uint"
 label = "Sprinklers: pre-cache resolution (N x N)"

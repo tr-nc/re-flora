@@ -70,6 +70,16 @@ public float mistVisibleAmount(float age,float ageWidth,float emission)
     return MIST_FLOW_SOURCE_AMOUNT*ageWidth*emission*exp(-age/1.8);
 }
 
+// Camera-space square intersection; depth uses the original normalized world ray.
+public bool mistQuadHit(float3 origin,float3 direction,float radius,float distance,out float t)
+{
+    t=0.0;
+    if(abs(direction.z)<1.0e-9)return false;
+    t=-origin.z/direction.z;
+    if(t<0.0 || t>=distance)return false;
+    return all(abs((origin+direction*t).xy)<=radius);
+}
+
 public float mistKernelAmplitude(float amount,float3 radii)
 {
     // Integral of (1-r²)^2 over the unit ball is 32*pi/105.

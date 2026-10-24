@@ -342,7 +342,16 @@ mod tests {
 import sprinkler_animation;
 import sprinkler_spray;
 import model_pixel_types;
+import sprinkler_mist_transport;
 export __extern_cpp int main() {
+    // Quad includes square corners, rejects outside edges and depth occlusion.
+    float hit;
+    if(!mistQuadHit(float3(0.9,0.9,2),float3(0,0,-1),1,3,hit) || abs(hit-2)>0.00001)return 9;
+    if(mistQuadHit(float3(1.01,0,2),float3(0,0,-1),1,3,hit))return 10;
+    if(mistQuadHit(float3(0,0,2),float3(0,0,-1),1,1,hit))return 11;
+    if(mistQuadHit(float3(0,0,2),float3(0,0,1),1,3,hit))return 12;
+    if(mistQuadHit(float3(0,0,2),float3(1,0,0),1,3,hit))return 13;
+    if(!mistQuadHit(float3(-2,0,2),normalize(float3(1,0,-1)),1,4,hit))return 14;
     if(SPRINKLER_ROTARY_FRAMES!=__FRAMES__u)return 4;
     uint cases=0;
     float sizes[4]={0.25,0.5,1.0,4.0};

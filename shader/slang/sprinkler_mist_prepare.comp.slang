@@ -130,6 +130,8 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
                     amplitude=1.5/(MIST_EXTINCTION*radius);
                 }
                 float3 boundsRadius=mistSprayBoundsRadius(radii,lobe.tangent_rotary);
+                // A rotated screen-facing square includes corners outside the old sphere.
+                if(particle && gui_input.sprinkler_particle_quads!=0u)boundsRadius=float3(radii.x*sqrt(2.0));
                 lobe.center_amplitude=float4(position,amplitude);
                 lobe.radii_near_geometry=float4(radii,mistLobeNearTerrain(position,boundsRadius) ? 1.0 : 0.0);
                 float3 ambient=sampleDdgiVolumeEnvironment(shading_info,position).irradiance;

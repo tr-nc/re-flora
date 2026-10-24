@@ -354,6 +354,7 @@ impl BufferUpdater {
             sprinkler_pulse_frequency: sprinkler_snapshot.frequency,
             sprinkler_droplet_time: sprinkler_snapshot.clock[2],
             sprinkler_quadrature: sprinkler_snapshot.clock[3],
+            sprinkler_particle_quads: u32::from(environment.sprinkler_particle_quads),
             grass_vibration_amplitude_voxels: motion.grass_vibration_amplitude_voxels,
             grass_vibration_primary_speed: motion.grass_vibration_primary_speed,
             grass_vibration_secondary_speed: motion.grass_vibration_secondary_speed,

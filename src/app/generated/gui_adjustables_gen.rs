@@ -374,6 +374,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "sprinkler_particle_quads",
+        kind: "bool",
+        label: "Sprinklers: screen-facing quad droplets (unchecked: soft spheres)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "sprinkler_pixel_resolution",
         kind: "uint",
         label: "Sprinklers: pre-cache resolution (N x N)",
@@ -1838,6 +1844,7 @@ pub struct GuiAdjustables {
     pub sprinkler_mist_air: crate::gui_adjustables::BoolParam,
     pub sprinkler_mist_density: crate::gui_adjustables::FloatParam,
     pub sprinkler_mist_particles: crate::gui_adjustables::BoolParam,
+    pub sprinkler_particle_quads: crate::gui_adjustables::BoolParam,
     pub sprinkler_pixel_resolution: crate::gui_adjustables::UintParam,
     pub apple_pixel_resolution: crate::gui_adjustables::UintParam,
     pub model_pixel_view_count: crate::gui_adjustables::UintParam,
@@ -2143,6 +2150,7 @@ impl GuiAdjustables {
         let mut sprinkler_mist_air_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_mist_density_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_mist_particles_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut sprinkler_particle_quads_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut apple_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut model_pixel_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -2735,6 +2743,11 @@ impl GuiAdjustables {
                     "sprinkler_mist_particles" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             sprinkler_mist_particles_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "sprinkler_particle_quads" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            sprinkler_particle_quads_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "sprinkler_pixel_resolution" => {
@@ -4369,6 +4382,7 @@ impl GuiAdjustables {
             sprinkler_mist_air: sprinkler_mist_air_field.expect("Missing parameter: sprinkler_mist_air"),
             sprinkler_mist_density: sprinkler_mist_density_field.expect("Missing parameter: sprinkler_mist_density"),
             sprinkler_mist_particles: sprinkler_mist_particles_field.expect("Missing parameter: sprinkler_mist_particles"),
+            sprinkler_particle_quads: sprinkler_particle_quads_field.expect("Missing parameter: sprinkler_particle_quads"),
             sprinkler_pixel_resolution: sprinkler_pixel_resolution_field.expect("Missing parameter: sprinkler_pixel_resolution"),
             apple_pixel_resolution: apple_pixel_resolution_field.expect("Missing parameter: apple_pixel_resolution"),
             model_pixel_view_count: model_pixel_view_count_field.expect("Missing parameter: model_pixel_view_count"),
@@ -4901,6 +4915,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "sprinkler_cache_enabled" => Some(&adjustables.sprinkler_cache_enabled),
         "sprinkler_mist_air" => Some(&adjustables.sprinkler_mist_air),
         "sprinkler_mist_particles" => Some(&adjustables.sprinkler_mist_particles),
+        "sprinkler_particle_quads" => Some(&adjustables.sprinkler_particle_quads),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
         "grass_moisture_response" => Some(&adjustables.grass_moisture_response),
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
@@ -5240,6 +5255,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "sprinkler_cache_enabled" => Some(&mut adjustables.sprinkler_cache_enabled),
         "sprinkler_mist_air" => Some(&mut adjustables.sprinkler_mist_air),
         "sprinkler_mist_particles" => Some(&mut adjustables.sprinkler_mist_particles),
+        "sprinkler_particle_quads" => Some(&mut adjustables.sprinkler_particle_quads),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
         "grass_moisture_response" => Some(&mut adjustables.grass_moisture_response),
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),

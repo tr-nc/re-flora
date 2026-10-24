@@ -88,6 +88,22 @@ void integrateFlow(Ray ray,float distance,float3 sun,uint2 pixel,
                     droplet_lobes[instance*mist_push.droplets_per_instance+node-mist_push.lobes_per_instance]:
                     mist_lobes[instance*mist_push.lobes_per_instance+node];
                 if(lobe.center_amplitude.w<=0.0)continue;
+                if(particle && gui_input.sprinkler_particle_quads!=0u) {
+                    // Intersect a camera-parallel square, not a spherical kernel.
+                    float3 originView=mul(camera_info.view_mat,float4(ray.origin-lobe.center_amplitude.xyz,0)).xyz;
+                    float3 directionView=mul(camera_info.view_mat,float4(ray.direction,0)).xyz;
+                    float t;
+                    if(!mistQuadHit(originView,directionView,lobe.radii_near_geometry.x,distance,t))continue;
+                    if(lobe.radii_near_geometry.w>0.0) {
+                        float fraction;float3 normal;
+                        if(mistSweepTerrain(lobe.center_amplitude.xyz,ray.origin+ray.direction*t,fraction,normal))continue;
+                    }
+                    // Match the original sphere's central optical depth, uniformly.
+                    float tau=1.6;
+                    opticalDepth+=tau;
+                    source+=tau*(lobe.ambient_sun_visibility.xyz*1.5+sun*lobe.ambient_sun_visibility.w);
+                    continue;
+                }
                 float3 localOrigin=mistSprayToLocal(ray.origin-lobe.center_amplitude.xyz,lobe.tangent_rotary);
                 float3 localDirection=mistSprayToLocal(ray.direction,lobe.tangent_rotary);
                 float2 interval;
