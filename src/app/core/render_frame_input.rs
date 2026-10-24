@@ -269,7 +269,8 @@ pub(super) fn freeze_render_frame_inputs(
         sprinkler_mist_particles: gui.sprinkler_mist_particles.value,
         sprinkler_pulse_frequency: crate::sprinkler::PULSE_FREQUENCY,
         sprinkler_mist_flow: true,
-        sprinkler_mist_air: gui.sprinkler_mist_air.value,
+        // Retired visual experiment; only the explicit developer review may override this.
+        sprinkler_mist_air: false,
         sky_light_strength: gui.sky_light_strength.value,
         lens_flare_intensity: gui.lens_flare_intensity.value,
         lens_flare_sun_pixel_scale: gui.lens_flare_sun_pixel_scale.value,
@@ -408,8 +409,8 @@ mod tests {
     }
 
     #[test]
-    fn volumetric_air_switch_changes_no_emission_clock_water_material_or_hardware_inputs() {
-        let mut settings = DebugSettings::load();
+    fn normal_render_inputs_always_use_original_mist() {
+        let settings = DebugSettings::load();
         let freeze = |s: &DebugSettings| {
             freeze_render_frame_inputs(
                 s,
@@ -429,13 +430,7 @@ mod tests {
                 },
             )
         };
-        settings.adjustables.sprinkler_mist_air.value = false;
-        let before = freeze(&settings);
-        settings.adjustables.sprinkler_mist_air.value = true;
-        let mut after = freeze(&settings);
-        assert!(after.environment.sprinkler_mist_air);
-        after.environment.sprinkler_mist_air = false;
-        assert_eq!(after, before);
+        assert!(!freeze(&settings).environment.sprinkler_mist_air);
     }
 
     #[test]

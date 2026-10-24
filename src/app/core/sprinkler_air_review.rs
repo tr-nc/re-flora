@@ -1,4 +1,4 @@
-//! Opt-in, muted native comparison. Uses saved controls in memory, never saves them.
+//! Developer-only comparison of the retired air experiment. Never saves controls.
 use super::App;
 use anyhow::{ensure, Context, Result};
 use std::path::PathBuf;
@@ -52,6 +52,11 @@ impl AirReview {
         frame: u32,
         inputs: &mut crate::tracer::RenderFrameInputs,
     ) {
+        inputs.environment.sprinkler_mist_air = match self.mode.as_str() {
+            "air" => true,
+            "switch" => (220..260).contains(&frame) || frame >= 300,
+            _ => false,
+        };
         if !self.world_running(frame) {
             // WorldClock pause alone does not freeze the independently animated
             // wind field. Hold the REAL uploaded wind snapshot for a matched A/B.
@@ -74,7 +79,6 @@ impl AirReview {
             );
         }
         if self.mode != "switch" {
-            app.debug_settings.adjustables.sprinkler_mist_air.value = self.mode == "air";
             return Ok(());
         }
         if frame == 180 {
@@ -129,8 +133,6 @@ impl AirReview {
             }
             log::info!("[SPRINKLER_AIR_FIELD] frame={frame} live={live} sum={sum} hash={hash:x} cell={} side={}", info.cell_side[0], info.cell_side[3]);
         }
-        app.debug_settings.adjustables.sprinkler_mist_air.value =
-            (220..260).contains(&frame) || frame >= 300;
         if let Some((god, particles, density, duty)) = self.original {
             app.render_flags.enable_god_rays = god && !(300..340).contains(&frame);
             app.render_flags.enable_particles = particles && !(340..380).contains(&frame);

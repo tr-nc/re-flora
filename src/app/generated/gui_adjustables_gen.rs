@@ -356,12 +356,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "sprinkler_mist_air",
-        kind: "bool",
-        label: "Sprinklers: volumetric-air mist (unchecked: original)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "sprinkler_mist_density",
         kind: "float",
         label: "Sprinklers: mist intensity",
@@ -1835,7 +1829,6 @@ pub struct GuiAdjustables {
     pub sprinkler_wet_patch_size: crate::gui_adjustables::FloatParam,
     pub sprinkler_wetting_speed: crate::gui_adjustables::FloatParam,
     pub soil_drying_speed: crate::gui_adjustables::FloatParam,
-    pub sprinkler_mist_air: crate::gui_adjustables::BoolParam,
     pub sprinkler_mist_density: crate::gui_adjustables::FloatParam,
     pub sprinkler_mist_particles: crate::gui_adjustables::BoolParam,
     pub sprinkler_pixel_resolution: crate::gui_adjustables::UintParam,
@@ -2140,7 +2133,6 @@ impl GuiAdjustables {
         let mut sprinkler_wet_patch_size_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_wetting_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut soil_drying_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut sprinkler_mist_air_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_mist_density_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_mist_particles_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -2718,11 +2710,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             soil_drying_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "sprinkler_mist_air" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            sprinkler_mist_air_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "sprinkler_mist_density" => {
@@ -4366,7 +4353,6 @@ impl GuiAdjustables {
             sprinkler_wet_patch_size: sprinkler_wet_patch_size_field.expect("Missing parameter: sprinkler_wet_patch_size"),
             sprinkler_wetting_speed: sprinkler_wetting_speed_field.expect("Missing parameter: sprinkler_wetting_speed"),
             soil_drying_speed: soil_drying_speed_field.expect("Missing parameter: soil_drying_speed"),
-            sprinkler_mist_air: sprinkler_mist_air_field.expect("Missing parameter: sprinkler_mist_air"),
             sprinkler_mist_density: sprinkler_mist_density_field.expect("Missing parameter: sprinkler_mist_density"),
             sprinkler_mist_particles: sprinkler_mist_particles_field.expect("Missing parameter: sprinkler_mist_particles"),
             sprinkler_pixel_resolution: sprinkler_pixel_resolution_field.expect("Missing parameter: sprinkler_pixel_resolution"),
@@ -4899,7 +4885,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "butterfly_cache_enabled" => Some(&adjustables.butterfly_cache_enabled),
         "model_flower_cache_enabled" => Some(&adjustables.model_flower_cache_enabled),
         "sprinkler_cache_enabled" => Some(&adjustables.sprinkler_cache_enabled),
-        "sprinkler_mist_air" => Some(&adjustables.sprinkler_mist_air),
         "sprinkler_mist_particles" => Some(&adjustables.sprinkler_mist_particles),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
         "grass_moisture_response" => Some(&adjustables.grass_moisture_response),
@@ -5238,7 +5223,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "butterfly_cache_enabled" => Some(&mut adjustables.butterfly_cache_enabled),
         "model_flower_cache_enabled" => Some(&mut adjustables.model_flower_cache_enabled),
         "sprinkler_cache_enabled" => Some(&mut adjustables.sprinkler_cache_enabled),
-        "sprinkler_mist_air" => Some(&mut adjustables.sprinkler_mist_air),
         "sprinkler_mist_particles" => Some(&mut adjustables.sprinkler_mist_particles),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
         "grass_moisture_response" => Some(&mut adjustables.grass_moisture_response),

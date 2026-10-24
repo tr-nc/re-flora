@@ -200,7 +200,6 @@ impl GuiConfigLoader {
         }
         Self::migrate_model_surface_cache(&mut config);
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_density");
-        Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_air");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_design");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_size_scale");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_particles");
@@ -213,6 +212,7 @@ impl GuiConfigLoader {
                         | "sprinkler_pulse_duty"
                         | "sprinkler_mist_flow"
                         | "sprinkler_design_variants"
+                        | "sprinkler_mist_air"
                 )
             });
             for param in &mut section.param {
@@ -1415,7 +1415,11 @@ mod tests {
                     .find(|p| p.id == "sprinkler_cache_enabled")
                     .unwrap()
                     .clone();
-                for id in ["sprinkler_design_variants", "sprinkler_mist_flow"] {
+                for id in [
+                    "sprinkler_design_variants",
+                    "sprinkler_mist_flow",
+                    "sprinkler_mist_air",
+                ] {
                     let mut obsolete = template.clone();
                     obsolete.id = id.into();
                     obsolete.value = super::GuiParamValue::Bool { value: old_enabled };
@@ -1456,12 +1460,7 @@ mod tests {
                     if existing { 2 } else { 0 }
                 );
                 assert!(design.enabled_if.is_none());
-                assert!(params
-                    .iter()
-                    .find(|p| p.id == "sprinkler_mist_air")
-                    .unwrap()
-                    .enabled_if
-                    .is_none());
+                assert!(!params.iter().any(|p| p.id == "sprinkler_mist_air"));
                 GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
                 assert_eq!(
                     serde_json::to_value(&loaded).unwrap(),
@@ -1513,16 +1512,22 @@ mod tests {
     }
 
     #[test]
-    fn sprinkler_air_comparison_migrates_without_writes_and_saves_both_modes() {
+    fn retired_sprinkler_air_is_removed_for_both_saved_modes_without_writes() {
         for saved in [None, Some(false), Some(true)] {
             let mut config: GuiConfigFile =
                 toml::from_str(include_str!("../../config/gui.toml")).unwrap();
             for section in &mut config.section {
                 if let Some(value) = saved {
-                    for param in &mut section.param {
-                        if param.id == "sprinkler_mist_air" {
-                            param.value = super::GuiParamValue::Bool { value };
-                        }
+                    if section.name == "Debug" {
+                        let mut param = section
+                            .param
+                            .iter()
+                            .find(|p| p.id == "sprinkler_mist_particles")
+                            .unwrap()
+                            .clone();
+                        param.id = "sprinkler_mist_air".into();
+                        param.value = super::GuiParamValue::Bool { value };
+                        section.param.push(param);
                     }
                 } else {
                     section.param.retain(|p| p.id != "sprinkler_mist_air");
@@ -1540,9 +1545,8 @@ mod tests {
                 .flat_map(|s| &s.param)
                 .filter(|p| p.id == "sprinkler_mist_air")
                 .collect();
-            assert_eq!(controls.len(), 1);
-            assert_eq!(controls[0].value.get_bool(), Some(saved.unwrap_or(false)));
-            // Normalize just the additive field; all unrelated preference data is preserved.
+            assert!(controls.is_empty());
+            // Only retire the old control; all unrelated preference data is preserved.
             let mut normalized = loaded.clone();
             for section in &mut normalized.section {
                 section.param.retain(|p| p.id != "sprinkler_mist_air");
