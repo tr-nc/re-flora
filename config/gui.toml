@@ -24,6 +24,14 @@ scale = 1.5
 enabled = true
 scale = 0.3
 
+[audio_mix.sprinklers]
+enabled = true
+scale = 30.0
+
+[audio_mix.apple_impacts]
+enabled = true
+scale = 1.0
+
 [audio_mix.interface]
 enabled = true
 scale = 5.0
@@ -669,7 +677,7 @@ label = "Sprinklers: overall size (x)"
 type = "Float"
 
 [section.param.data]
-value = 1
+value = 0.65
 min = 0.25
 max = 4
 
@@ -705,7 +713,7 @@ label = "Sprinklers: rotation speed (RPM)"
 type = "Float"
 
 [section.param.data]
-value = 5
+value = 4
 min = 0
 max = 60
 
