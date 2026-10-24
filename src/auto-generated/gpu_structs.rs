@@ -1044,7 +1044,6 @@ pub struct GuiInput {
     pub sprinkler_pulse_frequency: f32,
     pub sprinkler_droplet_time: f32,
     pub sprinkler_quadrature: f32,
-    pub sprinkler_particle_quads: u32,
     pub grass_vibration_amplitude_voxels: f32,
     pub grass_vibration_primary_speed: f32,
     pub grass_vibration_secondary_speed: f32,
@@ -1074,7 +1073,7 @@ pub struct GuiInput {
     pub leaf_shadow_min_transmittance: f32,
     pub leaf_shadow_filter_radius_texels: f32,
     pub leaf_transmission_strength: f32,
-    pub _pad7: [u8; 8],
+    pub _pad7: [u8; 12],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (native Slang source of truth).

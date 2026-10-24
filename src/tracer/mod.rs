@@ -1520,7 +1520,6 @@ pub struct EnvironmentFrameInput {
     pub sprinkler_pulse_duty: f32,
     pub sprinkler_mist_density: f32,
     pub sprinkler_mist_particles: bool,
-    pub sprinkler_particle_quads: bool,
     pub sprinkler_pulse_frequency: f32,
     pub sprinkler_mist_flow: bool,
     pub sprinkler_mist_air: bool,

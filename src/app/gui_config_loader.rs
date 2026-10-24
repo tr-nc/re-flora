@@ -204,7 +204,6 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "sprinkler_design");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_size_scale");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_particles");
-        Self::add_missing_param(&mut config, "Debug", "sprinkler_particle_quads");
         // Retire obsolete sprinkler settings at the load boundary; do not rewrite user files.
         for section in &mut config.section {
             section.param.retain(|p| {

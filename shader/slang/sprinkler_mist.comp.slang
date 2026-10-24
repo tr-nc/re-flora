@@ -88,7 +88,7 @@ void integrateFlow(Ray ray,float distance,float3 sun,uint2 pixel,
                     droplet_lobes[instance*mist_push.droplets_per_instance+node-mist_push.lobes_per_instance]:
                     mist_lobes[instance*mist_push.lobes_per_instance+node];
                 if(lobe.center_amplitude.w<=0.0)continue;
-                if(particle && gui_input.sprinkler_particle_quads!=0u) {
+                if(particle) {
                     // Intersect a camera-parallel square, not a spherical kernel.
                     float3 originView=mul(camera_info.view_mat,float4(ray.origin-lobe.center_amplitude.xyz,0)).xyz;
                     float3 directionView=mul(camera_info.view_mat,float4(ray.direction,0)).xyz;
@@ -112,9 +112,9 @@ void integrateFlow(Ray ray,float distance,float3 sun,uint2 pixel,
                 if(lobe.radii_near_geometry.w>0.0 &&
                    !mistClipLobeToTerrain(ray.origin,ray.direction,lobe.center_amplitude.xyz,interval))continue;
                 float tau=mistKernelLineIntegral(localOrigin,localDirection,float3(0),
-                    lobe.radii_near_geometry.xyz,interval)*lobe.center_amplitude.w*MIST_EXTINCTION*(particle?1.0:mist_push.density);
+                    lobe.radii_near_geometry.xyz,interval)*lobe.center_amplitude.w*MIST_EXTINCTION*mist_push.density;
                 opticalDepth+=tau;
-                source+=tau*(lobe.ambient_sun_visibility.xyz*(particle?1.5:1.0)+sun*lobe.ambient_sun_visibility.w);
+                source+=tau*(lobe.ambient_sun_visibility.xyz+sun*lobe.ambient_sun_visibility.w);
             }
         }
     }
