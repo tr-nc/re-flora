@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'sha256-{{SCRIPT_HASH}}'; base-uri 'none'; form-action 'none'">
+<meta name="description" content="Re: Flora 苹果树、松树与垂柳交付报告：原生 Release 截图、多种子对照、调研依据、实现与验证边界。">
+<title>苹果树、松树与垂柳 · Re: Flora 交付报告</title>
+<style>
+:root{color-scheme:dark;--bg:#101a16;--panel:#1a2821;--line:#3b5144;--fg:#f1f1df;--muted:#bbc7bb;--green:#c1dba6;--gold:#efc886;--radius:16px}
+*{box-sizing:border-box}[hidden]{display:none!important}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.85 system-ui,-apple-system,"Noto Sans CJK SC","Microsoft YaHei",sans-serif}main{max-width:1200px;margin:auto;padding:52px 28px 70px}h1,h2,h3{line-height:1.3}h1{font-size:clamp(36px,5.7vw,66px);letter-spacing:-.04em;margin:15px 0 22px;font-weight:650}h1 span{color:var(--green)}h2{font-size:clamp(26px,3.2vw,36px);letter-spacing:-.025em;margin:9px 0 20px}h3{font-size:20px;margin:0 0 10px}p{margin:0 0 16px}a{color:var(--green);text-underline-offset:5px}a:hover{color:white}button{font:inherit;cursor:pointer}button,a,summary{touch-action:manipulation}:focus-visible{outline:3px solid var(--gold);outline-offset:5px}.skip{position:absolute;left:20px;top:-100px;background:var(--panel);padding:10px;z-index:3}.skip:focus{top:10px}.eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--green)}.lede{font-size:19px;max-width:820px;color:var(--muted)}.meta{display:flex;gap:8px 24px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin:24px 0}.badge{font-size:12px;color:var(--green);border:1px solid var(--line);border-radius:30px;padding:5px 12px;display:inline-block;margin:0 7px 8px 0}.badge.caution{color:var(--gold)}.muted,figcaption,small{color:var(--muted)}small{font-size:13px}nav{display:flex;flex-wrap:wrap;gap:10px 25px;padding:22px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:30px 0}nav a{text-decoration:none;font-size:14px}nav a:hover{text-decoration:underline}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.grid>*{min-width:0}.two{grid-template-columns:repeat(2,minmax(0,1fr))}.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:24px}.stat strong{font-size:42px;line-height:1.25;color:var(--green);display:block;font-weight:550}.stat p{font-size:14px;margin:10px 0 0}.stat small{display:block}.section{margin-top:68px;scroll-margin-top:26px}.section-head{max-width:850px}.section-head>p{color:var(--muted)}.filters{display:flex;gap:9px;flex-wrap:wrap;margin:23px 0 8px}.filters button,.close-button{border:1px solid var(--line);border-radius:30px;background:transparent;color:var(--fg);padding:8px 17px;min-height:44px}.filters button[aria-pressed=true]{background:var(--green);border-color:var(--green);color:#17251b}.filters button:hover,.close-button:hover{border-color:var(--green)}.selection-note{font-size:13px;min-height:26px;color:var(--muted)}figure{margin:0}.tree-card{overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)}.photo-button{display:block;width:100%;padding:0;border:0;background:#4c706b;color:inherit;position:relative}.crop{display:block;position:relative;aspect-ratio:760/740;overflow:hidden}.crop img{position:absolute;max-width:none;width:210.526316%;height:auto;left:-50%;top:-6.756757%;display:block}.photo-button:after{content:'查看原生全帧 ↗';position:absolute;bottom:12px;right:12px;border-radius:20px;padding:4px 10px;font-size:11px;color:white;background:#14251de8;opacity:.92}.photo-button:hover:after{background:#15231b}.tree-card figcaption{padding:20px}.tree-card h3{color:var(--fg)}.latin{font-size:12px;display:block;color:var(--green);margin-bottom:12px}.tree-card p{font-size:14px;line-height:1.75;min-height:72px}.metrics{border-top:1px solid var(--line);padding-top:13px;font-size:12px;display:flex;flex-wrap:wrap;gap:4px 16px}.metrics strong{color:var(--fg);font-weight:550}.caption{font-size:13px;margin-top:12px}.note{border-left:3px solid var(--gold);padding:16px 20px;background:#282c20;border-radius:0 10px 10px 0;margin:22px 0}.note p:last-child{margin-bottom:0}.note.success{border-color:var(--green);background:#1b2b21}.phase{display:inline-block;font-size:12px;color:var(--gold);letter-spacing:.08em;margin-bottom:14px}.wide img{display:block;width:100%;height:auto}.wide{overflow:hidden;border-radius:var(--radius);border:1px solid var(--line)}ul,ol{padding-left:23px}li{margin:7px 0}.card ul{font-size:14px;margin:10px 0 0}.card p:last-child{margin-bottom:0}.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;margin:18px 0}table{width:100%;border-collapse:collapse;font-size:14px}caption{text-align:left;padding:15px 18px;color:var(--muted)}th,td{padding:13px 17px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}thead{background:#24372a}th{color:var(--fg);font-weight:550}tbody tr:last-child>*{border-bottom:0}.pass{color:var(--green);white-space:nowrap}.pending{color:var(--gold)}.table-wrap:focus-visible{outline-offset:2px}code,kbd{font: .87em/1.65 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}code{color:#e0d8b7}kbd{background:#2b3a30;border:1px solid #71816e;border-radius:4px;padding:3px 6px;white-space:nowrap}pre{padding:18px 20px;background:#0b130f;border:1px solid var(--line);border-radius:12px;overflow:auto;font-size:13px;line-height:1.7}pre code{overflow-wrap:normal}details{border-top:1px solid var(--line);padding:17px 0}summary{cursor:pointer;color:var(--green);font-weight:550}details[open] summary{margin-bottom:16px}.flow{counter-reset:step;list-style:none;padding:0}.flow li{position:relative;padding-left:44px;margin:21px 0}.flow li:before{counter-increment:step;content:counter(step);position:absolute;left:0;width:29px;height:29px;line-height:29px;border:1px solid var(--line);border-radius:50%;text-align:center;color:var(--green)}footer{margin-top:60px;padding-top:22px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}footer p{margin-bottom:8px}.sources li{margin:16px 0}.sources small{display:block}.report-links{display:flex;flex-wrap:wrap;gap:10px 24px}dialog{color:var(--fg);background:#101a16;border:1px solid var(--line);border-radius:16px;padding:20px;width:min(96vw,1500px);max-height:95vh;overflow:auto}dialog::backdrop{background:#030905e6}dialog header{display:flex;align-items:center;justify-content:space-between;gap:20px}dialog h2{font-size:20px;margin:0}dialog p{font-size:13px;color:var(--muted);margin:12px 0}dialog img{display:block;width:100%;height:auto}dialog .close-button{flex-shrink:0}.noscript-note{color:var(--gold)}
+@media(max-width:800px){main{padding:32px 18px 48px}.grid{grid-template-columns:minmax(0,1fr)}.stats{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.stat{padding:16px 10px}.stat strong{font-size:30px}.stat p{font-size:12px}.section{margin-top:45px}.tree-card p{min-height:0}.card{padding:20px}.tree-card figcaption{padding:18px}th,td{padding:11px 13px}dialog{padding:12px}nav{gap:9px 20px}.photo-button:after{font-size:12px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+@media print{html{scroll-behavior:auto}body{background:white;color:#111}main{max-width:none;padding:0}.card,.tree-card,thead,.note,.note.success,pre{background:#f5f5ed;color:#111}.muted,.lede,.meta,small,figcaption,.caption,.selection-note,.section-head>p,footer{color:#333}.eyebrow,.latin,.pass,.pending,.badge,.stat strong,h1 span,code,a{color:#264732}.tree-card h3,.metrics strong,th{color:#111}.filters,nav,.photo-button:after,.skip,dialog,.selection-note{display:none!important}.tree-card[hidden]{display:block!important}.grid{grid-template-columns:repeat(3,minmax(0,1fr))}.two{grid-template-columns:repeat(2,minmax(0,1fr))}.tree-card,.card,figure,tr{break-inside:avoid}.tree-card figcaption{padding:10px}.tree-card p{min-height:0;font-size:11px}.crop{aspect-ratio:760/740}.crop img{top:-6.756757%}h2{break-after:avoid}.section{margin-top:28px}.table-wrap{overflow:visible}pre{white-space:pre-wrap;overflow-wrap:anywhere}.no-print{display:none!important}}
+</style>
+</head>
+<body>
+<a href="#main" class="skip">跳到报告正文</a>
+<main id="main">
+<header>
+<div class="eyebrow">Re: Flora / Garden tree delivery / 2026.10.25</div>
+<h1>苹果树、松树与垂柳。<br><span>三种树，三种姿态。</span></h1>
+<p class="lede">这轮不是给同一棵树换名字，而是分别建立枝干结构、树冠轮廓和果实归属，再通过真实游戏截图修正外观。当前是一版已实现、已完成定向验证、可试玩的交付。</p>
+<div><span class="badge">实现与定向验证已完成</span><span class="badge">Release 已构建</span><span class="badge caution">美术效果待用户确认</span><span class="badge caution">性能未验收</span></div>
+<div class="meta"><span>实现基线 <code>2bc5b7dd</code></span><span>调研记录 <code>7a8b89c0</code></span><span>本地交付 · 未推送</span><span>图片内嵌 · 可离线单文件阅读</span></div>
+<nav aria-label="报告目录"><a href="#results">效果与种子对照</a><a href="#iteration">迭代过程</a><a href="#design">调研与设计</a><a href="#checks">验证证据</a><a href="#try">如何试玩</a><a href="#limits">边界与后续</a><a href="#sources">来源</a></nav>
+<div class="grid stats"><div class="card stat"><small>可种植树种</small><strong>3</strong><p>Apple Tree / Pine / Weeping Willow</p></div><div class="card stat"><small>单树实机场景</small><strong>3 × 3</strong><p>每种树查看 7、122、907 三个种子</p></div><div class="card stat"><small>额外集成检查</small><strong>混种</strong><p>年龄变化、快照还原与 GPU 读回</p></div></div>
+</header>
+
+<section id="results" class="section">
+<div class="section-head"><div class="eyebrow">01 / Native release captures</div><h2>先看实际长出来的样子。</h2><p>以下全部来自原生 Release 运行，不是概念图或 AI 合成效果图。卡片只裁去周围 UI，不改色、不补画；点击可查看内嵌的 1600 × 1000 原始全帧。</p></div>
+<div class="filters" role="group" aria-label="选择对照种子" hidden><button type="button" data-seed="122" aria-pressed="false">种子 122</button><button type="button" data-seed="7" aria-pressed="false">种子 7</button><button type="button" data-seed="907" aria-pressed="false">种子 907</button><button type="button" data-seed="all" aria-pressed="true">全部九张</button></div>
+<p id="gallery-status" class="selection-note" role="status" aria-live="polite">共九张原生截图。叶实例与苹果位点是结构数据，不是帧率成绩。</p>
+<noscript><p class="noscript-note">JavaScript 未启用：仍可阅读全文与全部内嵌图片；种子筛选和全帧放大需要 JavaScript。</p></noscript>
+<div id="gallery" class="grid">{{GALLERY}}</div>
+<div class="note"><strong>避免误读：</strong>全帧截图中的 FPS 图表是当时的瞬时 HUD，不是受控性能对比。本轮没有性能验收结论；静态截图也不单独证明风动的观感。</div>
+</section>
+
+<section id="iteration" class="section">
+<div class="section-head"><div class="eyebrow">02 / Iterate on the actual image</div><h2>苹果树第一版没有直接交付。</h2><p>第一轮虽然功能检查通过，但树冠仍像一层层托盘。它被保留为过程证据，而不是包装成最终效果。</p></div>
+<div class="grid two">
+<figure class="tree-card"><button type="button" class="photo-button" aria-label="放大苹果树初版全帧" data-zoom><span class="crop"><img data-capture="apple-first-pass" src="{{CAPTURE:apple-first-pass}}" width="1600" height="1000" loading="lazy" alt="苹果树初版：多层扁平叶簇，背后有蓝色的下一棵树放置预览"></span></button><figcaption><span class="phase">初版 · 未采用</span><h3>叶团过于扁平、分层。</h3><p>固定高度的横向枝条，与每段都放一团叶子的方式叠加，产生了人工堆叠感。</p></figcaption></figure>
+<div class="card"><span class="phase">截图复评后的修改</span><h3>从层板，改成舒展的树冠。</h3><ol class="flow"><li><strong>降低中央主轴。</strong><br>让骨干枝形成分叉，而不是围着一根高直杆排队。</li><li><strong>抬起、拉开骨干枝。</strong><br>枝条向外上方生长，长度、方向和抬升程度有差异。</li><li><strong>把叶团放到枝梢。</strong><br>增大并圆整末端叶簇，形成错落重叠的阔叶树冠。</li><li><strong>下移果实挂点。</strong><br>让苹果挂在叶团下方，继续使用真实苹果生命周期。</li></ol><a href="#results">返回查看最终版与其他种子 ↑</a></div>
+</div>
+<p class="caption">初版的蓝色轮廓是放置预览，最终评审截图在种植后取消了 Grow 选择以排除遮挡。它们不是严格同条件 A/B，不能据此比较光照或性能。</p>
+<div class="section-head" style="margin-top:34px"><h3>放在同一片地形上。</h3><p>混种场景使用种子 122 / 123 / 124，经过年龄重建与序列化还原后再次检查。</p></div>
+<figure><button type="button" class="photo-button wide" data-zoom aria-label="放大三种树混种场景全帧"><img data-capture="mixed" src="{{CAPTURE:mixed}}" width="1600" height="1000" loading="lazy" alt="真实地形上的苹果树、松树、垂柳混种场景；右侧保留游戏材料面板"></button><figcaption class="caption">原生混种全帧，保留 UI。单棵柳树的完整轮廓请看上方单树场景。</figcaption></figure>
+</section>
+
+<section id="design" class="section">
+<div class="section-head"><div class="eyebrow">03 / Research into structure</div><h2>参考植物特征，但不冒充植物学模拟。</h2><p>调研影响的是生成规则，而不只是配色。当前仍沿用游戏已有的像素叶片、树皮渲染和共享调色参数。</p></div>
+<div class="grid">
+<article class="card"><h3>苹果树</h3><span class="latin">Malus domestica · 园艺化阔叶轮廓</span><p>参考其宽展、结果的园林形态；没有宣称复刻某个品种，也没有把主要面向核果类的“开心形整枝”当作所有苹果树的标准。</p><ul><li>低主轴与上扬骨干枝</li><li>枝梢末端的圆润叶团</li><li>接入现有苹果生长、悬挂、掉落与交互</li></ul><p style="margin-top:15px"><a href="#source-apple">植物参考 ↗</a></p></article>
+<article class="card"><h3>松树</h3><span class="latin">Pinus sylvestris · 成熟松树启发</span><p>参考成熟松树较开阔、不规则的冠形，而不是把松树等同于规则圣诞树。旧 Conifer 的九层、每层四枝，不再决定新 Pine 的轮廓。</p><ul><li>有变化的节间与每层 2–4 根枝条</li><li>不等长枝条、偏冠与疏密间隙</li><li>下垂弧度后接上扬枝梢</li></ul><p style="margin-top:15px"><a href="#source-pine">植物参考 ↗</a></p></article>
+<article class="card"><h3>垂柳</h3><span class="latin">Salix babylonica · 垂枝结构</span><p>参考向下悬垂的枝条与窄长叶片，用枝轴方向和狭长叶簇表现叶帘；不是在球形树冠上挂一层绿色贴片。</p><ul><li>先抬升的骨干树冠</li><li>长短有别、真实连接的下垂枝轴</li><li>沿垂枝分布的狭长叶簇</li></ul><p style="margin-top:15px"><a href="#source-willow">植物参考 ↗</a></p></article>
+</div>
+<details><summary>实现如何保持连接、身份和兼容性？</summary><ul><li><strong>共享树轴编译器：</strong>统一负责父先子后的连接、渐细半径、稳定树轴身份和有因果顺序的年龄显现；新树种共用上限约束。</li><li><strong>种子属于单棵树：</strong>年龄改变同一个体的大小和可见枝条，不重新抽取另一棵随机树。</li><li><strong>果实归属由树种决定：</strong>即使误复制非零苹果概率，Pine、Willow 和旧 Conifer 也不会长苹果。</li><li><strong>老树不强制换形：</strong><code>garden_tree</code> / <code>conifer</code> 仍使用旧生成器；缺失树种字段仍按旧 Garden Tree 解释。新种植选择独立默认为 Apple Tree。</li><li><strong>调参真实有效：</strong>新轴模型不显示已经不生效的递归分枝控件；保留大小、粗细、种子、细分与叶簇编辑，沿用统一保存路径。</li></ul></details>
+</section>
+
+<section id="checks" class="section">
+<div class="section-head"><div class="eyebrow">04 / Evidence, not blanket claims</div><h2>验证了什么，也明确没验证什么。</h2><p>下表是这轮实现时实际执行的定向检查。各筛选器可能有覆盖关系，不能把数量简单相加当作全量测试成绩。</p></div>
+<div class="table-wrap" tabindex="0" role="region" aria-label="定向验证结果表"><table><caption>实现基线 2bc5b7dd 的验证记录</caption><thead><tr><th scope="col">检查</th><th scope="col">结果</th><th scope="col">说明</th></tr></thead><tbody>
+<tr><th scope="row">格式 / 编译 / Release</th><td class="pass">通过</td><td><code>cargo fmt --check</code>、<code>cargo check</code>、<code>cargo build --release</code></td></tr>
+<tr><th scope="row">树生成 <code>tree_gen</code></th><td class="pass">43 通过</td><td>种子确定性、跨年龄连接、叶片归属、渐细、结构上限与序列化</td></tr>
+<tr><th scope="row">树发布 <code>vegetation::</code></th><td class="pass">43 通过</td><td>新旧混合快照、恢复后的叶位置、事务发布与果实归属</td></tr>
+<tr><th scope="row">树干碰撞</th><td class="pass">1 + 1 通过</td><td>根树轴参与静态碰撞；侧枝不被错误提升为树干</td></tr>
+<tr><th scope="row">目录 / 种植面板 / 输入</th><td class="pass">2 + 3 + 19 通过</td><td>树种选择、类别内循环、点击种植与原工具行为</td></tr>
+<tr><th scope="row">树编辑器</th><td class="pass">3 通过</td><td>各树种未操作时，不被面板悄悄改写已保存的描述</td></tr>
+<tr><th scope="row">通用保存 / 自定义保存</th><td class="pass">1 + 1 通过</td><td>真实 live 值修改后保存、重新加载；树种枚举已纳入</td></tr>
+<tr><th scope="row">配置加载 / UI 文字</th><td class="pass">56 + 4 通过</td><td>配置兼容与既有 UI 规则</td></tr>
+<tr><th scope="row">9 个单树 + 1 个混种场景</th><td class="pass">Release 通过</td><td>真实发布、年龄 1 → 0.45 → 1、JSON 快照还原、GPU 姿态／表面／光照读回</td></tr>
+<tr><th scope="row">原有 raster tree smoke</th><td class="pass">通过</td><td>删除、替换、年龄／刚度变化，以及旧 Conifer A/B 与恢复</td></tr>
+<tr><th scope="row">最终隐藏静音启动</th><td class="pass">正常退出</td><td>检查了本 worktree 的运行日志，<code>failures=0</code></td></tr>
+<tr><th scope="row">全量测试 / 性能 / 最终美术验收</th><td class="pending">未宣称通过</td><td>未重跑全量测试；未做受控性能验收；最终观感需用户确认</td></tr>
+</tbody></table></div>
+<details><summary>查看每棵树的结构数据</summary><p class="muted">叶实例是经过量化、去重并发布的数量；苹果位点不是截图中肉眼可见苹果的计数。</p><div class="table-wrap" tabindex="0" role="region" aria-label="九个种子场景结构数据表"><table><thead><tr><th scope="col">树种</th><th scope="col">种子</th><th scope="col">枝段</th><th scope="col">叶实例</th><th scope="col">苹果位点</th></tr></thead><tbody>{{COUNTS}}</tbody></table></div></details>
+<details><summary>过程中出现过的失败与警告</summary><ul><li><strong>无效混种测试场景：</strong>最初把第三棵树根放在 x=2.25，超过默认 2 单位宽的世界，导致地形发布中止。场景改为从世界尺寸推导内部位置，之后成功复跑两次。不能据此声称任意越界 <code>TreePlacement::World</code> 调用都受到支持。</li><li><strong>删除路径的一条警告：</strong>原有 raster smoke 尝试再次删除已不存在的树，记录了 warning；最终 smoke 合约通过。</li><li><strong>最终运行：</strong>九个单树、最终混种、raster smoke 和普通启动记录中没有 ERROR / panic / Vulkan VUID。这里没有抹去前面的无效场景失败。</li><li><strong>全量测试：</strong>此前已知的无关全量测试问题未在这轮修复；本报告只对上述实际运行的检查作结论。</li></ul></details>
+<details><summary>复现命令与关键实现文件</summary><p>从包含本实现的项目 worktree 运行，原生图形环境需可用。<code>RE_FLORA_TREE_SPECIES_REVIEW</code> 是不写配置、不保存花园的开发验证场景。</p><pre><code>mkdir -p target/tree-species-review
+RE_FLORA_TREE_SPECIES_REVIEW=apple RE_FLORA_TREE_SPECIES_SEED=122 RUST_LOG=info \
+  cargo run --release -- --hidden --mute \
+  --screenshot player-default target/tree-species-review/apple-122.png \
+  --screenshot-delay 2 --auto-exit 4
+
+# apple / pine / willow；种子 7 / 122 / 907
+RE_FLORA_TREE_SPECIES_REVIEW=mixed RUST_LOG=info \
+  cargo run --release -- --hidden --mute --auto-exit 4
+
+RUST_LOG=info cargo run --release -- \
+  --hidden --mute --raster-tree-smoke --auto-exit 120
+cargo run --release -- --hidden --mute --auto-exit 0.5
+cargo run --release -- --tail-latest-log 180</code></pre><ul><li><code>src/tree_gen/species.rs</code>：持久化身份、树种参数、苹果归属</li><li><code>src/tree_gen/axis/garden.rs</code>：三类新树的枝干生成</li><li><code>src/tree_gen/tree.rs</code>：显现年龄与叶簇附着</li><li><code>src/app/core/plant_catalog.rs</code>：种植目录与会话选择</li><li><code>src/app/core/vegetation/species_review.rs</code>：原生验证场景</li><li><code>src/app/core/vegetation/snapshot.rs</code>：快照恢复与重建预算</li></ul></details>
+</section>
+
+<section id="try" class="section">
+<div class="eyebrow">05 / Try it in the garden</div><h2>从 Grow 种下，而不是从 Debug 拼出一棵树。</h2>
+<div class="grid two"><div class="card"><h3>种植</h3><ol class="flow"><li>按 <kbd>1</kbd> 选择 <strong>Grow</strong>。</li><li>把 <strong>Type</strong> 切换为 <strong>Tree</strong>。</li><li>选择 <strong>Apple Tree / Pine / Weeping Willow</strong>；<kbd>Tab</kbd> 可轮换。</li><li>点击地面种一棵。每次成功种植后，下一个体获得新的种子。</li></ol></div><div class="card"><h3>调参与保存</h3><p><strong>R → Flora → Tree</strong> 保留调试树的大小、粗细、种子和叶簇控制。点击 <strong>Save</strong> 保存设置。</p><p><strong>Terrain &amp; Plants → Save / Load</strong> 保存与恢复已经种下的树。它与保存调参不是同一件事。</p><p>检查进仓库的默认启动树已换成 Apple Tree；载入旧花园不会自动把旧树替换成新树。</p><small>本轮没有自动开启可见游戏窗口。普通试玩使用 <code>cargo run --release</code>，不需要验证场景环境变量或性能面板。</small></div></div>
+</section>
+
+<section id="limits" class="section">
+<div class="eyebrow">06 / Honest handoff</div><h2>这版已经能用，但不把未做的东西算进去。</h2>
+<div class="grid two"><div class="card"><h3>本轮已交付</h3><ul><li>三种稳定可辨的枝干与树冠结构</li><li>苹果树使用真实苹果生命周期</li><li>松树与柳树不错误生成苹果</li><li>现有种植、风动、叶音效、编辑和保存路径的集成</li><li>旧树生成器与存档身份兼容</li><li>多个种子的实机图与可重复验证场景</li></ul></div><div class="card"><h3>仍未覆盖</h3><ul><li>真正的松针模型、柳叶单叶模型或专属树皮／叶片配色</li><li>松果、柳絮／柔荑花序与其他可食用水果</li><li>特定苹果品种、真实整枝体系或植物学成长模拟</li><li>受控性能预算、全量测试重跑和最终美术验收</li></ul></div></div>
+<div class="note success"><strong>下一步应先确认外观。</strong>可以从树冠饱满度、苹果可读性、松树的自然程度和柳枝的垂落感提出反馈；视觉方向确定后，再单独做性能测量与必要优化。</div>
+</section>
+
+<section id="sources" class="section">
+<div class="eyebrow">07 / Sources &amp; provenance</div><h2>调研来源与截图来历。</h2>
+<ol class="sources"><li id="source-apple"><a href="https://plants.ces.ncsu.edu/plants/malus-domestica/" rel="noreferrer">NC State Extension · Malus domestica</a><small>苹果的结果属性、园林形态及品种／砧木差异。</small></li><li><a href="https://extension.psu.edu/pruning-and-training-home-fruit-trees-to-an-open-center" rel="noreferrer">Penn State Extension · Open-center training</a><small>用于避免错误泛化：该整枝建议主要面向核果类，不能直接视作所有苹果树的标准。</small></li><li id="source-pine"><a href="https://plants.ces.ncsu.edu/plants/pinus-sylvestris/" rel="noreferrer">NC State Extension · Pinus sylvestris</a><small>成熟后开放、圆整而不规则的冠形，以及短针叶特征。</small></li><li id="source-willow"><a href="https://plants.ces.ncsu.edu/plants/salix-babylonica/" rel="noreferrer">NC State Extension · Salix babylonica</a><small>下垂枝条、窄长叶片与临水景观形态。</small></li></ol>
+<details><summary>图片处理与离线交付说明</summary><p>共内嵌 11 个原始 PNG：9 个单树场景、1 个初版苹果树场景、1 个最终混种场景，均为 1600 × 1000 原生游戏截屏。原文件字节以 data URI 保存，放大时显示完整画面；无需 <code>target/</code> 文件夹、图片服务器、网络字体或 CDN。</p><p>桌面与手机卡片均以 CSS 展示 <code>760×740+380+50</code> 区域，保留同样的树冠与垂枝范围。浏览器按页面尺寸缩放，不改原图。未导入植物参考照片，未使用图像生成服务。</p><p>报告正文与校验清单随文件保存；截图底层游戏资源仍适用各自的许可。项目自有资产原则上为 CC BY-NC-SA 4.0；第三方资源各自授权仍有效，不能据此推定截图中所有元素都可任意再分发。完整来源与 SHA-256 见同目录 README 和 capture-manifest.json。</p></details>
+<div class="report-links"><a href="../../research/garden-tree-species.md">仓库调研记录</a><a href="../../evidence/garden-tree-species.md">仓库验证记录</a><a href="README.md">报告来源与重建方法</a></div>
+<p class="caption">上面三个相对链接用于在完整仓库中追溯；单独复制本 HTML 时不影响正文、图片、筛选和放大。外部植物来源仅在点击时需要联网。</p>
+</section>
+<footer><p><strong>Re: Flora · Garden tree delivery report</strong> · 实现 <code>2bc5b7dd</code> · 调研 <code>7a8b89c0</code></p><p>报告记录的是这一轮交付，不是正式发行公告。功能证据、视觉判断与性能结论在文中分别标明。</p></footer>
+</main>
+<dialog id="image-dialog" aria-labelledby="image-title" aria-describedby="image-description"><header><h2 id="image-title">原生截图</h2><button type="button" class="close-button" id="close-image" autofocus>关闭 ×</button></header><p id="image-description">原始全帧，包含游戏 UI。FPS 是瞬时 HUD，不是性能验收。可按 Esc 关闭。</p><img id="full-image" alt=""></dialog>
+<script>{{REPORT_SCRIPT}}</script>
+</body>
+</html>

@@ -1,0 +1,123 @@
+[
+  {
+    "id": "apple-122",
+    "originalFilename": "apple-122.png",
+    "originalLocation": "target/tree-species-review/apple-122.png",
+    "role": "native Release validation capture",
+    "width": 1600,
+    "height": 1000,
+    "format": "PNG",
+    "bytes": 237727,
+    "sha256": "95634ffaa15a65eefdaf4298e024e616bab7ca4fa386d9c041c0ddb18a5f1889"
+  },
+  {
+    "id": "pine-122",
+    "originalFilename": "pine-122.png",
+    "originalLocation": "target/tree-species-review/pine-122.png",
+    "role": "native Release validation capture",
+    "width": 1600,
+    "height": 1000,
+    "format": "PNG",
+    "bytes": 233564,
+    "sha256": "186f709b0f8c10c83291143c9509e18a6b49def82f3316253ac928db165dc01f"
+  },
+  {
+    "id": "willow-122",
+    "originalFilename": "willow-122.png",
+    "originalLocation": "target/tree-species-review/willow-122.png",
+    "role": "native Release validation capture",
+    "width": 1600,
+    "height": 1000,
+    "format": "PNG",
+    "bytes": 236447,
+    "sha256": "eb9fe478bb0054fcf8df652bb63d9fdaeb0b916f59f0ab00e59e3466a6d527f8"
+  },
+  {
+    "id": "apple-7",
+    "originalFilename": "apple-7.png",
+    "originalLocation": "target/tree-species-review/apple-7.png",
+    "role": "native Release validation capture",
+    "width": 1600,
+    "height": 1000,
+    "format": "PNG",
+    "bytes": 235990,
+    "sha256": "33a81e5408f07d1d397454444a892766897cb3376d4d3702a7ea07eff3c43213"
+  },
+  {
+    "id": "pine-7",
+    "originalFilename": "pine-7.png",
+    "originalLocation": "target/tree-species-review/pine-7.png",
+    "role": "native Release validation capture",
+    "width": 1600,
+    "height": 1000,
+    "format": "PNG",
+    "bytes": 233437,
+    "sha256": "50ee4513693da840c9cc1428af5762e67cd4641dc729f0e31a0e66f24b26b368"
+  },
+  {
+    "id": "willow-7",
+    "originalFilename": "willow-7.png",
+    "originalLocation": "target/tree-species-review/willow-7.png",
+    "role": "native Release validation capture",
+    "width": 1600,
+    "height": 1000,
+    "format": "PNG",
+    "bytes": 235965,
+    "sha256": "926d23e22712b4a5f551659103cf0bb707a1adc8f46779ddb1988653e49be182"
+  },
+  {
+    "id": "apple-907",
+    "originalFilename": "apple-907.png",
+    "originalLocation": "target/tree-species-review/apple-907.png",
+    "role": "native Release validation capture",
+    "width": 1600,
+    "height": 1000,
+    "format": "PNG",
+    "bytes": 237255,
+    "sha256": "5dcd48b3557802bc28001496bcfd61b8a23f2dbf196c6fd5b18b0250ff0ccc1b"
+  },
+  {
+    "id": "pine-907",
+    "originalFilename": "pine-907.png",
+    "originalLocation": "target/tree-species-review/pine-907.png",
+    "role": "native Release validation capture",
+    "width": 1600,
+    "height": 1000,
+    "format": "PNG",
+    "bytes": 233335,
+    "sha256": "e1e578f38fb0d9edf96ed50321361c7b3d0882c51f497574a69063f1846ac4d9"
+  },
+  {
+    "id": "willow-907",
+    "originalFilename": "willow-907.png",
+    "originalLocation": "target/tree-species-review/willow-907.png",
+    "role": "native Release validation capture",
+    "width": 1600,
+    "height": 1000,
+    "format": "PNG",
+    "bytes": 236700,
+    "sha256": "36214f380c773073276902ceece1d8e2795acffccf6e80af0433fd548dd708db"
+  },
+  {
+    "id": "apple-first-pass",
+    "originalFilename": "apple-first-pass.png",
+    "originalLocation": "target/tree-species-review/apple-first-pass.png",
+    "role": "superseded candidate reference",
+    "width": 1600,
+    "height": 1000,
+    "format": "PNG",
+    "bytes": 239693,
+    "sha256": "9deade721d213ae2441944e95b2809a5e83da3fbb2709fae4c759d34f6ff0109"
+  },
+  {
+    "id": "mixed",
+    "originalFilename": "mixed.png",
+    "originalLocation": "target/tree-species-review/mixed.png",
+    "role": "native Release validation capture",
+    "width": 1600,
+    "height": 1000,
+    "format": "PNG",
+    "bytes": 249173,
+    "sha256": "de0d12297093069f8709f254a1288d6d89b58764d91fdf18b1647a817c5518bc"
+  }
+]
