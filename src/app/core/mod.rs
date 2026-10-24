@@ -169,17 +169,9 @@ use std::time::{Duration, Instant};
 use ui_style::{
     apply_gui_style, draw_center_card, draw_item_panel, draw_plant_panel, draw_voxel_palette,
     ItemPanelSlot, PlantPanelEntry, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH,
-    GOLD_ACCENT, GROW_SLOT_INDEX, HOE_SLOT_INDEX, HOE_TOOL_ACCENT,
-    ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
-    ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
-    ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH, ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH,
-    ITEM_PANEL_SPRINKLER_ICON_PATH, ITEM_PANEL_STAFF_ICON_FALLBACK_PATH,
-    ITEM_PANEL_STAFF_ICON_PATH, ITEM_PANEL_TILLER_ICON_FALLBACK_PATH, ITEM_PANEL_TILLER_ICON_PATH,
-    ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
-    SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SOIL_INSPECTOR_SLOT_INDEX,
-    SOIL_INSPECTOR_TOOL_ACCENT, SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX,
-    STAFF_TOOL_ACCENT, TILLER_SLOT_INDEX, TILLER_TOOL_ACCENT, WATERING_SLOT_INDEX,
-    WATER_TOOL_ACCENT,
+    GOLD_ACCENT, GROW_SLOT_INDEX, HOE_SLOT_INDEX, PANEL_BG, PANEL_DARK, SAGE_ACCENT, SHADOW_COLOR,
+    SHOVEL_SLOT_INDEX, SOIL_INSPECTOR_SLOT_INDEX, SOIL_INSPECTOR_TOOL_ACCENT,
+    SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX, TILLER_SLOT_INDEX, WATERING_SLOT_INDEX,
 };
 use winit::{
     dpi::PhysicalSize,
@@ -485,13 +477,6 @@ pub struct App {
     soil_performance_bench: Option<soil_performance_bench::SoilPerformanceBench>,
     soil_bag_preview: soil_bag_preview::State,
     card_display_visible: bool,
-    item_panel_shovel_icon: Option<TextureHandle>,
-    item_panel_staff_icon: Option<TextureHandle>,
-    item_panel_hoe_icon: Option<TextureHandle>,
-    item_panel_water_icon: Option<TextureHandle>,
-    item_panel_sprinkler_icon: Option<TextureHandle>,
-    item_panel_soil_inspector_icon: Option<TextureHandle>,
-    item_panel_tiller_icon: Option<TextureHandle>,
     player_tools: PlayerToolRuntime,
     pointer_picking: terrain_picking::PointerPicking,
     tree_kick: tree_kick::TreeKickInteraction,
@@ -1623,13 +1608,6 @@ impl App {
             soil_performance_bench: soil_performance_bench::SoilPerformanceBench::from_env()?,
             soil_bag_preview: soil_bag_preview::State::from_env()?,
             card_display_visible: false,
-            item_panel_shovel_icon: None,
-            item_panel_staff_icon: None,
-            item_panel_hoe_icon: None,
-            item_panel_water_icon: None,
-            item_panel_sprinkler_icon: None,
-            item_panel_soil_inspector_icon: None,
-            item_panel_tiller_icon: None,
             mower: mower::MowerRuntime::default(),
             pointer_picking: Default::default(),
             tree_kick: Default::default(),
@@ -1724,7 +1702,6 @@ impl App {
         app.sync_cursor_with_panels();
 
         app.configure_gui_font()?;
-        app.load_item_panel_icons()?;
         app.rebuild_tree_placement_preview()?;
         if hybrid_transparency {
             app.configure_hybrid_transparency_test_scene()?;
@@ -1812,207 +1789,6 @@ impl App {
             log::info!("Loaded custom GUI font from {}", font_path);
         }
 
-        Ok(())
-    }
-
-    fn load_item_panel_icons(&mut self) -> Result<()> {
-        let shovel_path = if std::path::Path::new(ITEM_PANEL_SHOVEL_ICON_PATH).exists() {
-            ITEM_PANEL_SHOVEL_ICON_PATH
-        } else {
-            log::warn!(
-                "Item panel icon not found at {}. Falling back to {}",
-                ITEM_PANEL_SHOVEL_ICON_PATH,
-                ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH
-            );
-            ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH
-        };
-
-        let staff_path = if std::path::Path::new(ITEM_PANEL_STAFF_ICON_PATH).exists() {
-            ITEM_PANEL_STAFF_ICON_PATH
-        } else {
-            log::warn!(
-                "Item panel icon not found at {}. Falling back to {}",
-                ITEM_PANEL_STAFF_ICON_PATH,
-                ITEM_PANEL_STAFF_ICON_FALLBACK_PATH
-            );
-            ITEM_PANEL_STAFF_ICON_FALLBACK_PATH
-        };
-
-        let shovel_bytes = std::fs::read(shovel_path)
-            .with_context(|| format!("Failed to read item panel icon from {shovel_path}"))?;
-        let shovel_rgba = image::load_from_memory(&shovel_bytes)
-            .with_context(|| format!("Failed to decode item panel icon from {shovel_path}"))?
-            .to_rgba8();
-        let shovel_size = [shovel_rgba.width() as usize, shovel_rgba.height() as usize];
-        let shovel_pixels = shovel_rgba.into_raw();
-        let shovel_image = ColorImage::from_rgba_unmultiplied(shovel_size, &shovel_pixels);
-
-        let shovel_texture = self.egui_renderer.context().load_texture(
-            "item_panel_wooden_shovel",
-            shovel_image,
-            egui::TextureOptions::NEAREST,
-        );
-        self.item_panel_shovel_icon = Some(shovel_texture);
-
-        let staff_bytes = std::fs::read(staff_path)
-            .with_context(|| format!("Failed to read item panel icon from {staff_path}"))?;
-        let staff_rgba = image::load_from_memory(&staff_bytes)
-            .with_context(|| format!("Failed to decode item panel icon from {staff_path}"))?
-            .to_rgba8();
-        let staff_size = [staff_rgba.width() as usize, staff_rgba.height() as usize];
-        let staff_pixels = staff_rgba.into_raw();
-        let staff_image = ColorImage::from_rgba_unmultiplied(staff_size, &staff_pixels);
-
-        let staff_texture = self.egui_renderer.context().load_texture(
-            "item_panel_wooden_staff",
-            staff_image,
-            egui::TextureOptions::NEAREST,
-        );
-        self.item_panel_staff_icon = Some(staff_texture);
-
-        let hoe_path = if std::path::Path::new(ITEM_PANEL_HOE_ICON_PATH).exists() {
-            ITEM_PANEL_HOE_ICON_PATH
-        } else {
-            log::warn!(
-                "Item panel icon not found at {}. Falling back to {}",
-                ITEM_PANEL_HOE_ICON_PATH,
-                ITEM_PANEL_HOE_ICON_FALLBACK_PATH
-            );
-            ITEM_PANEL_HOE_ICON_FALLBACK_PATH
-        };
-
-        let hoe_bytes = std::fs::read(hoe_path)
-            .with_context(|| format!("Failed to read item panel icon from {hoe_path}"))?;
-        let hoe_rgba = image::load_from_memory(&hoe_bytes)
-            .with_context(|| format!("Failed to decode item panel icon from {hoe_path}"))?
-            .to_rgba8();
-        let hoe_size = [hoe_rgba.width() as usize, hoe_rgba.height() as usize];
-        let hoe_pixels = hoe_rgba.into_raw();
-        let hoe_image = ColorImage::from_rgba_unmultiplied(hoe_size, &hoe_pixels);
-
-        let hoe_texture = self.egui_renderer.context().load_texture(
-            "item_panel_wooden_hoe",
-            hoe_image,
-            egui::TextureOptions::NEAREST,
-        );
-        self.item_panel_hoe_icon = Some(hoe_texture);
-
-        let water_path = if std::path::Path::new(ITEM_PANEL_WATER_ICON_PATH).exists() {
-            ITEM_PANEL_WATER_ICON_PATH
-        } else {
-            log::warn!(
-                "Item panel icon not found at {}. Falling back to {}",
-                ITEM_PANEL_WATER_ICON_PATH,
-                ITEM_PANEL_WATER_ICON_FALLBACK_PATH
-            );
-            ITEM_PANEL_WATER_ICON_FALLBACK_PATH
-        };
-
-        let water_bytes = std::fs::read(water_path)
-            .with_context(|| format!("Failed to read item panel icon from {water_path}"))?;
-        let water_rgba = image::load_from_memory(&water_bytes)
-            .with_context(|| format!("Failed to decode item panel icon from {water_path}"))?
-            .to_rgba8();
-        let water_size = [water_rgba.width() as usize, water_rgba.height() as usize];
-        let water_pixels = water_rgba.into_raw();
-        let water_image = ColorImage::from_rgba_unmultiplied(water_size, &water_pixels);
-
-        let water_texture = self.egui_renderer.context().load_texture(
-            "item_panel_water_debug",
-            water_image,
-            egui::TextureOptions::NEAREST,
-        );
-        self.item_panel_water_icon = Some(water_texture);
-
-        let sprinkler_path = if std::path::Path::new(ITEM_PANEL_SPRINKLER_ICON_PATH).exists() {
-            ITEM_PANEL_SPRINKLER_ICON_PATH
-        } else {
-            log::warn!(
-                "Item panel icon not found at {}. Falling back to {}",
-                ITEM_PANEL_SPRINKLER_ICON_PATH,
-                ITEM_PANEL_WATER_ICON_FALLBACK_PATH
-            );
-            ITEM_PANEL_WATER_ICON_FALLBACK_PATH
-        };
-        let sprinkler_bytes = std::fs::read(sprinkler_path)
-            .with_context(|| format!("Failed to read item panel icon from {sprinkler_path}"))?;
-        let sprinkler_rgba = image::load_from_memory(&sprinkler_bytes)
-            .with_context(|| format!("Failed to decode item panel icon from {sprinkler_path}"))?
-            .to_rgba8();
-        let sprinkler_size = [
-            sprinkler_rgba.width() as usize,
-            sprinkler_rgba.height() as usize,
-        ];
-        let sprinkler_pixels = sprinkler_rgba.into_raw();
-        let sprinkler_image = ColorImage::from_rgba_unmultiplied(sprinkler_size, &sprinkler_pixels);
-        let sprinkler_texture = self.egui_renderer.context().load_texture(
-            "item_panel_sprinkler",
-            sprinkler_image,
-            egui::TextureOptions::NEAREST,
-        );
-        self.item_panel_sprinkler_icon = Some(sprinkler_texture);
-
-        let soil_inspector_path =
-            if std::path::Path::new(ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH).exists() {
-                ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH
-            } else {
-                log::warn!(
-                    "Item panel icon not found at {}. Falling back to {}",
-                    ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH,
-                    ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH
-                );
-                ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH
-            };
-
-        let soil_inspector_bytes = std::fs::read(soil_inspector_path).with_context(|| {
-            format!("Failed to read item panel icon from {soil_inspector_path}")
-        })?;
-        let soil_inspector_rgba = image::load_from_memory(&soil_inspector_bytes)
-            .with_context(|| {
-                format!("Failed to decode item panel icon from {soil_inspector_path}")
-            })?
-            .to_rgba8();
-        let soil_inspector_size = [
-            soil_inspector_rgba.width() as usize,
-            soil_inspector_rgba.height() as usize,
-        ];
-        let soil_inspector_pixels = soil_inspector_rgba.into_raw();
-        let soil_inspector_image =
-            ColorImage::from_rgba_unmultiplied(soil_inspector_size, &soil_inspector_pixels);
-
-        let soil_inspector_texture = self.egui_renderer.context().load_texture(
-            "item_panel_soil_inspector",
-            soil_inspector_image,
-            egui::TextureOptions::NEAREST,
-        );
-        self.item_panel_soil_inspector_icon = Some(soil_inspector_texture);
-
-        let tiller_path = if std::path::Path::new(ITEM_PANEL_TILLER_ICON_PATH).exists() {
-            ITEM_PANEL_TILLER_ICON_PATH
-        } else {
-            log::warn!(
-                "Item panel icon not found at {}. Falling back to {}",
-                ITEM_PANEL_TILLER_ICON_PATH,
-                ITEM_PANEL_TILLER_ICON_FALLBACK_PATH
-            );
-            ITEM_PANEL_TILLER_ICON_FALLBACK_PATH
-        };
-
-        let tiller_bytes = std::fs::read(tiller_path)
-            .with_context(|| format!("Failed to read item panel icon from {tiller_path}"))?;
-        let tiller_rgba = image::load_from_memory(&tiller_bytes)
-            .with_context(|| format!("Failed to decode item panel icon from {tiller_path}"))?
-            .to_rgba8();
-        let tiller_size = [tiller_rgba.width() as usize, tiller_rgba.height() as usize];
-        let tiller_pixels = tiller_rgba.into_raw();
-        let tiller_image = ColorImage::from_rgba_unmultiplied(tiller_size, &tiller_pixels);
-
-        let tiller_texture = self.egui_renderer.context().load_texture(
-            "item_panel_tiller",
-            tiller_image,
-            egui::TextureOptions::NEAREST,
-        );
-        self.item_panel_tiller_icon = Some(tiller_texture);
         Ok(())
     }
 
@@ -2678,13 +2454,6 @@ impl App {
                 }
                 let vsm_blur_radius_before_gui =
                     self.debug_settings.adjustables.vsm_blur_radius.value;
-                let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
-                let item_panel_staff_icon = self.item_panel_staff_icon.clone();
-                let item_panel_hoe_icon = self.item_panel_hoe_icon.clone();
-                let item_panel_water_icon = self.item_panel_water_icon.clone();
-                let item_panel_sprinkler_icon = self.item_panel_sprinkler_icon.clone();
-                let item_panel_soil_inspector_icon = self.item_panel_soil_inspector_icon.clone();
-                let item_panel_tiller_icon = self.item_panel_tiller_icon.clone();
                 let selected_item_panel_display_slot =
                     self.player_tools.selected_item_panel_display_slot();
                 let infinite_materials = self.infinite_materials_enabled();
@@ -2863,6 +2632,7 @@ impl App {
                     .update(&self.window_state.window(), |ctx| {
                         let mut style = (*ctx.global_style()).clone();
                         apply_gui_style(&mut style);
+                        ui_style::apply_panel_outline_preference(&mut style, self.debug_settings.adjustables.gui_panel_outlines.value);
                         ctx.set_global_style(style);
 
                         if let Some(transition) = self.splash_transition.as_mut() {
@@ -2908,7 +2678,7 @@ impl App {
                                     spread: 0,
                                     color: SHADOW_COLOR,
                                 },
-                                stroke: egui::Stroke::new(3.0, SAGE_ACCENT),
+                                stroke: ui_style::panel_stroke(ctx, 3.0, SAGE_ACCENT),
                                 ..Default::default()
                             };
 
@@ -3029,108 +2799,72 @@ impl App {
                                 index: GROW_SLOT_INDEX,
                                 label: "Grow",
                                 key_hint: "1",
-                                category: Some("TOOLS"),
-                                icon: item_panel_staff_icon.as_ref(),
-                                accent: STAFF_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {
                                 index: SHOVEL_SLOT_INDEX,
                                 label: if infinite_materials { "Edit" } else { "Dig" },
                                 key_hint: "3",
-                                category: Some("TOOLS"),
-                                icon: item_panel_shovel_icon.as_ref(),
-                                accent: SHOVEL_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {
                                 index: HOE_SLOT_INDEX,
                                 label: "Trim",
                                 key_hint: "5",
-                                category: Some("TOOLS"),
-                                icon: item_panel_hoe_icon.as_ref(),
-                                accent: HOE_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {
                                 index: WATERING_SLOT_INDEX,
                                 label: "Water",
                                 key_hint: "6",
-                                category: Some("CARE"),
-                                icon: item_panel_water_icon.as_ref(),
-                                accent: WATER_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {
                                 index: TILLER_SLOT_INDEX,
                                 label: "Till",
                                 key_hint: "8",
-                                category: Some("CARE"),
-                                icon: item_panel_tiller_icon.as_ref(),
-                                accent: TILLER_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {
                                 index: ui_style::SOIL_DEPOSITION_SLOT_INDEX,
                                 label: "Soil",
                                 key_hint: "B",
-                                category: Some("TOOLS"),
-                                icon: None,
-                                accent: SHOVEL_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {
                                 index: SOIL_INSPECTOR_SLOT_INDEX,
                                 label: "Inspector",
                                 key_hint: "7",
-                                category: Some("SCAN"),
-                                icon: item_panel_soil_inspector_icon.as_ref(),
-                                accent: SOIL_INSPECTOR_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {
                                 index: SPRINKLER_SLOT_INDEX,
                                 label: "Spray",
                                 key_hint: "X",
-                                category: Some("ITEMS"),
-                                icon: item_panel_sprinkler_icon.as_ref(),
-                                accent: WATER_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {
                                 index: ui_style::STONE_SLOT_INDEX,
                                 label: "Stone",
                                 key_hint: "N",
-                                category: Some("ITEMS"),
-                                icon: None,
-                                accent: SAGE_ACCENT,
                                 enabled: self.rooftop_scene.is_none(),
                             },
                             ItemPanelSlot {
                                 index: ui_style::PAVEMENT_SLOT_INDEX,
                                 label: "Pave",
                                 key_hint: "V",
-                                category: Some("ITEMS"),
-                                icon: None,
-                                accent: SAGE_ACCENT,
                                 enabled: self.rooftop_scene.is_none(),
                             },
                             ItemPanelSlot {
                                 index: ui_style::MOWER_SLOT_INDEX,
                                 label: "Mower",
                                 key_hint: "L",
-                                category: Some("ITEMS"),
-                                icon: None,
-                                accent: SAGE_ACCENT,
                                 enabled: mower_mode_available,
                             },
                             ItemPanelSlot {
                                 index: ui_style::WIND_SLOT_INDEX,
                                 label: "Wind",
                                 key_hint: "9",
-                                category: Some("ITEMS"),
-                                icon: None,
-                                accent: WATER_TOOL_ACCENT,
                                 enabled: true,
                             },
                         ];
@@ -3198,7 +2932,7 @@ impl App {
                                             spread: 0,
                                             color: SHADOW_COLOR,
                                         },
-                                        stroke: egui::Stroke::new(2.0, SOIL_INSPECTOR_TOOL_ACCENT),
+                                        stroke: ui_style::panel_stroke(ctx, 2.0, SOIL_INSPECTOR_TOOL_ACCENT),
                                         ..Default::default()
                                     };
 

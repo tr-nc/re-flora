@@ -241,7 +241,7 @@ pub(super) fn draw_frame_timing_panel(
                     spread: 0,
                     color: SHADOW_COLOR,
                 },
-                stroke: egui::Stroke::new(2.0, GOLD_ACCENT),
+                stroke: super::ui_style::panel_stroke(ctx, 2.0, GOLD_ACCENT),
                 ..Default::default()
             };
 

@@ -123,6 +123,7 @@ impl GuiConfigLoader {
         ] {
             Self::add_missing_param(&mut config, "Debug", id);
         }
+        Self::add_missing_param(&mut config, "Debug", "gui_panel_outlines");
         Self::restore_low_wall_controls(&mut config);
         for param in config
             .section
@@ -1397,6 +1398,44 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn panel_outline_setting_upgrades_old_saves_and_preserves_both_choices() {
+        for saved in [None, Some(false), Some(true)] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            for section in &mut config.section {
+                if let Some(value) = saved {
+                    for param in &mut section.param {
+                        if param.id == "gui_panel_outlines" {
+                            param.value = super::GuiParamValue::Bool { value };
+                        }
+                    }
+                } else {
+                    section.param.retain(|p| p.id != "gui_panel_outlines");
+                }
+            }
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("gui.toml");
+            let original = toml::to_string_pretty(&config).unwrap();
+            std::fs::write(&path, &original).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+            let fields: Vec<_> = loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .filter(|p| p.id == "gui_panel_outlines")
+                .collect();
+            assert_eq!(fields.len(), 1);
+            assert_eq!(fields[0].value.get_bool(), Some(saved.unwrap_or(true)));
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            assert_eq!(
+                serde_json::to_value(&loaded).unwrap(),
+                serde_json::to_value(GuiConfigLoader::load_from_path(&path)).unwrap()
+            );
+        }
+    }
+
     #[test]
     fn hardware_candidates_load_old_files_and_preserve_saved_choices_without_writing() {
         use crate::app::gui_config_model::{GuiParamConditionValue, GuiParamEnabledIf};

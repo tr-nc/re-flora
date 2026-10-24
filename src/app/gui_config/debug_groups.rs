@@ -14,6 +14,13 @@ pub(super) struct ControlGroup {
 const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
+        title: "GUI Appearance",
+        description: "Show panel outlines. Backgrounds, shadows, input controls and selection indicators are unchanged. The text toolbar is always borderless. Save remembers this preference.",
+        initially_open: false,
+        params: &["gui_panel_outlines"],
+    },
+    ControlGroup {
+        parent: None,
         title: "Moisture Appearance",
         description: "Grass darkens by up to 25% in linear material color as supporting soil becomes moist. This is root/soil moisture, not water measured on each blade. Manual watering, transfer, drying and restored soil all use the same atlas. Unchecked preserves original grass color; growth and other plants are unchanged. Saved with Save.",
         initially_open: false,

@@ -212,7 +212,7 @@ fn draw_chart(
                     spread: 0,
                     color: SHADOW_COLOR,
                 },
-                stroke: egui::Stroke::new(2.0, FLOWER_ACCENT),
+                stroke: super::ui_style::panel_stroke(ctx, 2.0, FLOWER_ACCENT),
                 ..Default::default()
             }
             .show(ui, |ui| {

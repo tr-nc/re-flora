@@ -116,10 +116,17 @@ slopes remain walkable. Higher ledges require a jump within the existing jump's 
 
 ### Garden Tools
 
+The bottom toolbar uses text labels with small shortcut hints. Hover to underline a tool;
+selection stays gold and underlined. Click the active tool again to clear selection. The
+borderless translucent bar wraps on narrow windows; tool actions and shortcuts are unchanged.
+
+**R → GUI Appearance → GUI: panel outlines** toggles GUI panel outlines (on by default).
+Click **Save** to remember it. Panel backgrounds, shadows, input controls and selection markers
+remain visible; the text toolbar is always borderless.
+
 | Input | Tool | Primary interaction |
 | --- | --- | --- |
 | **1** | Grow | Choose Type / variety; hold left mouse for Flora, click for Tree; right mouse removes flora in Flora mode; **Tab** changes variety |
-| **2** | Hand | Clear the active tool |
 | **3** | Dig | Left mouse removes terrain; right mouse adds terrain |
 | **5** | Trim | Left mouse trims flora |
 | **6** | Water | Left mouse waters soil |
