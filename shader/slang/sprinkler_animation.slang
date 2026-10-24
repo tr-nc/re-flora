@@ -1,5 +1,17 @@
 module sprinkler_animation;
 
+import model_pixel_types;
+
+// One ground-anchored scale for native/cache geometry and physical water outlets.
+// Keep invalid saved values from producing inverted or non-finite hardware.
+public ModelPixelFrame sprinklerHardwareFrame(float3 base,float sizeScale)
+{
+    ModelPixelFrame frame=identityModelPixelFrame();
+    frame.center=base;
+    frame.scale=isfinite(sizeScale)?clamp(sizeScale,0.25,4.0):1.0;
+    return frame;
+}
+
 // CPU water outlets use crate::sprinkler::Pose. Explicit half-up rounding is
 // intentional: Slang round() tie behavior must not select a different pair.
 public void sprinklerAnimation(uint tick, float tickSeconds, float animationPhase,

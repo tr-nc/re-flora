@@ -1514,6 +1514,7 @@ pub struct StarlightFrameInput {
 /// Sky and post-processing state that changes independently from terrain and vegetation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EnvironmentFrameInput {
+    pub sprinkler_size_scale: f32,
     pub sprinkler_spray_angle: f32,
     pub sprinkler_rotation_speed: f32,
     pub sprinkler_pulse_duty: f32,

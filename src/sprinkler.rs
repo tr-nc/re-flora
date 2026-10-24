@@ -341,23 +341,39 @@ mod tests {
         std::fs::write(&source, r#"
 import sprinkler_animation;
 import sprinkler_spray;
+import model_pixel_types;
 export __extern_cpp int main() {
     if(SPRINKLER_ROTARY_FRAMES!=__FRAMES__u)return 4;
     uint cases=0;
+    float sizes[4]={0.25,0.5,1.0,4.0};
+    for(uint scale=0;scale<4;++scale)
     for(uint i=0;i<256;++i) for(uint r=0;r<3;++r) for(uint t=0;t<5;++t) {
         float now=float(i)*6.28318530718/251.0;
         float phase=0.213, rpm=float(r)*30.0, age=float(t)*0.17;
         float birth=now+phase*6.28318530718-age*rpm*6.28318530718/60.0;
         float baked=float(sprinklerRotaryFrame(birth))*6.28318530718/16.0;
-        MistSpraySource s=mistRotaryKinematics(age,0.01,0.8,now,phase,rpm,30.0);
-        if(length(s.outlet-sprinklerRotaryOutlet(baked))>0.000001) {
+        float3 base=float3(1.3,0.4,-0.7);
+        ModelPixelFrame hardware=sprinklerHardwareFrame(base,sizes[scale]);
+        if(length(hardware.center-base)>0.000001 || hardware.scale!=sizes[scale]) return 5;
+        MistSpraySource s=mistRotaryKinematics(age,0.01,0.8,now,phase,rpm,30.0,sizes[scale]);
+        if(length(base+s.outlet-(hardware.center+hardware.scale*sprinklerRotaryOutlet(baked)))>0.000001) {
             printf("outlet mismatch angle=%f birth=%f frame=%u\n",now,birth,sprinklerRotaryFrame(birth)); return 1;
         }
         if(length(s.velocity-mistSprayDeflectedVelocity(baked,0.8))>0.00001) return 2;
         if(abs(s.angular_velocity)>0.00001) return 3;
         ++cases;
     }
-    printf("%u discrete birth-pose cases passed\n",cases); return 0;
+    // Both real source families must preserve velocity/flux while scaling the mouth.
+    for(uint i=0;i<128;++i) for(uint scale=0;scale<4;++scale) {
+        MistSpraySource a=mistRotarySource(i,128,0.7,0.23,15,40,0.3,0.5);
+        MistSpraySource b=mistRotarySource(i,128,0.7,0.23,15,40,0.3,0.5,4.0,0.5,sizes[scale]);
+        if(length(b.outlet-a.outlet*sizes[scale])>0.000001 || length(b.velocity-a.velocity)>0.000001 || b.emission!=a.emission) return 6;
+        a=mistDropletSource(i,128,0.8,0.7,0.23,15,40,0.3,0.5,4);
+        b=mistDropletSource(i,128,0.8,0.7,0.23,15,40,0.3,0.5,4,sizes[scale]);
+        if(length(b.outlet-a.outlet*sizes[scale])>0.000001 || length(b.velocity-a.velocity)>0.000001 || b.emission!=a.emission) return 7;
+    }
+    if(sprinklerHardwareFrame(float3(0),0).scale!=0.25 || sprinklerHardwareFrame(float3(0),9).scale!=4.0) return 8;
+    printf("%u scaled discrete birth-pose cases and 1024 mist/droplet cases passed\n",cases); return 0;
 }
 "#.replace("__FRAMES__", &ROTARY_FRAMES.to_string())).unwrap();
         let compile = Command::new(std::env::var_os("SLANGC").unwrap_or_else(|| "slangc".into()))

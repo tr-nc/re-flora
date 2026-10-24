@@ -2245,6 +2245,7 @@ mod tests {
             old,
             "loading must not write user settings"
         );
+        assert_eq!(loaded.adjustables.sprinkler_size_scale.value, 1.0);
         assert!(loaded.adjustables.sprinkler_cache_enabled.value);
         assert_eq!(loaded.adjustables.sprinkler_pixel_resolution.value, 32);
         assert_eq!(
@@ -2269,7 +2270,8 @@ mod tests {
             loaded.adjustables.sprinkler_wetting_speed.value,
             default_wetting_speed
         );
-        for (enabled, n) in [(true, 8), (false, 17), (true, 32)] {
+        for (enabled, n, size) in [(true, 8, 0.25), (false, 17, 2.0), (true, 32, 4.0)] {
+            loaded.adjustables.sprinkler_size_scale.value = size;
             loaded.adjustables.sprinkler_cache_enabled.value = enabled;
             loaded.adjustables.sprinkler_pixel_resolution.value = n;
             let density = if enabled { 0.0 } else { 1.75 };
@@ -2279,6 +2281,7 @@ mod tests {
             loaded.save_to_path(&path).unwrap();
             loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
             let gui = &loaded.adjustables;
+            assert_eq!(gui.sprinkler_size_scale.value, size);
             assert_eq!(gui.sprinkler_cache_enabled.value, enabled);
             assert_eq!(gui.sprinkler_pixel_resolution.value, n);
             assert_eq!(gui.sprinkler_mist_density.value, density);

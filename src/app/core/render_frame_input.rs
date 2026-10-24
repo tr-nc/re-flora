@@ -261,6 +261,7 @@ pub(super) fn freeze_render_frame_inputs(
         field: crate::wind_field::WindFieldFrame::default(),
     };
     let environment = EnvironmentFrameInput {
+        sprinkler_size_scale: gui.sprinkler_size_scale.value,
         sprinkler_spray_angle: gui.sprinkler_spray_angle.value,
         sprinkler_rotation_speed: gui.sprinkler_rotation_speed.value,
         sprinkler_pulse_duty: crate::sprinkler::PULSE_DUTY_PERCENT,
@@ -574,6 +575,7 @@ mod tests {
         let sun_luminance = float!(sun_luminance);
         let sky_light_strength = float!(sky_light_strength);
         let sprinkler_mist_density = float!(sprinkler_mist_density);
+        let sprinkler_size_scale = float!(sprinkler_size_scale);
         let sprinkler_spray_angle = float!(sprinkler_spray_angle);
         let sprinkler_rotation_speed = float!(sprinkler_rotation_speed);
         let sprinkler_pulse_duty = crate::sprinkler::PULSE_DUTY_PERCENT;
@@ -801,6 +803,7 @@ mod tests {
                 field: crate::wind_field::WindFieldFrame::default(),
             },
             environment: EnvironmentFrameInput {
+                sprinkler_size_scale,
                 sprinkler_spray_angle,
                 sprinkler_rotation_speed,
                 sprinkler_pulse_duty,

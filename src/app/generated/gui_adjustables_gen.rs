@@ -314,6 +314,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "sprinkler_size_scale",
+        kind: "float",
+        label: "Sprinklers: overall size (x)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "sprinkler_design",
         kind: "choice",
         label: "Sprinklers: hardware design",
@@ -1822,6 +1828,7 @@ pub struct GuiAdjustables {
     pub butterfly_cache_enabled: crate::gui_adjustables::BoolParam,
     pub model_flower_cache_enabled: crate::gui_adjustables::BoolParam,
     pub sprinkler_cache_enabled: crate::gui_adjustables::BoolParam,
+    pub sprinkler_size_scale: crate::gui_adjustables::FloatParam,
     pub sprinkler_design: crate::gui_adjustables::ChoiceParam,
     pub sprinkler_spray_angle: crate::gui_adjustables::FloatParam,
     pub sprinkler_rotation_speed: crate::gui_adjustables::FloatParam,
@@ -2126,6 +2133,7 @@ impl GuiAdjustables {
         let mut butterfly_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut model_flower_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut sprinkler_size_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_design_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut sprinkler_spray_angle_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_rotation_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2663,6 +2671,13 @@ impl GuiAdjustables {
                     "sprinkler_cache_enabled" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             sprinkler_cache_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "sprinkler_size_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            sprinkler_size_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "sprinkler_design" => {
@@ -4344,6 +4359,7 @@ impl GuiAdjustables {
             butterfly_cache_enabled: butterfly_cache_enabled_field.expect("Missing parameter: butterfly_cache_enabled"),
             model_flower_cache_enabled: model_flower_cache_enabled_field.expect("Missing parameter: model_flower_cache_enabled"),
             sprinkler_cache_enabled: sprinkler_cache_enabled_field.expect("Missing parameter: sprinkler_cache_enabled"),
+            sprinkler_size_scale: sprinkler_size_scale_field.expect("Missing parameter: sprinkler_size_scale"),
             sprinkler_design: sprinkler_design_field.expect("Missing parameter: sprinkler_design"),
             sprinkler_spray_angle: sprinkler_spray_angle_field.expect("Missing parameter: sprinkler_spray_angle"),
             sprinkler_rotation_speed: sprinkler_rotation_speed_field.expect("Missing parameter: sprinkler_rotation_speed"),
@@ -4615,6 +4631,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "flower_stem_tip_radius_ratio" => Some(&adjustables.flower_stem_tip_radius_ratio),
         "apple_size_scale" => Some(&adjustables.apple_size_scale),
         "apple_environment_fill" => Some(&adjustables.apple_environment_fill),
+        "sprinkler_size_scale" => Some(&adjustables.sprinkler_size_scale),
         "sprinkler_spray_angle" => Some(&adjustables.sprinkler_spray_angle),
         "sprinkler_rotation_speed" => Some(&adjustables.sprinkler_rotation_speed),
         "sprinkler_wet_patch_size" => Some(&adjustables.sprinkler_wet_patch_size),
@@ -4953,6 +4970,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "flower_stem_tip_radius_ratio" => Some(&mut adjustables.flower_stem_tip_radius_ratio),
         "apple_size_scale" => Some(&mut adjustables.apple_size_scale),
         "apple_environment_fill" => Some(&mut adjustables.apple_environment_fill),
+        "sprinkler_size_scale" => Some(&mut adjustables.sprinkler_size_scale),
         "sprinkler_spray_angle" => Some(&mut adjustables.sprinkler_spray_angle),
         "sprinkler_rotation_speed" => Some(&mut adjustables.sprinkler_rotation_speed),
         "sprinkler_wet_patch_size" => Some(&mut adjustables.sprinkler_wet_patch_size),

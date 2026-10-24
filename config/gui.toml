@@ -663,6 +663,17 @@ type = "Bool"
 value = true
 
 [[section.param]]
+id = "sprinkler_size_scale"
+kind = "float"
+label = "Sprinklers: overall size (x)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.25
+max = 4
+
+[[section.param]]
 id = "sprinkler_design"
 kind = "choice"
 label = "Sprinklers: hardware design"

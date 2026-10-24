@@ -71,12 +71,12 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
         if(!particle) source=mistRotarySource(index,mist_push.lobes_per_instance,gui_input.sprinkler_rotor_angle,pose.w,
             gui_input.sprinkler_rotation_speed,gui_input.sprinkler_spray_angle,
             gui_input.sprinkler_pulse_duty,gui_input.sprinkler_pulse_time,gui_input.sprinkler_pulse_frequency,
-            frac(gui_input.sprinkler_quadrature+floor(frac(pose.w)*64.0)/64.0));
+            frac(gui_input.sprinkler_quadrature+floor(frac(pose.w)*64.0)/64.0),gui_input.sprinkler_size_scale);
         else if(mist_push.particles_enabled!=0u)
             source=mistDropletSource(droplet,mist_push.droplets_per_instance,gui_input.sprinkler_droplet_time,
                 gui_input.sprinkler_rotor_angle,pose.w,gui_input.sprinkler_rotation_speed,
                 gui_input.sprinkler_spray_angle,gui_input.sprinkler_pulse_duty,
-                gui_input.sprinkler_pulse_time,gui_input.sprinkler_pulse_frequency);
+                gui_input.sprinkler_pulse_time,gui_input.sprinkler_pulse_frequency,gui_input.sprinkler_size_scale);
         const bool rotary=true;
         float age=source.age;
         float airFraction=1.0;

@@ -1052,12 +1052,12 @@ impl App {
                     "[SPRINKLER_CONTACT_CONTROL] stopped_air_and_water=true rotor_continues=true"
                 );
             }
-            let (angle, rpm, duty) = match review.frame / 40 {
-                0 => (10.0, 0.0, 100.0),
-                1 => (90.0, 60.0, 100.0),
-                2 => (40.0, 15.0, 0.0),
-                3 => (40.0, 15.0, 50.0),
-                _ => (40.0, 15.0, 100.0),
+            let (angle, rpm, duty, size) = match review.frame / 40 {
+                0 => (10.0, 0.0, 100.0, 0.25),
+                1 => (90.0, 60.0, 100.0, 4.0),
+                2 => (40.0, 15.0, 0.0, 2.0),
+                3 => (40.0, 15.0, 50.0, 0.5),
+                _ => (40.0, 15.0, 100.0, 1.0),
             };
             let gui = &mut self.debug_settings.adjustables;
             self.sprinkler_diagnostic_timing.frequency = match review.frame / 40 {
@@ -1066,11 +1066,12 @@ impl App {
                 3 => 1.0,
                 _ => 4.0,
             };
+            gui.sprinkler_size_scale.value = size;
             gui.sprinkler_spray_angle.value = angle;
             gui.sprinkler_rotation_speed.value = rpm;
             self.sprinkler_diagnostic_timing.duty_percent = duty;
             if review.frame % 40 == 0 && review.frame <= 160 {
-                log::info!("[SPRINKLER_CONTACT_CONTROL] step={} angle={angle} rpm={rpm} duty={duty} saved=false",review.frame/40);
+                log::info!("[SPRINKLER_CONTACT_CONTROL] step={} angle={angle} rpm={rpm} duty={duty} size={size} saved=false",review.frame/40);
             }
         }
         if let Some(drying) = &mut review.drying {

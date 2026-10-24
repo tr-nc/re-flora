@@ -65,6 +65,24 @@
 - 证据归档在 `target/recorded-tree-leaf-validation/sprinkler-discrete-*.log`。
   没有把这些自动化结果冒充人工视觉批准。
 
+## 整体大小滑杆
+
+Debug → Hardware Appearance → **Sprinklers: overall size (x)**，0.25–4 倍，
+默认 1 倍；统一调整所有洒水器，使用现有 Save 保存。旧配置缺少字段时在内存中
+补默认值，不改写源文件。原生模型与预缓存模型共享以放置底座为中心的缩放帧；
+水雾、光学液滴和用于土壤浇灌的共同发射源使用相同的缩放喷嘴位置。
+不缩放发射速度、喷射角、RPM、喷水节奏、浇水量或声音；喷嘴高度变化仍会自然
+影响落地位置。调整大小无需重新烘焙模型缓存。
+
+- Slang CPU 回归：15,360 个缩放/离散出生姿态案例及 1,024 个实际雾/液滴源案例，
+  验证底座固定、喷嘴与模型姿态一致、速度/流量不被缩放。
+- GUI 117 项和 render-frame-input 5 项测试通过；包含旧配置升级、大小保存重载、
+  与苹果/蝴蝶等其它尺寸设置独立。
+- Release 原生 `rotary-contact-controls` 场景按 0.25、4、2、0.5、1 倍切换，
+  180 帧通过，停止阶段 air/water 均为零；退出 failures=0，无 ERROR/VUID/panic。
+- `cargo fmt --check`、`cargo check`、Release 构建及普通隐藏静音 smoke 通过。
+  本轮未自动启动可见游戏，未声称人工视觉验收；用户原有 mixer 配置保留。
+
 ## 历史实现及验证（scope v3，以下程序 DSP 描述已被上文替代）
 
 ## 交付行为与所有权

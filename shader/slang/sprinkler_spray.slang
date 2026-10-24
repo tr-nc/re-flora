@@ -90,7 +90,7 @@ public float sprinklerPulseAmount(float center,float width,float duty,float freq
 
 // Shared launch law for the continuous field and its optical droplet samples.
 public MistSpraySource mistRotaryKinematics(float age,float width,float reach,
-    float angleNow,float phase,float rpm,float angleDegrees)
+    float angleNow,float phase,float rpm,float angleDegrees,float hardwareScale=1.0)
 {
     MistSpraySource s;
     s.age=age;s.width=width;s.nozzle=0u;s.emission=1.0;
@@ -99,14 +99,14 @@ public MistSpraySource mistRotaryKinematics(float age,float width,float reach,
     s.angular_velocity=0.0;
     s.spread=tan(angleDegrees*3.14159265359/360.0);
     float angle=sprinklerLaunchAngle(angleNow,phase,rpm,age);
-    s.outlet=sprinklerRotaryOutlet(angle);
+    s.outlet=sprinklerHardwareFrame(float3(0),hardwareScale).scale*sprinklerRotaryOutlet(angle);
     s.velocity=mistSprayDeflectedVelocity(angle,reach);
     s.velocity_span=float3(0);
     return s;
 }
 
 public MistSpraySource mistRotarySource(uint index,uint count,float angleNow,float phase,
-    float rpm,float angleDegrees,float duty,float pulseTime,float frequency=4.0,float quadrature=0.5)
+    float rpm,float angleDegrees,float duty,float pulseTime,float frequency=4.0,float quadrature=0.5,float hardwareScale=1.0)
 {
     float2 interval=mistSprayAgeInterval(index,count,true);
     uint band=index/(count/MIST_ROTARY_BANDS);
@@ -115,7 +115,7 @@ public MistSpraySource mistRotarySource(uint index,uint count,float angleNow,flo
         // Fixed midpoints collapse whole velocity intervals onto a few terrain
         // height planes forever. Temporal stratification integrates that same
         // continuous distribution without painting or jittering soil receivers.
-        lerp(range.x,range.y,quadrature),angleNow,phase,rpm,angleDegrees);
+        lerp(range.x,range.y,quadrature),angleNow,phase,rpm,angleDegrees,hardwareScale);
     float angle=sprinklerLaunchAngle(angleNow,phase,rpm,s.age);
     s.velocity_span=mistSprayDeflectedVelocity(angle,range.y)-mistSprayDeflectedVelocity(angle,range.x);
     float weight=(mistSprayReferenceRangeSquared(range.y)-mistSprayReferenceRangeSquared(range.x))/
@@ -128,7 +128,7 @@ public MistSpraySource mistRotarySource(uint index,uint count,float angleNow,flo
 // ADVECT with world time (unlike quadrature nodes); seed/launch velocity remain
 // attached to each birth slot, never to a rendered frame. No second water source.
 public MistSpraySource mistDropletSource(uint index,uint count,float time,float angleNow,
-    float phase,float rpm,float angleDegrees,float duty,float pulseTime,float frequency)
+    float phase,float rpm,float angleDegrees,float duty,float pulseTime,float frequency,float hardwareScale=1.0)
 {
     float seed=float(index)+frac(phase)*8192.0;
     float age=frac(time/MIST_FLOW_LIFETIME-(float(index)+hash11(seed+3.0)*0.7)/float(count))*MIST_FLOW_LIFETIME;
@@ -138,7 +138,7 @@ public MistSpraySource mistDropletSource(uint index,uint count,float time,float 
         float mid=(lo+hi)*0.5;
         if(mistSprayReferenceRangeSquared(mid)<area)lo=mid;else hi=mid;
     }
-    MistSpraySource s=mistRotaryKinematics(age,0.0,(lo+hi)*0.5,angleNow,phase,rpm,angleDegrees);
+    MistSpraySource s=mistRotaryKinematics(age,0.0,(lo+hi)*0.5,angleNow,phase,rpm,angleDegrees,hardwareScale);
     // Finite transverse spread is sampled at birth, not screen-space noise.
     float3 sideways=normalize(float3(-s.velocity.z,0,s.velocity.x));
     float spread=length(s.velocity.xz)*s.spread;

@@ -32,8 +32,7 @@ ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint instance:SV_VulkanInstan
     ModelMeshOutput output; output.position=float4(2,2,2,1);output.color=float4(0);
     // One fixed assembly frame selects the same camera view/grid for all 16
     // internal poses. Do not rotate this frame with the nozzle.
-    ModelPixelFrame physical=identityModelPixelFrame();
-    physical.center=pose.xyz;
+    ModelPixelFrame physical=sprinklerHardwareFrame(pose.xyz,gui_input.sprinkler_size_scale);
     float3 position,normal; uint material;
     CachedModelVertex cached;
     if(cachedModelVertex(vertex,part.range.z,5u,physical,float3(0),cached)) {
