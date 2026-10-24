@@ -22,9 +22,6 @@ pub(crate) const ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH: &str =
 pub(crate) const ITEM_PANEL_STAFF_ICON_PATH: &str = "assets/texture/tool_icons/grow.png";
 pub(crate) const ITEM_PANEL_STAFF_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/4_Wooden_Staff.PNG";
-pub(crate) const ITEM_PANEL_SMOOTH_ICON_PATH: &str = "assets/texture/tool_icons/smooth.png";
-pub(crate) const ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH: &str =
-    "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/26_Copper_Hoe.PNG";
 pub(crate) const ITEM_PANEL_HOE_ICON_PATH: &str = "assets/texture/tool_icons/trim.png";
 pub(crate) const ITEM_PANEL_HOE_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/28_Copper_Sickle.PNG";
@@ -41,7 +38,6 @@ pub(crate) const ITEM_PANEL_TILLER_ICON_FALLBACK_PATH: &str =
     "assets/texture/Pixel_Farming_Tools_IconSet_16px/Individuals/11_Wooden_Hoe.PNG";
 pub(crate) const GROW_SLOT_INDEX: usize = 0;
 pub(crate) const SHOVEL_SLOT_INDEX: usize = 2;
-pub(crate) const SMOOTH_SLOT_INDEX: usize = 3;
 pub(crate) const HOE_SLOT_INDEX: usize = 4;
 pub(crate) const WATERING_SLOT_INDEX: usize = 5;
 pub(crate) const SOIL_INSPECTOR_SLOT_INDEX: usize = 6;
@@ -55,7 +51,6 @@ pub(crate) const PAVEMENT_SLOT_INDEX: usize = 14;
 pub(crate) const SPRINKLER_PLACEABLE_SLOT_INDEX: usize = 1;
 
 pub(crate) const SHOVEL_TOOL_ACCENT: Color32 = Color32::from_rgb(178, 124, 80);
-pub(crate) const SMOOTH_TOOL_ACCENT: Color32 = Color32::from_rgb(190, 156, 106);
 pub(crate) const STAFF_TOOL_ACCENT: Color32 = Color32::from_rgb(129, 189, 122);
 pub(crate) const HOE_TOOL_ACCENT: Color32 = Color32::from_rgb(219, 128, 152);
 pub(crate) const WATER_TOOL_ACCENT: Color32 = Color32::from_rgb(96, 171, 218);

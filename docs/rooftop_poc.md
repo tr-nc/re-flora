@@ -21,7 +21,6 @@ cargo run --release -- --rooftop-poc
   supplies solid floor adjacency without becoming editable terrain.
 - Click the material palette to select a material. No artificial inventory is manufactured.
 - **2 Grow:** use existing planting controls on added soil; **Tab** changes flora.
-- **4 Smooth:** uses the existing smoothing tool, constrained to the legal soil layer.
 - **Alt + right mouse drag:** orbit; **middle mouse drag:** pan; **wheel:** zoom.
   Tool secondary actions own unmodified right mouse in this experiment. Tools without a secondary
   action also retain ordinary right-drag orbit. The normal garden's input policy is unchanged.

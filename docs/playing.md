@@ -121,7 +121,6 @@ slopes remain walkable. Higher ledges require a jump within the existing jump's 
 | **1** | Grow | Choose Type / variety; hold left mouse for Flora, click for Tree; right mouse removes flora in Flora mode; **Tab** changes variety |
 | **2** | Hand | Clear the active tool |
 | **3** | Dig | Left mouse removes terrain; right mouse adds terrain |
-| **4** | Smooth | Left mouse smooths terrain |
 | **5** | Trim | Left mouse trims flora |
 | **6** | Water | Left mouse waters soil |
 | **7** | Inspector | Hover to inspect local soil |

@@ -11,7 +11,7 @@ use super::{
     CANOPY_AUDIO_DIAGNOSTIC_TREE_SEED,
 };
 use crate::app::world_edits::{
-    BuildEdit, ClearVoxelRegionEdit, CubePlacementEdit, FencePostPlacementEdit, TerrainBrushEdit,
+    ClearVoxelRegionEdit, CubePlacementEdit, FencePostPlacementEdit, TerrainBrushEdit,
     TerrainRemovalEdit, TreeAddOptions, TreePlacement, TreePlacementEdit, VoxelEdit,
     WorldEditTransaction,
 };
@@ -3161,74 +3161,6 @@ impl App {
         // Surface occupants have different storage/rendering backends, but brush semantics are
         // centralized here so future tools cannot accidentally clear only one category.
         self.remove_sprinklers_in_brush(edit)?;
-        Ok(())
-    }
-
-    pub(super) fn apply_surface_terrain_smooth(
-        &mut self,
-        center: Vec3,
-        radius: f32,
-        strength: f32,
-        max_delta: f32,
-        deadband: f32,
-    ) -> Result<()> {
-        let flora_brush_edit = TerrainBrushEdit {
-            start: center,
-            end: center,
-            radius,
-        };
-        let flora_rebuild_bound = TerrainSurfaceRemovalService::compile_surface_brush_in_world(
-            flora_brush_edit,
-            self.world_chunk_dim,
-        )
-        .map(|compiled| compiled.rebuild_bound);
-        let flora_edit = world_ops::FloraBrushEdit {
-            start: center,
-            end: center,
-            radius,
-            tick: self.world_clock.flora_tick(),
-            spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
-        };
-
-        let terrain_rebuild_bound = if self.rooftop_scene.is_some() {
-            self.plain_builder.smooth_terrain_dirt_in_bounds(
-                center,
-                radius,
-                strength,
-                max_delta,
-                deadband,
-                Some(UAabb3::new(
-                    super::rooftop_scene::SOIL_MIN,
-                    super::rooftop_scene::SOIL_MAX,
-                )),
-            )?
-        } else {
-            self.plain_builder
-                .smooth_terrain_dirt(center, radius, strength, max_delta, deadband)?
-        };
-
-        if let Some(flora_rebuild_bound) = flora_rebuild_bound {
-            world_ops::mesh_remove_flora_for_brush_edit(
-                &mut self.surface_builder,
-                super::VOXEL_DIM_PER_CHUNK,
-                flora_rebuild_bound,
-                flora_edit,
-            )?;
-        }
-
-        let Some(rebuild_bound) = terrain_rebuild_bound else {
-            return Ok(());
-        };
-
-        let rebuild_chunk_ids =
-            world_ops::affected_chunk_indices_for_bound(rebuild_bound, super::VOXEL_DIM_PER_CHUNK);
-        self.publish_visible_terrain(
-            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildChunksWithoutFlora(
-                rebuild_chunk_ids,
-            )])?
-            .context("terrain smoothing requires an affected visible terrain region")?,
-        )?;
-        self.observe_player_terrain_publication_for_connectivity(rebuild_bound);
         Ok(())
     }
 

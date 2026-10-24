@@ -750,7 +750,6 @@ impl App {
         match action {
             ContinuousTerrainToolAction::ShovelDig => self.try_shovel_dig(now),
             ContinuousTerrainToolAction::ShovelPlace => self.try_shovel_place(now),
-            ContinuousTerrainToolAction::Smooth => self.try_terrain_smooth(now),
             ContinuousTerrainToolAction::StaffRegenerate => self.try_staff_regenerate(now),
             ContinuousTerrainToolAction::StaffRemove => self.try_staff_remove_flora(now),
             ContinuousTerrainToolAction::HoeTrim => self.try_hoe_trim(now),
@@ -850,10 +849,6 @@ impl App {
 
     pub(super) fn is_shovel_selected(&self) -> bool {
         self.player_tools.selected_tool() == PlayerTool::Shovel
-    }
-
-    pub(super) fn is_smooth_selected(&self) -> bool {
-        self.player_tools.selected_tool() == PlayerTool::Smooth
     }
 
     pub(super) fn is_terrain_edit_radius_tool_selected(&self) -> bool {
@@ -1170,54 +1165,6 @@ impl App {
             Err(err) => {
                 self.player_tools.interrupt_stroke(action);
                 log::error!("Shovel carve attempt failed during terrain query: {}", err);
-            }
-        }
-    }
-
-    pub(super) fn try_terrain_smooth(&mut self, now: Instant) {
-        if !self.terrain_edit_pointer_available() || !self.is_smooth_selected() {
-            self.stop_terrain_edit_loop_sound();
-            return;
-        }
-        let action = ContinuousTerrainToolAction::Smooth;
-
-        match self.query_terrain_edit_ray_intersection(super::SHOVEL_RAY_QUERY_DISTANCE) {
-            Ok(Some(center)) => {
-                if !self.terrain_edit_endpoint_within_editable_chunk(center) {
-                    self.stop_terrain_edit_loop_sound();
-                    self.player_tools.defer_stroke(action, now);
-                    return;
-                }
-                self.start_terrain_edit_loop_sound(center);
-
-                if !self
-                    .player_tools
-                    .stroke_ready(action, now, super::SHOVEL_DIG_INTERVAL)
-                {
-                    return;
-                }
-
-                if let Err(err) = self.apply_surface_terrain_smooth(
-                    center,
-                    self.player_tools.terrain_edit_radius,
-                    super::TERRAIN_SMOOTH_STRENGTH,
-                    super::TERRAIN_SMOOTH_MAX_DELTA,
-                    super::TERRAIN_SMOOTH_DEADBAND,
-                ) {
-                    log::error!("Failed to apply terrain smoothing: {}", err);
-                    return;
-                }
-                self.player_tools.record_stroke_dab(action, now, center);
-            }
-            Ok(None) => {
-                self.stop_terrain_edit_loop_sound();
-                self.player_tools.defer_stroke(action, now);
-            }
-            Err(err) => {
-                log::error!(
-                    "Terrain smoothing attempt failed during terrain query: {}",
-                    err
-                );
             }
         }
     }

@@ -172,15 +172,14 @@ use ui_style::{
     GOLD_ACCENT, GROW_SLOT_INDEX, HOE_SLOT_INDEX, HOE_TOOL_ACCENT,
     ITEM_PANEL_HOE_ICON_FALLBACK_PATH, ITEM_PANEL_HOE_ICON_PATH,
     ITEM_PANEL_SHOVEL_ICON_FALLBACK_PATH, ITEM_PANEL_SHOVEL_ICON_PATH,
-    ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH, ITEM_PANEL_SMOOTH_ICON_PATH,
     ITEM_PANEL_SOIL_INSPECTOR_ICON_FALLBACK_PATH, ITEM_PANEL_SOIL_INSPECTOR_ICON_PATH,
     ITEM_PANEL_SPRINKLER_ICON_PATH, ITEM_PANEL_STAFF_ICON_FALLBACK_PATH,
     ITEM_PANEL_STAFF_ICON_PATH, ITEM_PANEL_TILLER_ICON_FALLBACK_PATH, ITEM_PANEL_TILLER_ICON_PATH,
     ITEM_PANEL_WATER_ICON_FALLBACK_PATH, ITEM_PANEL_WATER_ICON_PATH, PANEL_BG, PANEL_DARK,
-    SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SMOOTH_SLOT_INDEX,
-    SMOOTH_TOOL_ACCENT, SOIL_INSPECTOR_SLOT_INDEX, SOIL_INSPECTOR_TOOL_ACCENT,
-    SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX, STAFF_TOOL_ACCENT, TILLER_SLOT_INDEX,
-    TILLER_TOOL_ACCENT, WATERING_SLOT_INDEX, WATER_TOOL_ACCENT,
+    SAGE_ACCENT, SHADOW_COLOR, SHOVEL_SLOT_INDEX, SHOVEL_TOOL_ACCENT, SOIL_INSPECTOR_SLOT_INDEX,
+    SOIL_INSPECTOR_TOOL_ACCENT, SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX,
+    STAFF_TOOL_ACCENT, TILLER_SLOT_INDEX, TILLER_TOOL_ACCENT, WATERING_SLOT_INDEX,
+    WATER_TOOL_ACCENT,
 };
 use winit::{
     dpi::PhysicalSize,
@@ -487,7 +486,6 @@ pub struct App {
     soil_bag_preview: soil_bag_preview::State,
     card_display_visible: bool,
     item_panel_shovel_icon: Option<TextureHandle>,
-    item_panel_smooth_icon: Option<TextureHandle>,
     item_panel_staff_icon: Option<TextureHandle>,
     item_panel_hoe_icon: Option<TextureHandle>,
     item_panel_water_icon: Option<TextureHandle>,
@@ -958,9 +956,6 @@ const CENTER_CROSS_MARK_GAP: f32 = 3.0;
 const CENTER_CROSS_MARK_STROKE_WIDTH: f32 = 1.5;
 const SHOVEL_DIG_INTERVAL: Duration = Duration::from_millis(80);
 const SHOVEL_RAY_QUERY_DISTANCE: f32 = 10.0;
-const TERRAIN_SMOOTH_STRENGTH: f32 = 0.55;
-const TERRAIN_SMOOTH_MAX_DELTA: f32 = 0.025;
-const TERRAIN_SMOOTH_DEADBAND: f32 = 0.0035;
 const TERRAIN_EDIT_LOOP_VOLUME_DB: f32 = 20.0;
 const TERRAIN_EDIT_LOOP_MUTED_VOLUME_DB: f32 = -80.0;
 const ITEM_PANEL_SCROLL_SFX_VOLUME_DB: f32 = -6.0;
@@ -1629,7 +1624,6 @@ impl App {
             soil_bag_preview: soil_bag_preview::State::from_env()?,
             card_display_visible: false,
             item_panel_shovel_icon: None,
-            item_panel_smooth_icon: None,
             item_panel_staff_icon: None,
             item_panel_hoe_icon: None,
             item_panel_water_icon: None,
@@ -1875,33 +1869,6 @@ impl App {
             egui::TextureOptions::NEAREST,
         );
         self.item_panel_staff_icon = Some(staff_texture);
-
-        let smooth_path = if std::path::Path::new(ITEM_PANEL_SMOOTH_ICON_PATH).exists() {
-            ITEM_PANEL_SMOOTH_ICON_PATH
-        } else {
-            log::warn!(
-                "Item panel icon not found at {}. Falling back to {}",
-                ITEM_PANEL_SMOOTH_ICON_PATH,
-                ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH
-            );
-            ITEM_PANEL_SMOOTH_ICON_FALLBACK_PATH
-        };
-
-        let smooth_bytes = std::fs::read(smooth_path)
-            .with_context(|| format!("Failed to read item panel icon from {smooth_path}"))?;
-        let smooth_rgba = image::load_from_memory(&smooth_bytes)
-            .with_context(|| format!("Failed to decode item panel icon from {smooth_path}"))?
-            .to_rgba8();
-        let smooth_size = [smooth_rgba.width() as usize, smooth_rgba.height() as usize];
-        let smooth_pixels = smooth_rgba.into_raw();
-        let smooth_image = ColorImage::from_rgba_unmultiplied(smooth_size, &smooth_pixels);
-
-        let smooth_texture = self.egui_renderer.context().load_texture(
-            "item_panel_smooth",
-            smooth_image,
-            egui::TextureOptions::NEAREST,
-        );
-        self.item_panel_smooth_icon = Some(smooth_texture);
 
         let hoe_path = if std::path::Path::new(ITEM_PANEL_HOE_ICON_PATH).exists() {
             ITEM_PANEL_HOE_ICON_PATH
@@ -2357,7 +2324,6 @@ impl App {
                     let target_slot = match event.physical_key {
                         PhysicalKey::Code(KeyCode::Digit1) => Some(0),
                         PhysicalKey::Code(KeyCode::Digit3) => Some(2),
-                        PhysicalKey::Code(KeyCode::Digit4) => Some(3),
                         PhysicalKey::Code(KeyCode::Digit5) => Some(4),
                         PhysicalKey::Code(KeyCode::Digit6) => Some(5),
                         PhysicalKey::Code(KeyCode::Digit7) => Some(6),
@@ -2713,7 +2679,6 @@ impl App {
                 let vsm_blur_radius_before_gui =
                     self.debug_settings.adjustables.vsm_blur_radius.value;
                 let item_panel_shovel_icon = self.item_panel_shovel_icon.clone();
-                let item_panel_smooth_icon = self.item_panel_smooth_icon.clone();
                 let item_panel_staff_icon = self.item_panel_staff_icon.clone();
                 let item_panel_hoe_icon = self.item_panel_hoe_icon.clone();
                 let item_panel_water_icon = self.item_panel_water_icon.clone();
@@ -3076,15 +3041,6 @@ impl App {
                                 category: Some("TOOLS"),
                                 icon: item_panel_shovel_icon.as_ref(),
                                 accent: SHOVEL_TOOL_ACCENT,
-                                enabled: true,
-                            },
-                            ItemPanelSlot {
-                                index: SMOOTH_SLOT_INDEX,
-                                label: "Smooth",
-                                key_hint: "4",
-                                category: Some("TOOLS"),
-                                icon: item_panel_smooth_icon.as_ref(),
-                                accent: SMOOTH_TOOL_ACCENT,
                                 enabled: true,
                             },
                             ItemPanelSlot {

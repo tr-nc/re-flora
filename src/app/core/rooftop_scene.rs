@@ -754,23 +754,6 @@ impl App {
             .authored_flora_base_positions_for_species(species_index)
             .len();
         anyhow::ensure!(planted > 0, "Grow placed no plants on the added soil");
-        self.apply_surface_terrain_smooth(
-            hit.position,
-            0.065,
-            super::TERRAIN_SMOOTH_STRENGTH,
-            super::TERRAIN_SMOOTH_MAX_DELTA,
-            super::TERRAIN_SMOOTH_DEADBAND,
-        )?;
-        let forbidden_slab = self.plain_builder.read_chunk_atlas_region(
-            (center * 256.).as_uvec3() - UVec3::new(25, 1, 25),
-            UVec3::new(50, 1, 50),
-        )?;
-        anyhow::ensure!(
-            forbidden_slab
-                .iter()
-                .all(|&v| u32::from(v & VOXEL_TYPE_MASK) != VOXEL_TYPE_DIRT),
-            "smoothing wrote beneath fixed roof"
-        );
         let remove = self.apply_surface_terrain_removal(edit, None, None, None)?;
         self.contree_builder.flush_cpu_chunk_cache_jobs();
         anyhow::ensure!(
@@ -827,7 +810,7 @@ impl App {
             movement.grounded && movement.translation.y > -0.005,
             "fixed roof character collision failed: {movement:?}"
         );
-        log::info!("[ROOFTOP][CHECK] first_soil={} second_soil={} first_removed={} removed_total={} planted={} bare_pick=true floor_clip=true smooth_clip=true grow_path=true roof_preserved=true grounded=true edit_pointer=true alt_orbit=true gradual_remove=true", add.stats.count_added(crate::builder::VOXEL_TYPE_DIRT), second.stats.count_added(crate::builder::VOXEL_TYPE_DIRT), remove.stats.count_removed(crate::builder::VOXEL_TYPE_DIRT), removed_total, planted);
+        log::info!("[ROOFTOP][CHECK] first_soil={} second_soil={} first_removed={} removed_total={} planted={} bare_pick=true floor_clip=true grow_path=true roof_preserved=true grounded=true edit_pointer=true alt_orbit=true gradual_remove=true", add.stats.count_added(crate::builder::VOXEL_TYPE_DIRT), second.stats.count_added(crate::builder::VOXEL_TYPE_DIRT), remove.stats.count_removed(crate::builder::VOXEL_TYPE_DIRT), removed_total, planted);
         // Drive the production pointer → semantic action → shovel placement path, too.
         // Leave its planted patch only for this opt-in fixture, never the normal opening.
         let opening_pose = self.tracer.camera_pose();

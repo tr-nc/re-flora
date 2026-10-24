@@ -1,5 +1,9 @@
 # Terrain Smoothing GPU Progress
 
+> Historical record: the Smooth tool has been retired. Its UI, input handling,
+> CPU/GPU implementation, shaders and dedicated buffers have been removed;
+> the implementation details and measurements below describe the former system.
+
 ## Goal
 
 Build a fast, genuinely 3D terrain smoothing tool for binary/material voxel terrain.

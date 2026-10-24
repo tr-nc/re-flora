@@ -6,9 +6,9 @@ use winit::event::{ElementState, MouseButton};
 use super::placeables::PlaceableKind;
 use super::plant_catalog::{PlantType, PlantVariety, PlantingSelection};
 use super::ui_style::{
-    GROW_SLOT_INDEX, HOE_SLOT_INDEX, SHOVEL_SLOT_INDEX, SMOOTH_SLOT_INDEX,
-    SOIL_INSPECTOR_SLOT_INDEX, SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX,
-    TILLER_SLOT_INDEX, WATERING_SLOT_INDEX, WIND_SLOT_INDEX,
+    GROW_SLOT_INDEX, HOE_SLOT_INDEX, SHOVEL_SLOT_INDEX, SOIL_INSPECTOR_SLOT_INDEX,
+    SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX, TILLER_SLOT_INDEX, WATERING_SLOT_INDEX,
+    WIND_SLOT_INDEX,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -19,7 +19,6 @@ pub(super) enum PlayerTool {
     Grow,
     Shovel,
     Soil,
-    Smooth,
     Hoe,
     Watering,
     SoilInspector,
@@ -39,7 +38,6 @@ impl PlayerTool {
             GROW_SLOT_INDEX => Some(Self::Grow),
             SHOVEL_SLOT_INDEX => Some(Self::Shovel),
             super::ui_style::SOIL_DEPOSITION_SLOT_INDEX => Some(Self::Soil),
-            SMOOTH_SLOT_INDEX => Some(Self::Smooth),
             HOE_SLOT_INDEX => Some(Self::Hoe),
             WATERING_SLOT_INDEX => Some(Self::Watering),
             SOIL_INSPECTOR_SLOT_INDEX => Some(Self::SoilInspector),
@@ -58,7 +56,6 @@ impl PlayerTool {
             Self::Grow => GROW_SLOT_INDEX,
             Self::Shovel => SHOVEL_SLOT_INDEX,
             Self::Soil => super::ui_style::SOIL_DEPOSITION_SLOT_INDEX,
-            Self::Smooth => SMOOTH_SLOT_INDEX,
             Self::Hoe => HOE_SLOT_INDEX,
             Self::Watering => WATERING_SLOT_INDEX,
             Self::SoilInspector => SOIL_INSPECTOR_SLOT_INDEX,
@@ -97,7 +94,6 @@ pub(super) enum ContinuousTerrainToolAction {
     ShovelDig,
     ShovelPlace,
     SoilDeposit,
-    Smooth,
     StaffRegenerate,
     StaffRemove,
     HoeTrim,
@@ -128,7 +124,6 @@ struct TerrainStrokeRuntime {
     shovel_dig: TerrainStroke,
     shovel_place: TerrainStroke,
     soil_deposit: TerrainStroke,
-    smooth: TerrainStroke,
     staff_regenerate: TerrainStroke,
     staff_remove: TerrainStroke,
     hoe_trim: TerrainStroke,
@@ -145,7 +140,6 @@ impl TerrainStrokeRuntime {
             ContinuousTerrainToolAction::ShovelDig => &self.shovel_dig,
             ContinuousTerrainToolAction::ShovelPlace => &self.shovel_place,
             ContinuousTerrainToolAction::SoilDeposit => &self.soil_deposit,
-            ContinuousTerrainToolAction::Smooth => &self.smooth,
             ContinuousTerrainToolAction::StaffRegenerate => &self.staff_regenerate,
             ContinuousTerrainToolAction::StaffRemove => &self.staff_remove,
             ContinuousTerrainToolAction::HoeTrim => &self.hoe_trim,
@@ -159,7 +153,6 @@ impl TerrainStrokeRuntime {
             ContinuousTerrainToolAction::ShovelDig => &mut self.shovel_dig,
             ContinuousTerrainToolAction::ShovelPlace => &mut self.shovel_place,
             ContinuousTerrainToolAction::SoilDeposit => &mut self.soil_deposit,
-            ContinuousTerrainToolAction::Smooth => &mut self.smooth,
             ContinuousTerrainToolAction::StaffRegenerate => &mut self.staff_regenerate,
             ContinuousTerrainToolAction::StaffRemove => &mut self.staff_remove,
             ContinuousTerrainToolAction::HoeTrim => &mut self.hoe_trim,
@@ -619,7 +612,6 @@ impl PlayerToolRuntime {
                 Some(ContinuousTerrainToolAction::ShovelPlace)
             }
             (PlayerTool::Soil, MouseButton::Left) => Some(ContinuousTerrainToolAction::SoilDeposit),
-            (PlayerTool::Smooth, MouseButton::Left) => Some(ContinuousTerrainToolAction::Smooth),
             (PlayerTool::Grow, MouseButton::Left)
                 if self.planting.plant_type == PlantType::Flora =>
             {
@@ -747,6 +739,20 @@ mod tests {
     }
 
     #[test]
+    fn removed_smooth_slot_cannot_select_a_tool_or_interrupt_a_stroke() {
+        let mut runtime = PlayerToolRuntime::default();
+        assert!(!runtime.select_item_panel_slot(3).changed());
+        assert_eq!(runtime.selected_item_panel_display_slot(), None);
+        runtime.select_item_panel_slot(super::SHOVEL_SLOT_INDEX);
+        runtime.set_pointer_button_state(MouseButton::Left, ElementState::Pressed);
+        runtime.begin_pointer_action(MouseButton::Left);
+        assert!(runtime.continuous_hold_active());
+        assert!(!runtime.select_item_panel_slot(3).changed());
+        assert_eq!(runtime.selected_tool(), PlayerTool::Shovel);
+        assert!(runtime.continuous_hold_active());
+    }
+
+    #[test]
     fn stone_placement_is_a_left_click_action_not_a_continuous_brush() {
         let mut runtime = PlayerToolRuntime::default();
         runtime.select_item_panel_slot(crate::app::core::ui_style::STONE_SLOT_INDEX);
@@ -827,7 +833,6 @@ mod tests {
                 super::super::ui_style::SOIL_DEPOSITION_SLOT_INDEX,
                 PlayerTool::Soil,
             ),
-            (super::SMOOTH_SLOT_INDEX, PlayerTool::Smooth),
             (super::HOE_SLOT_INDEX, PlayerTool::Hoe),
             (super::WATERING_SLOT_INDEX, PlayerTool::Watering),
             (super::SOIL_INSPECTOR_SLOT_INDEX, PlayerTool::SoilInspector),
@@ -984,11 +989,6 @@ mod tests {
                 PlayerTool::Shovel,
                 MouseButton::Right,
                 ContinuousTerrainToolAction::ShovelPlace,
-            ),
-            (
-                PlayerTool::Smooth,
-                MouseButton::Left,
-                ContinuousTerrainToolAction::Smooth,
             ),
             (
                 PlayerTool::Grow,
