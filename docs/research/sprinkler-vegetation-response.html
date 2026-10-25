@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>喷到之后，花园如何回应 · Sprinkler 研究报告</title>
+<style>
+:root{--paper:#f5f4ee;--card:#fffefa;--ink:#203a34;--muted:#52635b;--line:#d6ded3;--green:#286247;--blue:#235f88;--amber:#835320;--soft:#e7eee2;--radius:18px}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:88px}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.8 system-ui,-apple-system,"Noto Sans CJK SC","Microsoft YaHei",sans-serif}a{color:var(--blue);text-underline-offset:4px}a:hover{text-decoration-thickness:2px}button,input,select{font:inherit}button,select{border:1px solid #9aaea0;border-radius:8px;padding:7px 13px;background:var(--card);color:var(--ink)}button{cursor:pointer}button:hover{background:var(--soft)}:focus-visible{outline:3px solid #b3772c;outline-offset:4px}code{font: .9em/1.6 ui-monospace,monospace;overflow-wrap:anywhere}p{margin:10px 0 16px}h1,h2,h3{line-height:1.3;letter-spacing:-.025em}h1{font-size:clamp(36px,5.2vw,66px);margin:20px 0}h2{font-size:30px;margin:0 0 20px}h3{font-size:20px;margin:0 0 10px}small,.muted{color:var(--muted)}.wrap{width:min(1140px,calc(100% - 48px));margin:auto}.hero{background:#183b31;color:#fffdf1;padding:62px 0 48px}.hero p{max-width:790px;color:#dce6d8;font-size:19px}.eyebrow{letter-spacing:.1em;font-size:13px;font-weight:650}.badge{display:inline-block;font-size:13px;border:1px solid #b3c8b3;border-radius:100px;padding:3px 12px;margin-right:8px}.hero .badge{color:#ebf1d9;border-color:#829f8e}.hero .metadata{font-size:13px;color:#c7d8ca;margin-top:24px}nav{position:sticky;top:0;background:rgba(245,244,238,.97);border-bottom:1px solid var(--line);z-index:5}nav .wrap{display:flex;gap:25px;overflow:auto;padding:14px 0;white-space:nowrap}nav a{font-size:14px;color:var(--ink);text-decoration:none}main{padding-bottom:50px}section{padding-top:54px}.lead{font-size:20px;max-width:900px}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.two{grid-template-columns:repeat(2,minmax(0,1fr))}.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:25px}.card p:last-child{margin-bottom:0}.accent{border-left:4px solid var(--green)}.callout{padding:18px 22px;border-left:4px solid var(--amber);background:#f1e8d9;border-radius:0 10px 10px 0;margin:22px 0}.callout p:last-child{margin-bottom:0}.check{color:var(--green);font-weight:750}.num{font-size:12px;color:var(--muted);letter-spacing:.12em;margin-bottom:10px}.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--card)}table{width:100%;border-collapse:collapse;min-width:660px;text-align:left}th,td{padding:15px 18px;border-bottom:1px solid var(--line);vertical-align:top}th{background:#e9eee4;font-size:14px}td{font-size:15px}tr:last-child td{border-bottom:0}.controls{display:flex;flex-wrap:wrap;align-items:center;gap:15px;margin:18px 0}.controls label{display:inline-flex;align-items:center;gap:8px}.controls input[type=checkbox]{width:18px;height:18px;accent-color:var(--green)}.demo{padding:24px;overflow:hidden}.demo svg{display:block;width:100%;height:auto}.scene-scroll{overflow-x:auto}.demo-stage{background:linear-gradient(#edf1e9,#f9f8f1);border:1px solid var(--line);border-radius:12px}.time-control{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:16px 0}.time-control input{flex:1;min-width:130px;accent-color:var(--green)}output{font-variant-numeric:tabular-nums}.stats{display:flex;gap:24px;flex-wrap:wrap;font-size:14px}.stats strong{font-size:19px;color:var(--blue)}.stage-caption{font-size:13px;color:var(--muted);margin-bottom:0}.flow{display:grid;grid-template-columns:1fr 36px 1fr 36px 1fr;gap:8px;align-items:center;margin:24px 0}.flow .card{padding:20px}.arrow{text-align:center;font-size:26px;color:#67846a}.equation{font-family:ui-monospace,monospace;background:#e9eee4;padding:15px 18px;border-radius:9px;margin:14px 0;overflow-wrap:anywhere}.cost{font-size:36px;font-weight:700;line-height:1.4}.cost small{font-size:16px}.cost-title{font-size:14px;margin-top:8px}.steps{counter-reset:step;display:grid;gap:14px}.step{display:grid;grid-template-columns:38px 1fr;gap:15px;align-items:start}.step:before{counter-increment:step;content:counter(step);display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#dce7d7;font-weight:700}.step p{margin:4px 0 0}.refs li{margin:0 0 18px;padding-left:7px}.refs{padding-left:25px}.source{font-size:13px;margin-top:14px}.scope-list{padding-left:21px;margin-bottom:0}.scope-list li{margin:8px 0}details{border:1px solid var(--line);border-radius:12px;padding:18px 22px;background:var(--card);margin-top:18px}summary{cursor:pointer;font-weight:650}footer{padding:28px 0 40px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}.skip{position:absolute;left:15px;top:-100px;background:white;padding:8px;z-index:20}.skip:focus{top:10px}.nowrap{white-space:nowrap}
+@media(max-width:780px){.wrap{width:calc(100% - 32px)}.hero{padding:38px 0 30px}.hero p{font-size:17px}.grid,.two{grid-template-columns:1fr}.card{padding:20px}.demo{padding:14px}.flow{grid-template-columns:1fr}.arrow{transform:rotate(90deg);width:40px;justify-self:center}section{padding-top:38px}h2{font-size:25px}nav .wrap{gap:20px}.stats{gap:14px}.controls{gap:12px}.controls label{flex-wrap:wrap}.controls select{max-width:100%}.scene-scroll .demo-stage{min-width:660px}.hero .metadata{overflow-wrap:anywhere}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+@media print{body{background:white;font-size:11pt}.wrap{width:100%}.hero{background:white;color:var(--ink);padding:15px 0}.hero p,.hero .metadata,.hero .badge{color:var(--ink)}h1{font-size:32pt}nav,.controls,.time-control button{display:none}section{padding-top:24px}.card,.table-wrap{break-inside:avoid}a{color:inherit}details{display:block}.grid{gap:10px}.demo{break-inside:avoid}footer{padding:16px 0}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">跳到正文</a>
+<header class="hero"><div class="wrap">
+<div class="eyebrow">RE: FLORA / SPRINKLER RESPONSE</div>
+<h1>喷到之后，<br>花园如何回应。</h1>
+<p>用局部冲击表达“喷中了”，用一个湿润值表达“沾了水”。<br>不做逐滴流体，也不让每个草 voxel 拥有一份水物理。</p>
+<span class="badge">实施前研究 · 尚未改游戏</span><span class="badge">植物不互挡 · terrain 硬遮挡</span>
+<div class="metadata">2026-10-25 · 源码基线 966a03bd · 原始论文 + 渲染实践 + 实际代码审计</div>
+</div></header>
+<nav aria-label="报告目录"><div class="wrap"><a href="#recommendation">推荐方案</a><a href="#demo">运动示意</a><a href="#terrain">单 ray 与地形</a><a href="#code">代码现状</a><a href="#cost">性能成本</a><a href="#delivery">实施与验收</a><a href="#sources">来源</a></div></nav>
+<main id="main" class="wrap">
+<section id="recommendation">
+<h2>结论：值得做，但不是“加一个湿度值”就结束。</h2>
+<p class="lead">推荐先做<strong>喷中偏转 → 离开回弹 → 湿后下垂 → 缓慢恢复</strong>。动力来自水流，湿重改变静态形状和局部恢复感；不用“越湿越抖”替代力学。</p>
+<div class="grid">
+<article class="card accent"><div class="num">01 / 草</div><h3>一株一个 wetness</h3><p>每根草的叶面湿润量统一控制外观和下垂。另存紧凑的偏转、速度，根部固定；不为每层、每个 voxel 重复更新水状态。</p></article>
+<article class="card accent"><div class="num">02 / 苹果</div><h3>每颗独立被推开</h3><p>在实际高度与挂点接收水流推力，绕挂点回摆。挂着时不用完整刚体；喷水不默认触发掉果。</p></article>
+<article class="card accent"><div class="num">03 / 树叶</div><h3>局部颤动，轻微下垂</h3><p>复用现有叶响应；湿度尽量按小叶簇锚点共享。水只推被覆盖的局部，不让整棵树一起摇，不反向求解枝干。</p></article>
+</div>
+<div class="callout"><strong>已根据你的最新反馈收敛：</strong>草、叶、苹果不截断彼此的水流；terrain 必须阻挡。第一版不做树冠截留、水量重新分配或滴水二次灌溉。</div>
+<p class="muted">为什么先给报告：实际代码中的草/苹果共享二维响应场，而水有高度；草的历史状态也不能绑定绘制序号。低阶模型很直观，但正确接入需要处理状态归属、帧顺序和地形遮挡，不能只加一个 shader 抖动参数。</p>
+</section>
+<section id="demo">
+<h2>先区分两种感觉：冲击，和湿重。</h2>
+<p>拖动时间轴，或播放同一段受力过程。取消“湿重”只去掉示意中的附加质量与下垂，不去掉水流推力。相向喷洒时，净定向力抵消，湿润仍累积。</p>
+<div class="card demo">
+<strong>二维概念示意 · 不是游戏截图、生产模型或性能实测</strong>
+<div class="controls">
+<label for="scenario">水流情景 <select id="scenario"><option value="sweep">扫过一次</option><option value="pulse">脉冲喷洒</option><option value="steady">持续喷洒</option><option value="opposed">相向喷洒</option></select></label>
+<label for="wet-weight"><input id="wet-weight" type="checkbox" checked>显示湿重响应</label>
+</div>
+<div class="scene-scroll" role="region" aria-label="运动示意图，可横向滚动" tabindex="0">
+<svg id="scene" class="demo-stage" viewBox="0 0 900 290" role="img" aria-labelledby="scene-title scene-desc">
+<title id="scene-title">草、叶片与悬挂苹果的喷水响应示意</title><desc id="scene-desc">水流使对象偏转，停止后运动衰减；草叶保留湿重下垂。所有输入是预设时间函数，没有执行真实喷流或地形检测。</desc>
+<path d="M35 241 H865" stroke="#c3cdbc" stroke-width="2"/>
+<path d="M300 26 V253 M600 26 V253" stroke="#d3ddcd" stroke-dasharray="5 7"/>
+<text x="150" y="36" text-anchor="middle" fill="#344f42" font-size="17">草：根部固定</text><text x="450" y="36" text-anchor="middle" fill="#344f42" font-size="17">叶：局部恢复</text><text x="750" y="36" text-anchor="middle" fill="#344f42" font-size="17">苹果：固定挂点</text>
+<path d="M135 241 Q131 173 148 104" fill="none" stroke="#bcc8b4" stroke-dasharray="5 5" stroke-width="5"/>
+<g id="grass" fill="none" stroke="#477949" stroke-width="7" stroke-linecap="round"><path id="grass-a" d="M96 241 Q94 182 107 130"/><path id="grass-b" d="M135 241 Q131 173 148 104"/><path id="grass-c" d="M173 241 Q170 186 186 139"/></g>
+<path d="M356 205 Q376 167 391 115" stroke="#776249" stroke-width="6" fill="none"/>
+<g id="leaf" transform="rotate(0 391 115)"><path d="M391 115 C420 78 474 88 511 118 C478 140 431 149 391 115" fill="#54834c"/><path d="M391 115 Q451 111 508 118" stroke="#d5ddb0" fill="none" stroke-width="2"/></g>
+<path d="M666 80 H823" stroke="#776249" stroke-width="8" stroke-linecap="round"/><circle cx="735" cy="80" r="5" fill="#203a34"/>
+<path id="apple-string" d="M735 80 L735 180" stroke="#716344" stroke-width="3"/>
+<g id="apple" transform="translate(735 185)"><path d="M0 -17 C-35 -36 -43 7 -19 25 C-8 31 -4 22 0 23 C5 22 11 31 21 24 C44 3 32 -37 0 -17" fill="#b95842"/><path d="M0 -16 Q-3 -26 4 -31" stroke="#67543c" stroke-width="4" fill="none"/><ellipse cx="13" cy="-27" rx="12" ry="5" fill="#56814c" transform="rotate(-25 13 -27)"/></g>
+<g id="water-arrows" fill="#337698" font-size="32"><text x="45" y="112">→</text><text x="327" y="89">→</text><text x="648" y="162">→</text></g>
+<g id="opposed-arrows" fill="#337698" font-size="32" opacity="0"><text x="236" y="112">←</text><text x="546" y="89">←</text><text x="831" y="162">←</text></g>
+<text x="150" y="275" text-anchor="middle" fill="#52635b" font-size="14">湿后保留一点下垂</text><text x="450" y="275" text-anchor="middle" fill="#52635b" font-size="14">不让整个树冠同相摆动</text><text x="750" y="275" text-anchor="middle" fill="#52635b" font-size="14">湿重不改变此示意的摆频</text>
+</svg>
+</div>
+<div class="time-control"><button id="play" type="button" aria-pressed="false">播放</button><label for="timeline">时间</label><input id="timeline" type="range" min="0" max="12" step="0.01" value="3"><output id="time-label" for="timeline">3.00 s</output><button id="reset" type="button">重置</button></div>
+<div class="stats"><span>叶面湿润 <strong id="wet-label">—</strong></span><span>归一化输入 <strong id="force-label">—</strong></span><span id="phase-label" role="status">加载示意</span></div>
+<p class="stage-caption">示意单位与视觉幅度为解释而设，未作植物参数标定。三个对象读取预设输入，不是同一条真实水束；不含风、碰撞或真实遮挡。播放默认关闭，后台页面暂停。</p>
+<noscript><p>JavaScript 未启用：以上为静态示意，报告正文仍可完整阅读。</p></noscript>
+</div>
+<div class="grid two" style="margin-top:18px">
+<article class="card"><h3>不是越重越容易乱抖</h3><p>水流输入冲量，弹性与重力负责恢复。固定刚度下，增加质量会降低固有频率；恒定推力最终形成偏转平衡，不会无限自发抖动。</p><p class="source">依据：真实叶片冲击实验 <a href="#s1">[1]</a>、阻尼振子 <a href="#s3">[3]</a></p></article>
+<article class="card"><h3>苹果不照搬湿草的公式</h3><p>理想小角度单摆的周期不依赖质量。苹果的表现重点是“被推开、再摆回来”，不是因为表面挂水就明显变慢。水滴对叶片阻尼也不是普适常数。</p><p class="source">依据：单摆 <a href="#s3">[3]</a>、液滴与悬臂共振实验 <a href="#s2">[2]</a></p></article>
+</div>
+</section>
+<section id="terrain">
+<h2>一条水束共享遮挡，不让每株植物重复查。</h2>
+<div class="flow"><div class="card"><strong>已有 Sprinkler 水源</strong><p>同一个世界时钟、方向、速度、喷幅和阀门。</p></div><div class="arrow" aria-hidden="true">→</div><div class="card"><strong>terrain 裁剪后的水束</strong><p>中心线代表检测；复用有限支持裁剪与局部候选。</p></div><div class="arrow" aria-hidden="true">→</div><div class="card"><strong>植物局部响应</strong><p>入水量 + 定向推力。植物不消耗或阻挡水源。</p></div></div>
+<div class="callout"><strong>单 ray 的边界：</strong>一条代表水束一根中心线可以；整个扇形喷幅只测中心一根，遇到“半堵墙”就可能漏判。新增反馈优先复用当前 terrain sweep，不另做逐植物多 ray，也不为省事删掉原有墙边裁剪。</div>
+<div class="grid two"><article class="card"><h3>不新增树冠遮挡</h3><p>前面的叶子不会削弱后面的水，也不产生截留水量。苹果与草都只是被动接收者。这与现有 terrain-only 喷流一致。</p></article><article class="card"><h3>不从“雾有多浓”推算力</h3><p>当前空气密度场是光学用途，关闭雾或改雾强度会影响它。植物输入应来自共享水源；关雾、关粒子，水依旧能推草。</p></article></div>
+<p class="muted">当前喷流有下落弧线与有限宽度，并非单条直线。若要求整个喷头严格只有一次直线 query，需要另改喷流与土壤覆盖模型；本次不扩展成这项工作。中心线通过也不能允许水束宽核跨墙。</p>
+</section>
+<section id="code">
+<h2>代码里哪些能复用，哪些不能直接套。</h2>
+<div class="table-wrap" role="region" aria-label="代码接入分析表，可横向滚动" tabindex="0"><table><thead><tr><th scope="col">当前实现</th><th scope="col">结论</th><th scope="col">接入要求</th></tr></thead><tbody>
+<tr><td>草从支撑土壤读 0–3 湿度，并暗化颜色。</td><td><strong>并没有逐草 voxel 的叶面水状态。</strong></td><td>新增每株叶面 wetness；保留土壤水分与生长。两种暗化不简单连乘。</td></tr>
+<tr><td>草、苹果读共享 XZ 摆动场，网格输入 Y=0。</td><td>风可以这样近似，局部喷水不行。</td><td>个体局部状态；同 XZ 不同高度的苹果分别命中。</td></tr>
+<tr><td>草实例 8 bytes，列表可原子 append／重建。</td><td>绘制下标不是稳定身份。</td><td>sidecar 按根位置与生命周期重映射；移除重种不能继承旧水。</td></tr>
+<tr><td>已有解析阻尼求解与苹果摆长几何。</td><td>能复用数学与形变，不必新增刚体。</td><td>现有参数 force 实际是平衡位移，不能直接塞 Newton 数值。</td></tr>
+<tr><td>叶响应目前细到渲染 voxel/元素。</td><td>“一个叶状态”不一定是一片生物叶。</td><td>优先按小叶簇锚点共享湿度；不再复制完整逐 voxel 水状态。</td></tr>
+<tr><td>植物响应在前，喷流准备在后；后者混合了光学采样。</td><td>不是加一个输入 binding 就能读当帧水流。</td><td>分开早期 transport 与晚期光学修饰，保证 frame-slot 同步。</td></tr>
+<tr><td>掉果使用已发布姿态与异步稀疏读回。</td><td>新摆动不能只存在于视觉顶点里。</td><td>位置、速度、阴影与掉果交接读同一最终结果。</td></tr>
+</tbody></table></div>
+<p class="source">完整文件路径、行号与所有权分析见 <a href="sprinkler-vegetation-response.md">配套研究笔记 §3–4</a>。核心：<a href="../../src/tracer/vegetation_response.rs">vegetation_response.rs</a> · <a href="../../shader/slang/sprinkler_mist_prepare.comp.slang">sprinkler_mist_prepare.comp.slang</a> · <a href="../../shader/slang/grass_moisture_material.slang">grass_moisture_material.slang</a></p>
+</section>
+<section id="model">
+<h2>一份湿润记忆，一份局部运动。</h2>
+<div class="grid two"><article class="card"><h3>慢变化：叶面附着水</h3><div class="equation">dw/dt = a · Q · (1 − w) − b · w</div><p>接水增加、饱和有上限、停水慢慢干。使用世界时间和解析衰减，避免帧率越高越湿。w 是艺术化的附着水代理，不宣称是真实守恒水库。</p></article><article class="card"><h3>快变化：局部冲击与恢复</h3><div class="equation">m(w) q″ + c(w) q′ + k(q − q_rest(w)) = F_spray</div><p>水流产生方向明确的作用，正阻尼让运动停止。湿重修改静态下垂与局部喷击恢复；相向输入的合力与积湿量分别累计。</p></article></div>
+<p>V1 不重写已有环境风系统。<strong>“湿重”先由下垂和局部恢复变慢表达</strong>，不是声称整株草的全部风响应都已随质量重算。若要湿度同时改变风振动频率，需要每株连续相位或统一受力求解，必须另计成本，不能用 <code>sin(time × frequency(w))</code> 造成相位跳变。</p>
+<details><summary>稳定状态还需要遵守哪些契约？</summary><ul class="scope-list"><li>LOD、相机剔除和列表重排不改变湿度；重种视为新生命。</li><li>离屏不停止物理受水；停喷后也不能直接清掉回弹与湿润。</li><li>草每株只积分一次，所有层、顶点、缓存消费者读取同一份状态。</li><li>世界载入清理 transient 叶面水与运动；土壤存档照旧，不先改存档格式。</li><li>湿度与受力不依赖雾强度、可见水滴数量或渲染帧号。</li><li>V1 喷水不自动打落苹果；已有掉果发生时仍需连续交接位置和速度。</li></ul></details>
+</section>
+<section id="cost">
+<h2>省的是重复接触计算，不是宣称“只有一个 float”。</h2>
+<p>下面以 <strong>100,000 株草</strong>为算例，不是当前花园的测量数量，也不是最终 GPU ABI。</p>
+<div class="grid"><article class="card"><div class="cost">0.38 <small>MiB</small></div><h3 class="cost-title">单份、每株一个 f32 湿度</h3><p>能记住湿润，不能独立表达冲击后的回弹。</p></article><article class="card"><div class="cost">3.05 <small>MiB</small></div><h3 class="cost-title">单份、按 32 bytes 紧凑状态估算</h3><p>湿润 + 二维局部偏转/速度与对齐余量。索引与输入另算。</p></article><article class="card"><div class="cost">24 <small>MiB</small></div><h3 class="cost-title">若采用六份输出与二次幂容量</h3><p>131,072 容量 × 32 bytes × 6。提醒：帧槽和历史不是免费，不承诺必须这样分配。</p></article></div>
+<div class="table-wrap" role="region" aria-label="性能设计对照表，可横向滚动" tabindex="0" style="margin-top:20px"><table><thead><tr><th scope="col">避免</th><th scope="col">采用</th></tr></thead><tbody><tr><td>每草 voxel × 全部喷头 × 全部水样本</td><td>水束共享准备；每个接收者只查局部候选</td></tr><tr><td>给每株复制现有完整 112-byte 响应结构</td><td>专门的紧凑局部状态；不复制无用的四份风姿态</td></tr><tr><td>每帧 CPU 遍历/读回所有植物</td><td>GPU 更新与渲染；CPU 只管理布局变化和已有掉果事件</td></tr><tr><td>只更新屏幕可见植物，或低频更新漏掉短脉冲</td><td>按实际受水范围调度；降频时仍积算世界时间内的输入</td></tr><tr><td>新增反馈顺便把全部土壤 voxel 水分删掉</td><td>土壤迁移、生长与存档照旧；叶面水只表达叶面状态</td></tr></tbody></table></div>
+<p class="callout"><strong>当前没有增量耗时结论。</strong>局部候选数在重叠喷头下仍会增长；状态迁移也可能有尖峰。必须测 Release 的 CPU/GPU p50、p95、显存与重建峰值，不能把“小公式”或单元测试当性能证据。</p>
+</section>
+<section id="delivery">
+<h2>怎么落地，以及什么算真正完成。</h2>
+<div class="grid two"><div class="card"><div class="steps"><div class="step"><div><h3>共享输入先正确</h3><p>早期 transport 发布受力输入；不改变原土壤入水。terrain 全墙、半墙、薄墙测试先过。</p></div></div><div class="step"><div><h3>状态跟对象，不跟绘制顺序</h3><p>草 sidecar、苹果个体运动、叶簇湿度；重排、重种、世界替换与离屏测试。</p></div></div><div class="step"><div><h3>接入所有可见消费者</h3><p>cached/native、pixelized、阴影和掉果交接一致；根固定、摆长固定。</p></div></div><div class="step"><div><h3>先看效果，再收性能</h3><p>游戏 Debug 提供保存的运行时 A/B，未勾选是原模式。视觉确认后做独立性能接受，不以小回退阻塞候选展示。</p></div></div></div></div>
+<div class="card"><h3>必须验证的代表场景</h3><ul class="scope-list"><li>无风喷水、扫过回弹、停水后仍湿但逐渐静止。</li><li>同 XZ 不同高度的苹果，只推动实际命中的那颗。</li><li>相向双喷头：力相消，积湿不相消。</li><li>terrain 后无水；植物后可以有水。</li><li>雾强度为零、隐藏粒子，不关闭水的作用。</li><li>30/60/120 Hz、暂停、长帧，累积输入一致。</li><li>密草、多树、重叠喷头的 Release 配对测量。</li><li>Vulkan 同步无错误，用户保存设置不被覆盖。</li></ul></div></div>
+<div class="callout"><strong>“drippy”还剩一个体验选择。</strong>推荐 V1 先做 <strong>droopy：湿重下垂 + 回弹</strong>。如果也要肉眼看见叶尖滴水，可追加限量视觉水珠；不让每片叶子变成新流体发射器，也不重复计算灌溉。这里没有替你默认加入滴水。</div>
+<p><span class="check">本次交付：研究报告与独立运动示意。</span> 游戏行为尚未修改。Release 基线已构建；这不意味着喷水反馈已经实现或通过性能验收。</p>
+</section>
+<section id="sources">
+<h2>证据与边界</h2>
+<ol class="refs">
+<li id="s1"><strong>Bhosale et al., 2020 · 真实叶片冲击实验</strong><br><a href="https://bhosale2.github.io/assets/paps/leaf.pdf">Bending, twisting and flapping leaf upon raindrop impact — 作者全文 PDF</a><br><span class="muted">已读作者全文的摘要、方法、理论与局限；小变形下弯曲/扭转振子近似。实验叶片疏水、试次不留残水，不拿来标定积湿容量或连续喷洒。</span></li>
+<li id="s2"><strong>Fowler et al., 2024 · 液滴与柔性悬臂的共振和阻尼</strong><br><a href="https://arxiv.org/html/2406.18830v1">Resonance and Damping in Drop-Cantilever Interactions — 作者预印本全文</a><br><span class="muted">已读 v1 的摘要、建模与结果讨论；实验材料是聚碳酸酯，不是游戏草。用于限制“越湿阻尼必然越大”的过度归纳，不复制实验参数。</span></li>
+<li id="s3"><strong>OpenStax · 基础力学</strong><br><a href="https://openstax.org/books/university-physics-volume-1/pages/15-5-damped-oscillations">15.5 Damped Oscillations</a> · <a href="https://openstax.org/books/university-physics-volume-1/pages/15-4-pendulums">15.4 Pendulums</a><br><span class="muted">已读正文；区分弹性振子与重力单摆，解释衰减与恢复，不作为生物材料参数来源。</span></li>
+<li id="s4"><strong>Tiago Sousa / Crytek · 原作者渲染实现</strong><br><a href="https://developer.nvidia.com/gpugems/gpugems3/part-iii-rendering/chapter-16-vegetation-procedural-animation-and-shading-crysis">GPU Gems 3, Chapter 16 — Vegetation Procedural Animation and Shading in Crysis</a><br><span class="muted">已读；实例级聚合、整体/细节分层与根部高度权重。不是本项目性能测量。</span></li>
+<li id="s5"><strong>Sébastien Lagarde · 湿润状态的原作者实践</strong><br><a href="https://seblagarde.wordpress.com/2013/01/03/water-drop-2b-dynamic-rain-and-its-effects/">Water drop 2b — Dynamic rain and its effects</a><br><span class="muted">已读；wet level 独立于瞬时雨强，停雨后衰减。道路 BRDF、材料系数不直接用于草叶。</span></li>
+</ol>
+<details><summary>访问失败、验证范围与可复现入口</summary><p>部分 Oxford / ScienceDirect 原文返回 403，APS 2015 全文返回 401，没有把搜索摘要充当全文证据。S2 v2 不存在、PDF 下载中止，最终成功读取实际的 v1 HTML。完整来源限制见 <a href="sprinkler-vegetation-response.md">Markdown 研究笔记</a>。</p><p>报告不加载外部资源；图形由本页 SVG/JavaScript 原创绘制。自动检查命令：<code>node --test docs/research/sprinkler-vegetation-response.test.mjs</code>。这些测试只约束报告示意，不验证游戏。</p><p>基线构建：<code>cargo build --release</code>。本地证据目录：<code>target/sprinkler-response-report/</code>。未做新增功能的 app benchmark；没有自动启动可见游戏。</p></details>
+</section>
+</main>
+<footer><div class="wrap">Re: Flora · Sprinkler vegetation response · <a href="sprinkler-vegetation-response.md">完整技术笔记</a><br>源码事实、实验结论、推荐设计与示意模型分别标注；不把方案当完成、不把状态大小当帧耗时。</div></footer>
+<script id="response-model">
+// Standalone explanatory model. Not imported by, or calibrated to, the game.
+const SprayResponseModel = (() => {
+  const duration = 12;
+  function overlap(a, b, lo, hi) { return Math.max(0, Math.min(b, hi) - Math.max(a, lo)); }
+  function pulseIntegral(t) {
+    const x = Math.max(0, Math.min(7, t - 1)) * 4;
+    return (Math.floor(x) * 0.3 + Math.min(x - Math.floor(x), 0.3)) / 4;
+  }
+  function input(mode, a, b) {
+    const dt = b - a;
+    if (!(dt > 0)) return {dose: 0, push: 0};
+    const on = mode === 'pulse' ? (pulseIntegral(b) - pulseIntegral(a)) / dt
+      : overlap(a, b, 1, mode === 'sweep' ? 2.2 : 8) / dt;
+    return {dose: on * (mode === 'opposed' ? 2 : 1), push: mode === 'opposed' ? 0 : on};
+  }
+  function wetStep(w, dose, dt) {
+    const rate = 0.95 * dose + 0.13;
+    const equilibrium = 0.95 * dose / rate;
+    return Math.max(0, Math.min(1, equilibrium + (w - equilibrium) * Math.exp(-rate * dt)));
+  }
+  function spring(q, v, force, stiffness, mass, dampingRatio, dt) {
+    const omega = Math.sqrt(stiffness / mass), decay = dampingRatio * omega;
+    const oscillation = omega * Math.sqrt(1 - dampingRatio * dampingRatio);
+    const target = force / stiffness, x = q - target;
+    const c = Math.cos(oscillation * dt), s = Math.sin(oscillation * dt) / oscillation;
+    const e = Math.exp(-decay * dt);
+    return [target + e * (x * c + (v + decay * x) * s),
+      e * (v * c - (decay * v + omega * omega * x) * s)];
+  }
+  function simulate({mode = 'sweep', wetWeight = true, dt = 1 / 240} = {}) {
+    if (!['sweep', 'pulse', 'steady', 'opposed'].includes(mode)) throw new Error('unknown scenario');
+    if (!Number.isFinite(dt) || dt < 1 / 2000 || dt > 0.1) throw new Error('invalid time step');
+    const samples = [];
+    let t = 0, w = 0, grass = 0, gv = 0, leaf = 0, lv = 0, apple = 0, av = 0;
+    const snapshot = () => ({t, w, grass, gv, leaf, lv, apple, av});
+    samples.push(snapshot());
+    const steps = Math.ceil(duration / dt);
+    for (let i = 0; i < steps; i++) {
+      const end = Math.min(duration, (i + 1) * dt), h = end - t;
+      const water = input(mode, t, end);
+      const nextW = wetStep(w, water.dose, h), midW = (w + nextW) * 0.5;
+      [grass, gv] = spring(grass, gv, water.push * 40, 50, 1 + (wetWeight ? midW : 0), 0.27, h);
+      [leaf, lv] = spring(leaf, lv, water.push * 24, 105, 0.6 * (1 + (wetWeight ? midW * 0.65 : 0)), 0.3, h);
+      // A simple angular oscillator for illustration; wetness never changes its mass/frequency.
+      [apple, av] = spring(apple, av, water.push * 4.2, 18, 1, 0.18, h);
+      w = nextW; t = end; samples.push(snapshot());
+    }
+    return samples;
+  }
+  function at(samples, time) {
+    if (!Number.isFinite(time)) throw new Error('invalid time');
+    const t = Math.max(0, Math.min(duration, time));
+    let lo = 0, hi = samples.length - 1;
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (samples[mid].t <= t) lo = mid; else hi = mid; }
+    const a = samples[lo], b = samples[hi], f = (t - a.t) / (b.t - a.t);
+    return Object.fromEntries(Object.keys(a).map(key => [key, a[key] + (b[key] - a[key]) * f]));
+  }
+  function applePosition(angle) { return {x: 735 + Math.sin(angle) * 105, y: 80 + Math.cos(angle) * 105}; }
+  return Object.freeze({duration, input, wetStep, spring, simulate, at, applePosition});
+})();
+</script>
+<script>
+(() => {
+  const el = id => document.getElementById(id);
+  const scenario = el('scenario'), wetWeight = el('wet-weight'), timeline = el('timeline'), play = el('play');
+  let samples, playing = false, previous = null, animation = null;
+  function render() {
+    const time = Number(timeline.value), state = SprayResponseModel.at(samples, time);
+    const water = SprayResponseModel.input(scenario.value, time, time + 0.001);
+    const wet = wetWeight.checked ? state.w : 0;
+    el('time-label').value = time.toFixed(2) + ' s';
+    el('wet-label').textContent = state.w.toFixed(2);
+    el('force-label').textContent = water.push.toFixed(2);
+    el('phase-label').textContent = water.dose > 0.001 ? (scenario.value === 'opposed' ? '相向输入：积湿，不净推向一侧' : '水流作用中')
+      : time < 1 ? '尚未喷到' : '输入停止：回弹与干燥';
+    [['grass-a',96,111,0.85],['grass-b',135,137,1],['grass-c',173,102,0.75]].forEach(([id,root,height,scale]) => {
+      const shift = state.grass * 49 * scale, bend = 13 + wet * 30;
+      const tip = root + bend + shift, top = 241 - height + wet * 26 + Math.abs(shift) * 0.1;
+      el(id).setAttribute('d', `M${root} 241 C${root} 211 ${root + shift * 0.3} ${top + 27} ${tip} ${top}`);
+    });
+    const tint = Math.round(115 - state.w * 24);
+    el('grass').setAttribute('stroke', `rgb(60,${tint},61)`);
+    el('leaf').setAttribute('transform', `rotate(${state.leaf * 52 + wet * 14} 391 115)`);
+    const p = SprayResponseModel.applePosition(state.apple);
+    el('apple').setAttribute('transform', `translate(${p.x} ${p.y}) rotate(${-state.apple * 180 / Math.PI})`);
+    el('apple-string').setAttribute('d', `M735 80 L${735 + Math.sin(state.apple) * 85} ${80 + Math.cos(state.apple) * 85}`);
+    el('water-arrows').setAttribute('opacity', water.dose > 0.001 ? '0.9' : '0');
+    el('opposed-arrows').setAttribute('opacity', scenario.value === 'opposed' && water.dose > 0.001 ? '0.9' : '0');
+  }
+  function stop() {
+    playing = false; previous = null; play.textContent = '播放'; play.setAttribute('aria-pressed','false');
+    if (animation !== null) cancelAnimationFrame(animation); animation = null;
+  }
+  function frame(now) {
+    if (!playing) return;
+    if (previous !== null) timeline.value = Math.min(12, Number(timeline.value) + Math.min(0.1, (now - previous) / 1000));
+    previous = now; render();
+    if (Number(timeline.value) >= 12) stop(); else animation = requestAnimationFrame(frame);
+  }
+  function rebuild() { samples = SprayResponseModel.simulate({mode:scenario.value, wetWeight:wetWeight.checked}); render(); }
+  play.addEventListener('click', () => {
+    if (playing) { stop(); return; }
+    if (Number(timeline.value) >= 12) timeline.value = 0;
+    playing = true; play.textContent = '暂停'; play.setAttribute('aria-pressed','true'); animation = requestAnimationFrame(frame);
+  });
+  el('reset').addEventListener('click', () => { stop(); timeline.value = 0; render(); });
+  timeline.addEventListener('input', () => { stop(); render(); });
+  scenario.addEventListener('change', () => { stop(); rebuild(); });
+  wetWeight.addEventListener('change', () => { stop(); rebuild(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stop(); });
+  rebuild();
+})();
+</script>
+</body>
+</html>
