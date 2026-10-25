@@ -50,6 +50,65 @@ impl SurfaceBuilder {
             })
             .collect()
     }
+    /// Soil only buries roots directly below actual new solid voxels. Do not run
+    /// procedural placement/density selection again for already-established plants.
+    pub fn remove_flora_buried_by_voxels(&mut self, deposited: &[UVec3]) -> Result<()> {
+        let mut roots_by_chunk: HashMap<UVec3, HashSet<UVec3>> = HashMap::new();
+        for &voxel in deposited {
+            if voxel.y > 0 {
+                let root = voxel - UVec3::Y;
+                roots_by_chunk
+                    .entry(self.chunk_id_for_world_voxel(root))
+                    .or_default()
+                    .insert(root);
+            }
+        }
+        let mut dirty_growth = HashSet::new();
+        for (chunk, buried) in roots_by_chunk {
+            let mut live = self.read_flora_species(chunk)?;
+            let index = self.get_chunk_resource_index(chunk)?;
+            for (species, instances) in live.iter_mut().enumerate() {
+                let before = instances.len();
+                instances.retain(|instance| {
+                    !buried.contains(
+                        &(unpack_flora_instance_local_position(*instance)
+                            + chunk * self.voxel_dim_per_chunk),
+                    )
+                });
+                if before != instances.len() {
+                    self.resources.instances.chunk_flora_instances[index]
+                        .1
+                        .write_species_instances(species, instances)?;
+                }
+            }
+            let removed: Vec<_> = self
+                .authored_flora
+                .instances_for_chunk(chunk)
+                .iter()
+                .filter(|root| buried.contains(&root.base_world_vox))
+                .copied()
+                .collect();
+            self.authored_flora
+                .instances_for_chunk_mut(chunk)
+                .retain(|root| !buried.contains(&root.base_world_vox));
+            self.resources.instances.chunk_flora_instances[index]
+                .1
+                .authored_response_instances
+                .retain(|root| !buried.contains(&root.base_world_vox));
+            for root in removed {
+                let radius = species::species()[root.species_index as usize]
+                    .grass_growth_influence_radius_voxels;
+                dirty_growth.extend(
+                    self.grass_growth_potential_affected_chunks(root.base_world_vox, radius),
+                );
+            }
+        }
+        for chunk in dirty_growth {
+            self.rebuild_grass_growth_potential_for_chunk(chunk)?;
+        }
+        Ok(())
+    }
+
     pub fn remove_flora_reversibly(
         &mut self,
         chunk: UVec3,

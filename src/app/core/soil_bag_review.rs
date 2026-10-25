@@ -32,9 +32,9 @@ impl Review {
         ensure!(
             matches!(
                 mode.as_str(),
-                "hover" | "pour" | "cycle" | "world" | "stability"
+                "hover" | "pour" | "cycle" | "world" | "stability" | "flora"
             ),
-            "RE_FLORA_SOIL_BAG_REVIEW must be hover, pour, cycle, world or stability"
+            "RE_FLORA_SOIL_BAG_REVIEW must be hover, pour, cycle, world, stability or flora"
         );
         Ok(Some(Self {
             mode,
@@ -94,6 +94,11 @@ impl App {
         };
         let result = (|| {
             if review.done {
+                return Ok(());
+            }
+            if review.mode == "flora" {
+                self.review_soil_grass_preservation()?;
+                review.done = true;
                 return Ok(());
             }
             if review.frame == 0 {

@@ -1,4 +1,6 @@
 //! Soil-bag application policy. Geometry editing, soil amendment and falling FX are separate.
+mod review;
+
 use super::player_tools::{ContinuousTerrainToolAction, PlayerTool};
 use super::voxel_backpack::BackpackVoxel;
 use super::*;
@@ -163,17 +165,14 @@ impl App {
                 (changed.max() + UVec3::ONE)
                     .min(self.world_chunk_dim * VOXEL_DIM_PER_CHUNK - UVec3::ONE),
             );
-            self.publish_visible_terrain(VisibleTerrainChange::preserving_flora(
-                bound,
-                world_ops::FloraBrushEdit {
-                    start: edit.start,
-                    end: edit.end,
-                    radius: result.sampling_halo / 256.,
-                    tick: self.world_clock.flora_tick(),
-                    spawn_time_ms: self.time_info.time_since_start_duration().as_millis() as u32,
-                },
-                true,
-            ))?;
+            self.surface_builder
+                .remove_flora_buried_by_voxels(&result.deposited_voxels)?;
+            self.publish_visible_terrain(
+                VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
+                    bound,
+                )])?
+                .context("soil deposition has changed terrain")?,
+            )?;
             if !rooftop {
                 self.observe_player_terrain_publication_for_connectivity(bound);
             }

@@ -115,6 +115,8 @@ impl DepositionSamplingHint {
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct DepositionResult {
     pub added: u32,
+    /// Exact committed writes. Sampling reach and the bounding box are not removal masks.
+    pub deposited_voxels: Vec<UVec3>,
     /// Inclusive changed bounds, suitable for Visible Terrain Publication.
     pub changed: Option<UAabb3>,
     /// Speculative plan reached unread legal space; discard it and retry before uploading.
@@ -429,6 +431,7 @@ fn deposit_impl(
             },
         );
         result.added += 1;
+        result.deposited_voxels.push(pos);
         changed_min = changed_min.min(pos);
         changed_max = changed_max.max(pos);
     }
