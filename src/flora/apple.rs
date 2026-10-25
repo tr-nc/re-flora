@@ -1,31 +1,19 @@
-//! Shared apple size policy and opt-in surface experiments.
+//! Shared apple size policy and environment lighting tuning.
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Appearance {
-    pub color_patches: bool,
-    pub color_stripes: bool,
-    pub sun_gloss: bool,
     pub environment_fill: f32,
 }
 
 impl Default for Appearance {
     fn default() -> Self {
         Self {
-            color_patches: false,
-            color_stripes: false,
-            sun_gloss: false,
             environment_fill: 1.0,
         }
     }
 }
 
 impl Appearance {
-    pub fn shader_flags(self) -> u32 {
-        (u32::from(self.color_patches) << 2)
-            | (u32::from(self.color_stripes) << 3)
-            | (u32::from(self.sun_gloss) << 4)
-    }
-
     pub fn normalized_environment_fill(self) -> f32 {
         if self.environment_fill.is_finite() {
             self.environment_fill.clamp(0.0, 1.5)
@@ -62,26 +50,17 @@ mod tests {
     }
 
     #[test]
-    fn peel_experiments_default_off_and_flags_match_shader_contract() {
+    fn environment_fill_is_bounded_and_live_sun_highlight_is_permanent() {
         let mut appearance = Appearance::default();
-        assert_eq!(appearance.shader_flags(), 0);
         assert_eq!(appearance.normalized_environment_fill(), 1.);
-        appearance.color_patches = true;
-        appearance.color_stripes = true;
-        appearance.sun_gloss = true;
-        assert_eq!(appearance.shader_flags(), 28);
         appearance.environment_fill = f32::NAN;
         assert_eq!(appearance.normalized_environment_fill(), 1.);
         appearance.environment_fill = -1.;
         assert_eq!(appearance.normalized_environment_fill(), 0.);
         let shader = include_str!("../../shader/slang/apple_appearance.slang");
-        for (name, value) in [
-            ("COLOR_PATCHES", 4),
-            ("COLOR_STRIPES", 8),
-            ("SUN_GLOSS", 16),
-        ] {
-            assert!(shader.contains(&format!("APPLE_{name} = {value}u;")));
-        }
+        assert!(!shader.contains("flags"));
+        assert!(shader.contains("appleBaseColor(uint material)"));
+        assert!(shader.contains("if(material==0u)"));
         assert!(shader.contains("float facing=saturate(dot(n,sunDirection));"));
         assert!(shader.contains("environmentLight*=gui.apple_environment_fill"));
         assert!(shader.contains("sunTransmittance*specular*saturate(facing*4.0)"));
@@ -92,11 +71,7 @@ mod tests {
         let mesh = include_str!("../../shader/slang/model_mesh.slang");
         assert!(
             mesh.contains("shadeAppleSurface("),
-            "apple surfaces need their own switchable normal-based relighting"
-        );
-        assert!(
-            mesh.contains("cached.localPosition"),
-            "peel coordinates must come from the baked canonical surface, not the camera quad"
+            "apple surfaces need shared normal-based relighting"
         );
         assert!(
             mesh.contains("cached.position,cached.normal"),

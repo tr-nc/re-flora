@@ -562,33 +562,6 @@ min = 0
 max = 1.5
 
 [[section.param]]
-id = "apple_color_patches"
-kind = "bool"
-label = "Apples: large peel color patches (A/B)"
-type = "Bool"
-
-[section.param.data]
-value = false
-
-[[section.param]]
-id = "apple_color_stripes"
-kind = "bool"
-label = "Apples: warm yellow-red peel stripes (A/B)"
-type = "Bool"
-
-[section.param.data]
-value = false
-
-[[section.param]]
-id = "apple_sun_gloss"
-kind = "bool"
-label = "Apples: live sun highlight (A/B)"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
 id = "apple_cache_enabled"
 kind = "bool"
 label = "Apples: use model pre-cache"

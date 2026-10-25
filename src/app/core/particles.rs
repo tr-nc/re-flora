@@ -746,18 +746,21 @@ impl App {
             }
         }
         if let Ok(request) = std::env::var("RE_FLORA_APPLE_APPEARANCE_REVIEW") {
-            let stage = match request.as_str() {
-                "sweep" => (frame / 30) % 5,
-                "baseline" | "lighting" | "bands" => 0, // Retired modes use smooth sunlight.
-                "patches" => 1,
-                "stripes" => 2,
-                "gloss" => 3,
-                "all" => 4,
-                _ => panic!("apple appearance review: use sweep, baseline, lighting, patches, stripes, gloss or all"),
-            };
-            settings.apple_color_patches.value = matches!(stage, 1 | 4);
-            settings.apple_color_stripes.value = matches!(stage, 2 | 4);
-            settings.apple_sun_gloss.value = matches!(stage, 3 | 4);
+            // Legacy appearance names all review the permanent plain, glossy peel.
+            assert!(
+                matches!(
+                    request.as_str(),
+                    "sweep"
+                        | "baseline"
+                        | "lighting"
+                        | "bands"
+                        | "patches"
+                        | "stripes"
+                        | "gloss"
+                        | "all"
+                ),
+                "apple appearance review: use sweep or baseline"
+            );
             settings.apple_environment_fill.value = 1.0;
             settings.apple_pixel_resolution.value = 32;
             if request == "sweep" {
@@ -783,7 +786,7 @@ impl App {
                 }
             }
             if frame.is_multiple_of(30) {
-                log::info!("[APPLE_APPEARANCE_REVIEW] frame={frame} stage={stage} drop_requested={} cache={} pure_red={} saved=false", settings.fruit_cycle.value >= 1.0, settings.apple_cache_enabled.value, !settings.apple_color_patches.value && !settings.apple_color_stripes.value);
+                log::info!("[APPLE_APPEARANCE_REVIEW] frame={frame} drop_requested={} cache={} pure_red=true sun_highlight=true saved=false", settings.fruit_cycle.value >= 1.0, settings.apple_cache_enabled.value);
             }
         }
         if std::env::var_os("RE_FLORA_MODEL_PIXEL_PREVIEW_REVIEW").is_some() {

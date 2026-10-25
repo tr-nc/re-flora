@@ -27,6 +27,6 @@ public float4 sampleAppleModel(ApplePixelVertex input,uint2 pixel) {
         float3 position=modelPixelWorld(frame,surface.positionDepth.xyz);
         uint material=uint(surface.normalMaterial.w+0.5);
         float3 color=shadeAppleSurface(gui_input,sun_info,shading_info,shadow_camera_info,
-            position,normal,surface.positionDepth.xyz,material,camera_info.pos.xyz);
+            position,normal,material,camera_info.pos.xyz);
         return float4(color,surface.positionDepth.w);
 }

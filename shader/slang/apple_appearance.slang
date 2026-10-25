@@ -1,5 +1,5 @@
-// Shared apple pigment and live lighting. Canonical local coordinates describe
-// peel; reconstructed world surface positions/normals describe illumination.
+// Plain apple pigment with smooth directional sunlight and a live sun highlight.
+// Reconstructed world surface positions/normals describe illumination.
 module apple_appearance;
 import color;
 import flora_shadow;
@@ -7,29 +7,9 @@ import environment_lighting;
 import tracer_types;
 import sunlight;
 
-public static const uint APPLE_COLOR_PATCHES = 4u;
-public static const uint APPLE_COLOR_STRIPES = 8u;
-public static const uint APPLE_SUN_GLOSS = 16u;
-
-public float3 appleBaseColor(uint material,float3 localPosition,uint flags) {
+public float3 appleBaseColor(uint material) {
     float3 srgb=material==0u?float3(203,48,47)/255.0:
         material==1u?float3(116,80,46)/255.0:float3(77,145,62)/255.0;
-    if(material==0u) {
-        // A few broad pigment regions, never per-pixel random speckle or a
-        // camera-fixed imitation of light. Both consumers sample model space.
-        if((flags&APPLE_COLOR_PATCHES)!=0u) {
-            float patch=sin(localPosition.x*3.1+localPosition.z*0.8)*
-                sin(localPosition.y*2.3-localPosition.z*1.6+0.7);
-            srgb=patch<-0.25?float3(170,34,49)/255.0:
-                patch>0.25?float3(231,77,49)/255.0:srgb;
-        }
-        if((flags&APPLE_COLOR_STRIPES)!=0u) {
-            float angle=dot(localPosition.xz,localPosition.xz)>1e-12?
-                atan2(localPosition.z,localPosition.x):0.0;
-            float stripe=smoothstep(0.35,0.75,sin(angle*8.0+0.7*sin(localPosition.y*4.0)));
-            srgb=lerp(srgb,float3(232,142,52)/255.0,stripe*0.55);
-        }
-    }
     return srgbToLinear(srgb);
 }
 
@@ -44,11 +24,10 @@ public float appleSunFacing(float3 normal,float3 sunDirection) {
 public float3 applyAppleLighting(U_GuiInput gui,U_SunInfo sun,float3 baseColor,
     float3 position,float3 normal,uint material,float3 cameraPosition,
     float sunTransmittance,float3 environmentLight) {
-    uint flags=gui.apple_appearance_flags;
     environmentLight*=gui.apple_environment_fill;
     float3 color=applyStylizedVoxelLightingWithEnvironment(sun,baseColor,
         sunTransmittance*appleSunFacing(normal,sun.sun_dir),environmentLight);
-    if(material==0u&&(flags&APPLE_SUN_GLOSS)!=0u) {
+    if(material==0u) {
         float3 n=normal*rsqrt(max(dot(normal,normal),1e-12));
         float3 delta=cameraPosition-position;
         float3 view=delta*rsqrt(max(dot(delta,delta),1e-12));
@@ -63,10 +42,10 @@ public float3 applyAppleLighting(U_GuiInput gui,U_SunInfo sun,float3 baseColor,
 }
 
 public float3 shadeAppleSurface(U_GuiInput gui,U_SunInfo sun,U_ShadingInfo shading,
-    U_ShadowCameraInfo shadowCamera,float3 position,float3 normal,float3 localPosition,
+    U_ShadowCameraInfo shadowCamera,float3 position,float3 normal,
     uint material,float3 cameraPosition) {
     StylizedVoxelShadowSample shadow=sampleStylizedVoxelShadow(gui,sun,shadowCamera,position,normal);
     float3 environment=sampleDiffuseEnvironment(gui,shading,position,normal);
-    return applyAppleLighting(gui,sun,appleBaseColor(material,localPosition,gui.apple_appearance_flags),
+    return applyAppleLighting(gui,sun,appleBaseColor(material),
         position,normal,material,cameraPosition,shadow.sun_transmittance,environment);
 }

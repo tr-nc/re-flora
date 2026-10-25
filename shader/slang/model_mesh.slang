@@ -29,7 +29,7 @@ public ModelMeshOutput appleMeshVertex(uint vertex,uint source,ApplePixelVertex 
         if(!cached.visible)return emptyModelMeshVertex();
         ModelMeshOutput output;output.position=cached.clip;
         output.color=float4(shadeAppleSurface(gui_input,sun_info,shading_info,shadow_camera_info,
-            cached.position,cached.normal,cached.localPosition,cached.material,camera_info.pos.xyz),1);return output;
+            cached.position,cached.normal,cached.material,camera_info.pos.xyz),1);return output;
     }
     uint4 range=model_mesh_ranges[source];
     if(vertex>=range.y*3u)return emptyModelMeshVertex();
@@ -41,7 +41,7 @@ public ModelMeshOutput appleMeshVertex(uint vertex,uint source,ApplePixelVertex 
     uint material=uint(t.uv2.z+0.5);
     ModelMeshOutput output;output.position=mul(camera_info.view_proj_mat,float4(position,1));
     output.color=float4(shadeAppleSurface(gui_input,sun_info,shading_info,shadow_camera_info,
-        position,normal,point,material,camera_info.pos.xyz),1);return output;
+        position,normal,material,camera_info.pos.xyz),1);return output;
 }
 import apple_pixel_frame;
 import apple_appearance;

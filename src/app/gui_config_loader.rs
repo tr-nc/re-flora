@@ -83,6 +83,9 @@ impl GuiConfigLoader {
                     && param.id != "flora_bend_height_power"
                     && param.id != "apple_directional_lighting"
                     && param.id != "apple_light_bands"
+                    && param.id != "apple_color_patches"
+                    && param.id != "apple_color_stripes"
+                    && param.id != "apple_sun_gloss"
                     && param.id != "sprinkler_wetting_patches"
                     && !matches!(
                         param.id.as_str(),
@@ -267,13 +270,7 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "soil_drying_speed");
         Self::add_missing_param(&mut config, "Debug", "grass_moisture_response");
         Self::migrate_stem_rendering_controls(&mut config);
-        for id in [
-            "apple_size_scale",
-            "apple_environment_fill",
-            "apple_color_patches",
-            "apple_color_stripes",
-            "apple_sun_gloss",
-        ] {
+        for id in ["apple_size_scale", "apple_environment_fill"] {
             Self::add_missing_param(&mut config, "Debug", id);
         }
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
@@ -2364,59 +2361,71 @@ mod tests {
     #[test]
     fn retired_apple_lighting_switches_preserve_fill_without_gating_or_rewriting() {
         use crate::app::gui_config_model::{GuiParamEnabledIf, GuiParamValue};
-        for directional in [false, true] {
-            for bands in [false, true] {
-                let mut config: GuiConfigFile =
-                    toml::from_str(include_str!("../../config/gui.toml")).unwrap();
-                let template = config
-                    .section
-                    .iter()
-                    .flat_map(|s| &s.param)
-                    .find(|p| p.id == "apple_color_patches")
-                    .unwrap()
-                    .clone();
-                for (id, value) in [
-                    ("apple_directional_lighting", directional),
-                    ("apple_light_bands", bands),
-                ] {
-                    let mut param = template.clone();
-                    param.id = id.into();
-                    param.value = GuiParamValue::Bool { value };
-                    config.section[0].param.push(param);
+        for peel_flags in 0..8 {
+            for directional in [false, true] {
+                for bands in [false, true] {
+                    let mut config: GuiConfigFile =
+                        toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+                    let template = config
+                        .section
+                        .iter()
+                        .flat_map(|s| &s.param)
+                        .find(|p| p.id == "apple_cache_enabled")
+                        .unwrap()
+                        .clone();
+                    for (id, value) in [
+                        ("apple_directional_lighting", directional),
+                        ("apple_light_bands", bands),
+                        ("apple_color_patches", peel_flags & 1 != 0),
+                        ("apple_color_stripes", peel_flags & 2 != 0),
+                        ("apple_sun_gloss", peel_flags & 4 != 0),
+                    ] {
+                        let mut param = template.clone();
+                        param.id = id.into();
+                        param.value = GuiParamValue::Bool { value };
+                        config.section[0].param.push(param);
+                    }
+                    let fill = config
+                        .section
+                        .iter_mut()
+                        .flat_map(|s| &mut s.param)
+                        .find(|p| p.id == "apple_environment_fill")
+                        .unwrap();
+                    fill.value = GuiParamValue::Float {
+                        value: 0.73,
+                        min: Some(0.0),
+                        max: Some(1.5),
+                    };
+                    fill.enabled_if = Some(GuiParamEnabledIf {
+                        param: "apple_directional_lighting".into(),
+                        equals: super::GuiParamConditionValue::Bool(true),
+                    });
+                    let dir = tempfile::tempdir().unwrap();
+                    let path = dir.path().join("gui.toml");
+                    GuiConfigLoader::save_to_path(&config, &path).unwrap();
+                    let bytes = std::fs::read(&path).unwrap();
+                    let loaded = GuiConfigLoader::load_from_path(&path);
+                    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+                    let fill = loaded
+                        .section
+                        .iter()
+                        .flat_map(|s| &s.param)
+                        .find(|p| p.id == "apple_environment_fill")
+                        .unwrap();
+                    assert_eq!(fill.value.get_float(), Some((0.73, Some(0.0), Some(1.5))));
+                    assert!(fill.enabled_if.is_none());
+                    GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+                    let saved = std::fs::read_to_string(&path).unwrap();
+                    assert!(!saved.contains("apple_directional_lighting"));
+                    assert!(!saved.contains("apple_light_bands"));
+                    for id in [
+                        "apple_color_patches",
+                        "apple_color_stripes",
+                        "apple_sun_gloss",
+                    ] {
+                        assert!(!saved.contains(id));
+                    }
                 }
-                let fill = config
-                    .section
-                    .iter_mut()
-                    .flat_map(|s| &mut s.param)
-                    .find(|p| p.id == "apple_environment_fill")
-                    .unwrap();
-                fill.value = GuiParamValue::Float {
-                    value: 0.73,
-                    min: Some(0.0),
-                    max: Some(1.5),
-                };
-                fill.enabled_if = Some(GuiParamEnabledIf {
-                    param: "apple_directional_lighting".into(),
-                    equals: super::GuiParamConditionValue::Bool(true),
-                });
-                let dir = tempfile::tempdir().unwrap();
-                let path = dir.path().join("gui.toml");
-                GuiConfigLoader::save_to_path(&config, &path).unwrap();
-                let bytes = std::fs::read(&path).unwrap();
-                let loaded = GuiConfigLoader::load_from_path(&path);
-                assert_eq!(std::fs::read(&path).unwrap(), bytes);
-                let fill = loaded
-                    .section
-                    .iter()
-                    .flat_map(|s| &s.param)
-                    .find(|p| p.id == "apple_environment_fill")
-                    .unwrap();
-                assert_eq!(fill.value.get_float(), Some((0.73, Some(0.0), Some(1.5))));
-                assert!(fill.enabled_if.is_none());
-                GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
-                let saved = std::fs::read_to_string(&path).unwrap();
-                assert!(!saved.contains("apple_directional_lighting"));
-                assert!(!saved.contains("apple_light_bands"));
             }
         }
     }
