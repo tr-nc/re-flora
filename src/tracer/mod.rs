@@ -7181,8 +7181,17 @@ impl Tracer {
             roots,
         )?;
         for ((offset, velocity), (q, v)) in handoffs.iter_mut().zip(water) {
-            *offset += q;
-            *velocity += v;
+            let pose = |p, w| {
+                vegetation_response::fruit_handoff::constrain_fruit_offset(
+                    p,
+                    w,
+                    gui.fruit_swing_length_voxels,
+                )
+            };
+            *velocity = (pose(*offset + *velocity * 0.001, q + v * 0.001)
+                - pose(*offset - *velocity * 0.001, q - v * 0.001))
+                / 0.002;
+            *offset = pose(*offset, q);
         }
         if self.raster_trees.gpu_wind_active {
             for (&root, (offset, velocity)) in roots.iter().zip(&mut handoffs) {

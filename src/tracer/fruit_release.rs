@@ -1,6 +1,6 @@
 //! Sparse, frame-owned held-fruit handoff. Four published float4 corners per fruit,
 //! not a whole response field and not a dedicated GPU submission/wait.
-use super::vegetation_response::fruit_handoff::fruit_offset;
+use super::vegetation_response::fruit_handoff::{constrain_fruit_offset, fruit_offset};
 use super::Tracer;
 use crate::tree_gen::pose::BranchPose;
 use anyhow::{ensure, Result};
@@ -90,19 +90,25 @@ fn decode_water(sample: &Sample, q: [f32; 4], water: [f32; 8]) -> Result<FruitRe
     );
     let displacement = Vec2::new(q[0], q[1]);
     let velocity = Vec2::new(q[2], q[3]);
-    let offset = |q| fruit_offset(q, sample.length, sample.max_angle);
+    let water_q = Vec3::from_slice(&water[..3]);
+    let water_v = Vec3::from_slice(&water[4..7]);
+    let offset = |q, w| {
+        constrain_fruit_offset(
+            fruit_offset(q, sample.length, sample.max_angle),
+            w,
+            sample.length,
+        )
+    };
     let mut pose = FruitReleasePose {
-        offset: offset(displacement),
-        velocity: (offset(displacement + velocity * 0.001)
-            - offset(displacement - velocity * 0.001))
+        offset: offset(displacement, water_q),
+        velocity: (offset(displacement + velocity * 0.001, water_q + water_v * 0.001)
+            - offset(displacement - velocity * 0.001, water_q - water_v * 0.001))
             / 0.002,
         rotation: Quat::IDENTITY,
         angular_velocity: Vec3::ZERO,
     };
-    // Same local displacement/velocity used by attached rendering, before the
-    // branch transform. Release remains sparse and frame-fence-owned.
-    pose.offset += Vec3::from_slice(&water[..3]);
-    pose.velocity += Vec3::from_slice(&water[4..7]);
+    // Differentiate the same constrained composite pose as attached rendering;
+    // water cannot stretch the stem or introduce radial release velocity.
     if let Some((current, previous, dt)) = sample.motion {
         let rest = (sample.request.root.as_vec3() + pose.offset) / 256.;
         let world = current.transform_point(rest);
@@ -351,7 +357,12 @@ mod tests {
         assert!(decode(&sample, [f32::NAN; 4]).is_err());
         let water = [0.2, -0.3, 0.5, 0.8, 1.2, -0.5, 0.1, 0.];
         let pose = decode_water(&sample, [0.; 4], water).unwrap();
-        assert_eq!(pose.offset, Vec3::new(0.2, -0.3, 0.5));
-        assert_eq!(pose.velocity, Vec3::new(1.2, -0.5, 0.1));
+        let radius = pose.offset - Vec3::Y * sample.length;
+        assert!((radius.length() - sample.length).abs() < 1e-6);
+        assert!(
+            radius.dot(pose.velocity).abs() < 0.001,
+            "release velocity must be tangent"
+        );
+        assert!(pose.offset.x > 0. && pose.offset.z > 0. && pose.velocity.length() > 0.);
     }
 }

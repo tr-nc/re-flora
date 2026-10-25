@@ -109,9 +109,39 @@ pub(in crate::tracer) fn fruit_offset(q: Vec2, length: f32, max_angle: f32) -> V
     ) * length.max(0.)
 }
 
+// Mirrors constrainFruitWaterOffset in vegetation_water_types.slang.
+pub(in crate::tracer) fn constrain_fruit_offset(base: Vec3, water: Vec3, length: f32) -> Vec3 {
+    if water.length_squared() == 0. {
+        return base;
+    }
+    let length = length.max(0.);
+    if length == 0. {
+        return Vec3::ZERO;
+    }
+    let pivot = Vec3::Y * length;
+    let direction = base + water - pivot;
+    if direction.length_squared() > 1e-10 {
+        pivot + direction.normalize() * length
+    } else {
+        base
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn water_load_preserves_the_stem_without_moving_dry_fruit() {
+        let base = fruit_offset(Vec2::new(0.7, -0.4), 2., 1.);
+        assert_eq!(constrain_fruit_offset(base, Vec3::ZERO, 2.), base);
+        let loaded = constrain_fruit_offset(base, Vec3::new(0., -0.3, 0.), 2.);
+        assert!(loaded.y < base.y);
+        assert!(((loaded - Vec3::Y * 2.).length() - 2.).abs() < 1e-6);
+        assert_eq!(
+            constrain_fruit_offset(Vec3::ZERO, Vec3::ONE, 0.),
+            Vec3::ZERO
+        );
+    }
     #[test]
     fn fruit_handoff_samples_all_four_corners_and_preserves_pivot_length() {
         let info = ResponseInfo {

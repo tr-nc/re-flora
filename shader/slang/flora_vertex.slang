@@ -317,7 +317,8 @@ public PreparedFloraVertex prepareFloraVertex(
         windOffset = leafWindOffset(windOffset, localOffset, gui_input.leaf_global_offset_scale);
     }
     // A single per-plant pose reaches native geometry, cached pixels and bands.
-    windOffset += water.displacement_wetness.xyz * (isSurfaceFlora ? bendWeight : 1.0);
+    if(isApple)windOffset=constrainFruitWaterOffset(windOffset,water.displacement_wetness.xyz,gui_input.fruit_swing_length_voxels);
+    else windOffset += water.displacement_wetness.xyz * (isSurfaceFlora ? bendWeight : 1.0);
     float3 posedVoxelLocalPosition = float3(voxelLocalPosition);
     result.anchor_position =
         (posedVoxelLocalPosition + windOffset + spawnPose.translation_voxels) *

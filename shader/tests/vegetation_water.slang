@@ -36,5 +36,15 @@ export __extern_cpp int main() {
     if(waterLobeInput(lobe,float3(0.11,0,0)).w!=0 ||
        waterLobeInput(lobe,float3(0.0)).w<=0 ||
        waterLobeInput(lobe,float3(0,2,0)).w!=0)failures++;
+    for(uint n=0;n<100;++n) {
+        float3 water=float3(float(n)*0.1-5.0,-0.8,sin(float(n)));
+        float3 result=constrainFruitWaterOffset(float3(0),water,2.0);
+        if(abs(length(result-float3(0,2,0))-2.0)>1e-5)failures++;
+    }
+    float3 base=float3(sin(0.5),1.0-cos(0.5),0)*2.0;
+    if(any(constrainFruitWaterOffset(base,float3(0),2)!=base))failures++;
+    float3 loaded=constrainFruitWaterOffset(base,float3(0,-0.3,0),2.0);
+    if(loaded.y>=base.y || abs(length(loaded-float3(0,2,0))-2.0)>1e-5)failures++;
+    if(any(constrainFruitWaterOffset(float3(0),float3(0.2),0)!=float3(0)))failures++;
     printf("vegetation water failures=%u\n",failures);return int(failures!=0);
 }

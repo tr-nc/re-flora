@@ -6,6 +6,7 @@ import hash;
 import tracer_types;
 import vegetation_response_sample;
 import vegetation_water_sample;
+import vegetation_water_types;
 
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
 [[vk::binding(3, 0)]] ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
@@ -247,7 +248,8 @@ VertexOutput main(VertexInput input)
         windOffset = appleInertialOffset(gui_input, response);
     }
 
-    if(isApple)windOffset += sampleVegetationWater(instancePositionVoxels,FLORA_SPECIES_APPLE).displacement_wetness.xyz;
+    if(isApple)windOffset=constrainFruitWaterOffset(windOffset,
+        sampleVegetationWater(instancePositionVoxels,FLORA_SPECIES_APPLE).displacement_wetness.xyz,gui_input.fruit_swing_length_voxels);
     float3 anchorPosition =
         (float3(leafVoxelLocalPosition) + windOffset) * SCALING_FACTOR +
         instancePosition;
