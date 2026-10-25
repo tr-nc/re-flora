@@ -117,10 +117,10 @@ for (const match of html.matchAll(/data-capture="([a-z0-9-]+)" src="data:image\/
 '
 ```
 
-## Follow-up architecture clarification
+## Historical architecture clarification
 
-The report now explicitly distinguishes the **four legacy Garden Trees in the fresh opening** from
-the Apple tuning description/default planting selection. The original statement that all startup
+At the shared-growth refactor stage, the report explicitly distinguished the **four legacy Garden
+Trees then present in the fresh opening** from the Apple tuning description/default planting selection. The original statement that all startup
 trees became Apple Trees was incorrect. A subsequent behavior-preserving shared-growth refactor is
 summarized in the report, with [design](../../tree-growth.md) and
 [148-case compatibility/native evidence](../../evidence/tree-growth-rules.md). All 11 embedded
@@ -128,6 +128,24 @@ original images and their manifest hashes remain unchanged. After regeneration, 
 at 1440 × 1000 and 390 × 844 confirmed the clarification text, all 11 decoded originals, working
 all-nine filtering, valid fragment links and no document overflow or JavaScript/CSP errors. The
 updated desktop/mobile sections were also viewed; the task-isolated browser was then closed.
+
+## Follow-up opening and Test Tree retirement
+
+Implementation `84883641` subsequently replaced the four opening trees with current Apples at the
+same anchors and retired the independent Test/Garden Tree profile. Historical or missing-species
+descriptions now convert to Apple, including transactional replacement of baked wood; source saves
+are not rewritten on load. This is an intentional change after the invariant refactor, not a claim
+that the refactor itself changed the opening.
+
+The `#opening-update` section and planting/compatibility text describe the current behavior and link
+[the new evidence](../../evidence/apple-opening-and-test-tree-retirement.md). The original 11 PNGs,
+manifest hashes and original implementation metrics remain unchanged; the HTML does **not** embed
+new opening screenshots. Regenerated size: **3,518,551 bytes**. Builder/script syntax checks passed.
+Chromium at **1440 × 1000** and **390 × 844** confirmed the update text, no horizontal overflow,
+valid fragment targets and all 11 originals decoding at 1600 × 1000 after explicitly requesting
+lazy-image loading. No page JavaScript/CSP errors or external resource requests were observed.
+Both updated-section screenshots were viewed; the isolated `retirement-report` session was closed.
+The earlier filter/dialog and accessibility results below remain historical, not newly repeated.
 
 ## Validation
 

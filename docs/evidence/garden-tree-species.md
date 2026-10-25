@@ -1,5 +1,9 @@
 # Apple, pine and weeping willow: implementation and native review
 
+> Historical evidence for this delivery stage. The subsequent requested opening-tree replacement
+> and Test/Garden Tree retirement are documented in
+> [Apple opening and Test Tree retirement](apple-opening-and-test-tree-retirement.md).
+
 ## Delivered behavior
 
 **Grow → Type: Tree** now offers Apple Tree, Pine and Weeping Willow. Tab, click-to-plant,

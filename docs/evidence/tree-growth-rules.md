@@ -1,5 +1,9 @@
 # Shared tree growth refactor: compatibility and native evidence
 
+> Historical evidence for this delivery stage. The subsequent requested opening-tree replacement
+> and Test/Garden Tree retirement are documented in
+> [Apple opening and Test Tree retirement](apple-opening-and-test-tree-retirement.md).
+
 ## Scope
 
 Instrumented baseline: `24bd9d2f`, with generation unchanged from `2bc5b7dd` / report `4b242d1f`.
