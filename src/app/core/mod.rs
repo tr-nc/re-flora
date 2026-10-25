@@ -48,6 +48,7 @@ mod soil_deposition;
 mod soil_drying_review;
 mod soil_movement;
 mod soil_performance_bench;
+mod soil_shovel;
 mod sprinkler_air_review;
 mod sprinkler_audio_review;
 mod sprinkler_review;
@@ -482,6 +483,7 @@ pub struct App {
     frame_timing_snapshot: FrameTimingSnapshot,
     soil_performance_bench: Option<soil_performance_bench::SoilPerformanceBench>,
     soil_bag_preview: soil_bag_preview::State,
+    soil_shovel: soil_shovel::State,
     card_display_visible: bool,
     player_tools: PlayerToolRuntime,
     pointer_picking: terrain_picking::PointerPicking,
@@ -1616,6 +1618,7 @@ impl App {
             frame_timing_snapshot: FrameTimingSnapshot::default(),
             soil_performance_bench: soil_performance_bench::SoilPerformanceBench::from_env()?,
             soil_bag_preview: soil_bag_preview::State::from_env()?,
+            soil_shovel: Default::default(),
             card_display_visible: false,
             mower: mower::MowerRuntime::default(),
             pointer_picking: Default::default(),
@@ -2167,6 +2170,9 @@ impl App {
                                 Some(PlayerToolPointerInteraction::PavementStroke) => {
                                     self.stop_terrain_edit_loop_sound();
                                     self.begin_pavement_stroke();
+                                }
+                                Some(PlayerToolPointerInteraction::SoilShovel) => {
+                                    self.begin_soil_shovel(now)
                                 }
                                 Some(PlayerToolPointerInteraction::Pick(action)) => {
                                     self.queue_pointer_pick(action, now, false)
@@ -2878,6 +2884,7 @@ impl App {
                             ItemPanelSlot {index:ui_style::THICK_POLE_SLOT_INDEX,label:"Thick pole",number:ui_style::toolbar_number(ui_style::THICK_POLE_SLOT_INDEX),enabled:self.rooftop_scene.is_none()},
                             ItemPanelSlot {index:ui_style::ROPE_SLOT_INDEX,label:"Rope",number:ui_style::toolbar_number(ui_style::ROPE_SLOT_INDEX),enabled:self.rooftop_scene.is_none()},
                             ItemPanelSlot {index:ui_style::PLOW_SLOT_INDEX,label:"Plow",number:ui_style::toolbar_number(ui_style::PLOW_SLOT_INDEX),enabled:true},
+                            ItemPanelSlot {index:ui_style::SOIL_SHOVEL_SLOT_INDEX,label:"Shovel",number:ui_style::toolbar_number(ui_style::SOIL_SHOVEL_SLOT_INDEX),enabled:true},
                             ItemPanelSlot {
                                 index: ui_style::LANTERN_SLOT_INDEX,
                                 label: "Lantern",
@@ -2926,9 +2933,17 @@ impl App {
                                 });
                         }
 
+                        if self.player_tools.selected_tool()==PlayerTool::SoilShovel {
+                            egui::Area::new("soil_shovel_carry".into()).anchor(egui::Align2::RIGHT_TOP,egui::vec2(-16.,16.)).interactable(false).show(ctx,|ui| {
+                                egui::Frame::new().fill(PANEL_DARK).inner_margin(10).show(ui,|ui| {
+                                    crate::app::ui_text::section(ui,&format!("Shovel · {} soil",self.soil_shovel.carry.count()));
+                                });
+                            });
+                        }
+
                         // Active authoring controls own this corner; the status-only
                         // backpack must not cover the Grow catalog or Pavement hints.
-                        let voxel_palette_response = if matches!(self.player_tools.selected_tool(), PlayerTool::Grow | PlayerTool::Pavement | PlayerTool::Wall) {
+                        let voxel_palette_response = if matches!(self.player_tools.selected_tool(), PlayerTool::Grow | PlayerTool::Pavement | PlayerTool::Wall | PlayerTool::SoilShovel) {
                             Default::default()
                         } else {
                             draw_voxel_palette(ctx, &voxel_palette_entries, infinite_materials && self.window_state.is_cursor_visible())

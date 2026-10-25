@@ -433,6 +433,7 @@ impl App {
             .expect("garden fence review");
         self.seed_soil_movement_review()
             .expect("soil movement review");
+        self.seed_soil_shovel_review().expect("soil shovel review");
         if let Some(path) = self.terrain_persistence.take_startup_save_path() {
             self.perform_startup_terrain_save(Path::new(&path))
                 .unwrap_or_else(|err| panic!("[TERRAIN_PERSISTENCE] CLI save failed: {err:#}"));

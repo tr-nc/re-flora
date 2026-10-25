@@ -19,6 +19,8 @@ pub(super) struct GardenSnapshot {
     growth_override: f32,
     #[serde(default)]
     fences: garden_fence::FenceSnapshot,
+    #[serde(default)]
+    carried_soil: crate::soil_movement::CarriedSoil,
 }
 
 impl GardenSnapshot {
@@ -37,6 +39,7 @@ impl GardenSnapshot {
         self.flora.validate(CHUNK_DIM, VOXEL_DIM_PER_CHUNK)?;
         self.trees.validate()?;
         self.fences.validate(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)?;
+        self.carried_soil.validate()?;
         anyhow::ensure!(
             (0.0..=1.0).contains(&self.growth_override),
             "invalid flora growth override"
@@ -390,6 +393,7 @@ impl App {
                 .value,
             growth_override: self.debug_settings.adjustables.flora_growth_override.value,
             fences: self.garden_fence.saved.clone(),
+            carried_soil: self.soil_shovel.carry.clone(),
         };
         garden.validate()?;
         let (flora_count, authored_count) = garden.flora.counts();
@@ -542,10 +546,13 @@ impl App {
         log::info!("[GARDEN_PERSISTENCE] restored flora={} authored={} trees={} tree_age={:.3} retired_tree_migration={migrated_trees}; current species retain saved wood",
             flora_count, authored_count, garden.trees.count(), self.debug_settings.adjustables.tree_age.value);
         self.garden_fence.restore(garden.fences);
+        self.soil_shovel.cancel_gesture();
+        self.soil_shovel.carry = garden.carried_soil;
         Ok(())
     }
 
     fn quiesce_terrain_for_snapshot(&mut self) -> Result<()> {
+        self.cancel_pointer_pick();
         self.water.quiesce_for_snapshot()?;
         self.vulkan_ctx.device().wait_idle();
         self.contree_builder.flush_cpu_chunk_cache_jobs();
@@ -689,6 +696,11 @@ mod tests {
         let garden = GardenSnapshot::decode(&bytes).unwrap();
         assert_eq!(garden.flora.counts(), (0, 0));
         assert_eq!(garden.trees.count(), 0);
+        assert_eq!(
+            garden.carried_soil.count(),
+            0,
+            "old saves have no in-flight shovel soil"
+        );
         assert!(GardenSnapshot::decode(b"{}").is_err());
     }
 }

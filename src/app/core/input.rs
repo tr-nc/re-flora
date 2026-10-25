@@ -730,6 +730,9 @@ impl App {
 
     pub(super) fn set_tool_mouse_button_state(&mut self, button: MouseButton, state: ElementState) {
         self.player_tools.set_pointer_button_state(button, state);
+        if button == MouseButton::Left && state == ElementState::Released {
+            self.release_soil_shovel();
+        }
     }
 
     pub(super) fn refresh_terrain_edit_hold_from_mouse_buttons(&mut self) {

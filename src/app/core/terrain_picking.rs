@@ -57,6 +57,7 @@ fn continuous_pick_interval(
 impl App {
     pub(super) fn cancel_pointer_pick(&mut self) {
         self.cancel_tree_kick();
+        self.soil_shovel.cancel_gesture();
         if let Some(ticket) = self.pointer_picking.session.cancel() {
             self.tracer.cancel_surface_pick(ticket);
         }
@@ -67,26 +68,43 @@ impl App {
         now: Instant,
         require_hold: bool,
     ) {
+        let Some((origin, direction)) = self.terrain_edit_ray() else {
+            return;
+        };
+        self.queue_captured_pointer_pick(
+            action,
+            TerrainRayQuery { origin, direction },
+            now,
+            require_hold,
+        );
+    }
+    pub(super) fn queue_captured_pointer_pick(
+        &mut self,
+        action: PlayerToolPointerAction,
+        ray: TerrainRayQuery,
+        now: Instant,
+        require_hold: bool,
+    ) -> bool {
         let context = PointerContext::new(
             &self.player_tools,
             self.terrain_edit_pointer_available()
                 && self.terrain_persistence.allows_world_updates(),
         );
-        let Some((origin, direction)) = self.terrain_edit_ray() else {
-            return;
-        };
-        if let Err(err) =
-            self.pointer_picking
-                .session
-                .request(action, context, now, require_hold, || {
-                    self.tracer.request_surface_pick(
-                        TerrainRayQuery { origin, direction },
-                        self.visible_terrain_revision,
-                        PickPurpose::Edit,
-                    )
-                })
-        {
-            log::error!("Cannot queue pointer pick: {err:#}");
+        match self
+            .pointer_picking
+            .session
+            .request(action, context, now, require_hold, || {
+                self.tracer.request_surface_pick(
+                    ray,
+                    self.visible_terrain_revision,
+                    PickPurpose::Edit,
+                )
+            }) {
+            Ok(submitted) => submitted,
+            Err(err) => {
+                log::error!("Cannot queue pointer pick: {err:#}");
+                false
+            }
         }
     }
     pub(super) fn execute_continuous_terrain_tool_action(
@@ -136,6 +154,8 @@ impl App {
                 self.finish_player_terrain_connectivity_hold()?;
             }
         }
+        self.soil_shovel
+            .reconcile_pending_pick(self.pointer_picking.session.has_pending());
         Ok(())
     }
     pub(super) fn apply_resolved_pointer_pick(
@@ -152,6 +172,9 @@ impl App {
             }
             PlayerToolPointerAction::PlaceablePlacement | PlayerToolPointerAction::PlantTree => {
                 self.try_discrete_placement()
+            }
+            PlayerToolPointerAction::ShovelScoop | PlayerToolPointerAction::ShovelDrop => {
+                self.complete_soil_shovel_pick(action)
             }
             PlayerToolPointerAction::FenceAction => {
                 self.stop_terrain_edit_loop_sound();

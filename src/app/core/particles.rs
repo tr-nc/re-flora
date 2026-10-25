@@ -608,6 +608,7 @@ impl App {
         self.append_model_view_review_particles();
         self.append_firefly_models(frame);
         self.append_soil_bag_grains(dt);
+        self.append_soil_shovel_preview();
         let snapshot_ms = snapshot_start.elapsed().as_secs_f32() * 1000.0;
 
         let upload_start = Instant::now();

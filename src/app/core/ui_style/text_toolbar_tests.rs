@@ -20,6 +20,7 @@ fn slots() -> Vec<ItemPanelSlot> {
         "Thick pole",
         "Rope",
         "Plow",
+        "Shovel",
     ]
     .into_iter()
     .enumerate()

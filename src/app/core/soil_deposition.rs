@@ -8,6 +8,20 @@ use crate::app::world_edits::TerrainBrushEdit;
 use crate::terrain_deposition::{DepositionRequest, DepositionResult};
 
 impl App {
+    pub(super) fn soil_tool_domain(&self) -> (UAabb3, Option<u32>) {
+        if self.rooftop_scene.is_some() {
+            (
+                UAabb3::new(rooftop_scene::SOIL_MIN, rooftop_scene::SOIL_MAX),
+                Some(rooftop_scene::SOIL_MIN.y),
+            )
+        } else {
+            (
+                INITIAL_EDITABLE_TERRAIN_BOUNDS.voxel_bounds(VOXEL_DIM_PER_CHUNK),
+                None,
+            )
+        }
+    }
+
     pub(super) fn soil_deposition_radius(&self) -> f32 {
         self.debug_settings
             .adjustables
@@ -134,17 +148,7 @@ impl App {
             seed,
         };
         // Material supply must not change geometry bounds or manufacture a model floor.
-        let (legal, floor) = if rooftop {
-            (
-                UAabb3::new(rooftop_scene::SOIL_MIN, rooftop_scene::SOIL_MAX),
-                Some(rooftop_scene::SOIL_MIN.y),
-            )
-        } else {
-            (
-                INITIAL_EDITABLE_TERRAIN_BOUNDS.voxel_bounds(VOXEL_DIM_PER_CHUNK),
-                None,
-            )
-        };
+        let (legal, floor) = self.soil_tool_domain();
         let fast_path = self
             .debug_settings
             .adjustables

@@ -30,6 +30,7 @@ pub(super) enum PlayerTool {
     ThickPole,
     Rope,
     Plow,
+    SoilShovel,
     Pavement,
     Wall,
     Placeable,
@@ -44,6 +45,7 @@ impl PlayerTool {
             super::ui_style::THICK_POLE_SLOT_INDEX => Some(Self::ThickPole),
             super::ui_style::ROPE_SLOT_INDEX => Some(Self::Rope),
             super::ui_style::PLOW_SLOT_INDEX => Some(Self::Plow),
+            super::ui_style::SOIL_SHOVEL_SLOT_INDEX => Some(Self::SoilShovel),
             super::ui_style::PAVEMENT_SLOT_INDEX => Some(Self::Pavement),
             super::ui_style::WALL_SLOT_INDEX => Some(Self::Wall),
             super::ui_style::MOWER_SLOT_INDEX => Some(Self::Mower),
@@ -68,6 +70,7 @@ impl PlayerTool {
             Self::ThickPole => super::ui_style::THICK_POLE_SLOT_INDEX,
             Self::Rope => super::ui_style::ROPE_SLOT_INDEX,
             Self::Plow => super::ui_style::PLOW_SLOT_INDEX,
+            Self::SoilShovel => super::ui_style::SOIL_SHOVEL_SLOT_INDEX,
             Self::Pavement => super::ui_style::PAVEMENT_SLOT_INDEX,
             Self::Wall => super::ui_style::WALL_SLOT_INDEX,
             Self::Mower => super::ui_style::MOWER_SLOT_INDEX,
@@ -285,6 +288,8 @@ pub(super) enum PlayerToolPointerAction {
     StonePlacement,
     LanternPlacement,
     FenceAction,
+    ShovelScoop,
+    ShovelDrop,
 }
 
 /// Select the gesture owner before entering an asynchronous single-pick queue.
@@ -292,6 +297,7 @@ pub(super) enum PlayerToolPointerAction {
 pub(super) enum PlayerToolPointerInteraction {
     Pick(PlayerToolPointerAction),
     PavementStroke,
+    SoilShovel,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -555,7 +561,10 @@ impl PlayerToolRuntime {
         &mut self,
         button: MouseButton,
     ) -> Option<PlayerToolPointerInteraction> {
-        if self.selected_tool.is_construction() && button == MouseButton::Left {
+        if self.selected_tool == PlayerTool::SoilShovel && button == MouseButton::Left {
+            self.pointer = ToolPointerState::idle(self.pointer.buttons());
+            Some(PlayerToolPointerInteraction::SoilShovel)
+        } else if self.selected_tool.is_construction() && button == MouseButton::Left {
             self.pointer = ToolPointerState::idle(self.pointer.buttons());
             Some(PlayerToolPointerInteraction::PavementStroke)
         } else {
@@ -813,6 +822,21 @@ mod tests {
             Some(PlayerToolPointerAction::StonePlacement)
         );
         assert_eq!(runtime.active_continuous_action(), None);
+        runtime.set_pointer_button_state(MouseButton::Left, ElementState::Released);
+        assert!(!runtime.finish_pointer_release());
+    }
+
+    #[test]
+    fn soil_shovel_owns_one_scoop_hold_release_not_continuous_dig() {
+        let mut runtime = PlayerToolRuntime::default();
+        runtime.select_item_panel_slot(super::super::ui_style::SOIL_SHOVEL_SLOT_INDEX);
+        runtime.set_pointer_button_state(MouseButton::Left, ElementState::Pressed);
+        assert_eq!(
+            runtime.begin_pointer_interaction(MouseButton::Left),
+            Some(PlayerToolPointerInteraction::SoilShovel)
+        );
+        assert_eq!(runtime.active_continuous_action(), None);
+        assert!(!runtime.has_secondary_pointer_action());
         runtime.set_pointer_button_state(MouseButton::Left, ElementState::Released);
         assert!(!runtime.finish_pointer_release());
     }

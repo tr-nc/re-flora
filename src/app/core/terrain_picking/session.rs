@@ -66,9 +66,9 @@ impl PointerPickSession {
         now: Instant,
         require_hold: bool,
         submit: impl FnOnce() -> Result<PickTicket>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         if self.pending.is_some() || !context.available {
-            return Ok(());
+            return Ok(false);
         }
         let ticket = submit()?;
         self.pending = Some(Pending {
@@ -78,7 +78,10 @@ impl PointerPickSession {
             requested: now,
             require_hold,
         });
-        Ok(())
+        Ok(true)
+    }
+    pub(super) fn has_pending(&self) -> bool {
+        self.pending.is_some()
     }
     /// Early transport cleanup only; complete() also enforces the deadline.
     pub(super) fn expired(&self, now: Instant) -> bool {

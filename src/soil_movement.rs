@@ -168,6 +168,85 @@ pub(crate) fn plow(
     })
 }
 
+/// Only the shovel owns these parcels while they are outside terrain. Stored
+/// bytes retain moisture; the derived grass bit is never portable inventory.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(transparent)]
+pub(crate) struct CarriedSoil(Vec<u8>);
+impl CarriedSoil {
+    pub const CAPACITY: usize = 4096;
+    pub fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.0.len() <= Self::CAPACITY
+                && self
+                    .0
+                    .iter()
+                    .all(|v| v & VOXEL_TYPE_MASK == VOXEL_TYPE_DIRT as u8),
+            "invalid carried soil"
+        );
+        Ok(())
+    }
+    pub fn count(&self) -> u32 {
+        self.0.len() as u32
+    }
+    pub fn parcels(&self) -> &[u8] {
+        &self.0
+    }
+    pub fn debit_committed(&mut self, count: u32) {
+        self.0.drain(..count as usize);
+    }
+}
+
+/// One bounded scoop, leaving non-soil and all bytes outside the sphere intact.
+/// Neither input nor inventory changes until the caller commits the returned plan.
+pub(crate) fn scoop(
+    original: &[u8],
+    sample: UAabb3,
+    center: Vec3,
+    radius: f32,
+) -> Option<(SoilMovePlan, CarriedSoil)> {
+    if !center.is_finite()
+        || !(2. ..=6.).contains(&radius)
+        || sample.min().cmpge(sample.max()).any()
+    {
+        return None;
+    }
+    let origin = sample.min();
+    let dim = sample.max() - origin;
+    if dim.max_element() > 20 || original.len() != dim.element_product() as usize {
+        return None;
+    }
+    let mut data = original.to_vec();
+    let mut parcels = Vec::new();
+    for z in 0..dim.z {
+        for y in 0..dim.y {
+            for x in 0..dim.x {
+                let p = origin + UVec3::new(x, y, z);
+                let i = index(p, origin, dim);
+                if (p.as_vec3() + Vec3::splat(0.5)).distance_squared(center) <= radius * radius
+                    && data[i] & VOXEL_TYPE_MASK == VOXEL_TYPE_DIRT as u8
+                {
+                    parcels.push(data[i] & !0x40);
+                    data[i] = 0;
+                }
+            }
+        }
+    }
+    if parcels.is_empty() || parcels.len() > CarriedSoil::CAPACITY {
+        return None;
+    }
+    Some((
+        SoilMovePlan {
+            origin,
+            dim,
+            data,
+            deposited: Vec::new(),
+            moved: parcels.len() as u32,
+        },
+        CarriedSoil(parcels),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,6 +282,24 @@ mod tests {
             }
         }
         counts
+    }
+    #[test]
+    fn scoop_moves_only_dirt_into_finite_state_preserving_all_other_voxels() {
+        let dim = UVec3::splat(16);
+        let sample = UAabb3::new(UVec3::ZERO, dim);
+        let mut data = vec![2; 4096];
+        data[index(UVec3::splat(8), UVec3::ZERO, dim)] = 7;
+        let original = data.clone();
+        let (plan, carry) = scoop(&data, sample, Vec3::splat(8.), 6.).unwrap();
+        carry.validate().unwrap();
+        assert_eq!(data, original, "planning is cancellable");
+        apply(&mut data, sample, &plan);
+        assert_eq!(data[index(UVec3::splat(8), UVec3::ZERO, dim)], 7);
+        assert_eq!(
+            data.iter().filter(|&&b| b & 15 == 2).count() + carry.count() as usize,
+            4095
+        );
+        assert!(carry.count() > 100);
     }
     #[test]
     fn drag_carves_and_banks_without_losing_any_soil_or_moisture() {

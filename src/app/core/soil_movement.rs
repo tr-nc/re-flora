@@ -65,11 +65,7 @@ impl App {
         {
             return Ok(0);
         }
-        let legal = if self.rooftop_scene.is_some() {
-            UAabb3::new(rooftop_scene::SOIL_MIN, rooftop_scene::SOIL_MAX)
-        } else {
-            INITIAL_EDITABLE_TERRAIN_BOUNDS.voxel_bounds(VOXEL_DIM_PER_CHUNK)
-        };
+        let (legal, _) = self.soil_tool_domain();
         if start.cmplt(legal.min().as_vec3()).any()
             || end.cmplt(legal.min().as_vec3()).any()
             || start.cmpge(legal.max().as_vec3()).any()
@@ -109,12 +105,23 @@ impl App {
         // render/physics publication failure cannot destroy one side of the move.
         self.plain_builder
             .write_chunk_atlas_region(plan.origin, plan.dim, &plan.data)?;
+        self.publish_soil_movement(plan.origin, plan.dim, &plan.deposited)?;
+        log::info!("[SOIL_MOVE] plow moved={moved} removed={moved} deposited={moved} read_bytes={} elapsed_ms={:.3} cohesive_existing_terrain=true",bytes.len(),started.elapsed().as_secs_f64()*1000.);
+        Ok(moved)
+    }
+
+    pub(super) fn publish_soil_movement(
+        &mut self,
+        origin: UVec3,
+        dim: UVec3,
+        deposited: &[UVec3],
+    ) -> Result<()> {
         self.plain_builder.mark_all_solid_workgroups_dirty();
         self.surface_builder
-            .remove_authored_flora_buried_by_voxels(&plan.deposited)?;
+            .remove_authored_flora_buried_by_voxels(deposited)?;
         let bound = UAabb3::new(
-            plan.origin.saturating_sub(UVec3::ONE),
-            (plan.origin + plan.dim).min(self.world_chunk_dim * VOXEL_DIM_PER_CHUNK - UVec3::ONE),
+            origin.saturating_sub(UVec3::ONE),
+            (origin + dim).min(self.world_chunk_dim * VOXEL_DIM_PER_CHUNK - UVec3::ONE),
         );
         self.publish_visible_terrain(
             VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
@@ -122,8 +129,7 @@ impl App {
             )])?
             .context("soil move publication")?,
         )?;
-        log::info!("[SOIL_MOVE] plow moved={moved} removed={moved} deposited={moved} read_bytes={} elapsed_ms={:.3} cohesive_existing_terrain=true",bytes.len(),started.elapsed().as_secs_f64()*1000.);
-        Ok(moved)
+        Ok(())
     }
 
     pub(super) fn seed_soil_movement_review(&mut self) -> Result<()> {

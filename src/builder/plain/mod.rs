@@ -689,6 +689,37 @@ impl PlainBuilder {
         support_floor: Option<u32>,
         fast_path: bool,
     ) -> Result<crate::terrain_deposition::DepositionResult> {
+        self.deposit_soil_impl(request, legal, support_floor, fast_path, None)
+    }
+
+    /// Deposit finite, already-owned soil parcels without replacing their moisture
+    /// with newly manufactured dry soil. Caller debits only the committed result.
+    pub(crate) fn deposit_soil_parcels(
+        &mut self,
+        request: crate::terrain_deposition::DepositionRequest,
+        legal: UAabb3,
+        support_floor: Option<u32>,
+        fast_path: bool,
+        parcels: &[u8],
+    ) -> Result<crate::terrain_deposition::DepositionResult> {
+        anyhow::ensure!(
+            parcels.len() >= request.volume as usize
+                && parcels
+                    .iter()
+                    .all(|v| v & VOXEL_TYPE_MASK == VOXEL_TYPE_DIRT as u8),
+            "invalid deposition parcels"
+        );
+        self.deposit_soil_impl(request, legal, support_floor, fast_path, Some(parcels))
+    }
+
+    fn deposit_soil_impl(
+        &mut self,
+        request: crate::terrain_deposition::DepositionRequest,
+        legal: UAabb3,
+        support_floor: Option<u32>,
+        fast_path: bool,
+        parcels: Option<&[u8]>,
+    ) -> Result<crate::terrain_deposition::DepositionResult> {
         let start = Instant::now();
         let Some(mut sample) = request.sampling_bounds(legal) else {
             return Ok(crate::terrain_deposition::DepositionResult::default());
@@ -723,7 +754,7 @@ impl PlainBuilder {
         let mut upload_ms = 0.;
         let mut dirty_ms = 0.;
         let mut read_bytes = 0_usize;
-        let (data, dim, mut result) = loop {
+        let (mut data, dim, mut result) = loop {
             let dim = sample.max() - sample.min();
             let stage = Instant::now();
             let mut data = self.read_chunk_atlas_region(sample.min(), dim)?;
@@ -769,6 +800,12 @@ impl PlainBuilder {
         result.sampling_halo = halo;
         if fast_path {
             self.soil_sampling_hint.remember(request, legal, halo);
+        }
+        if let Some(parcels) = parcels {
+            for (position, byte) in result.deposited_voxels.iter().zip(parcels) {
+                let p = *position - sample.min();
+                data[((p.z * dim.y + p.y) * dim.x + p.x) as usize] = *byte & !VOXEL_GRASS_COVER_BIT;
+            }
         }
         if let Some(changed) = result.changed {
             let write_dim = changed.max() - changed.min() + UVec3::ONE;

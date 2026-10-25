@@ -65,5 +65,63 @@ RE_FLORA_SOIL_MOVE_REVIEW=load cargo run --release -- --hidden --mute \
   --terrain-load target/garden-plow.rflterrain --auto-exit 1
 ```
 
-Shovel carry/release is a separate pending checklist item, not implied by this
-Plow implementation. There is no subjective manual-drag approval yet.
+## Shovel
+
+**Shovel** is distinct from the existing general-purpose **Edit** brush. Press
+left mouse to scoop only Dirt (bounded 2–6-voxel radius), keep holding to carry,
+and release elsewhere to settle it through the same finite-volume deposition
+engine used by Soil. One press never continuously digs. A loaded shovel cannot
+scoop again. A simple 19-block brown clump and `Shovel · N soil` status display
+represent the carried amount; this is not a finished hand/shovel animation.
+
+- `CarriedSoil` is the sole owner of removed parcels, including moisture bytes.
+  Credit follows the successful atlas removal and precedes any fallible terrain
+  publication. Drop debit is the exact successful GPU write count, likewise before
+  publication. No debug unlimited-resource flag enters either operation.
+- Blocked/partial drops retain every unplaced parcel. Click/hold/release again to
+  retry. Changing tools, losing focus, opening UI or canceling a pick discards the
+  gesture, not its soil. It remains on the shovel rather than silently becoming
+  generic backpack stock. Saving stores it with the world; loading starts with
+  no active gesture. Old snapshots default to an empty shovel.
+- A quick release before the asynchronous scoop answer preserves its captured
+  release ray. The drop is queried against the **new** world revision after the
+  scoop commits. Stale/expired picks cannot spend resources or repeat an action.
+- The same cohesive-terrain policy described above applies: the excavated cavity
+  remains supported rather than triggering a global cave-in. Only dropped soil
+  settles. This is deliberately not a soil-strength or landslide simulation.
+
+### Shovel validation
+
+- Planner/input tests cover Dirt-only extraction, non-soil preservation,
+  cancellable planning, press/hold ownership, quick release, stale/canceled picks,
+  retry, partial debit, JSON ownership and old-save defaults.
+- Actual Release scoop: **688** parcels; **109,904 terrain + 688 held = 110,592**.
+  A canceled gesture and invalid release retain all 688.
+- Saved the world while loaded, restarted from that file, and deposited all 688:
+  **110,592 terrain + 0 held**. Inspected `target/garden-shovel-held.png` and
+  `target/garden-shovel-drop.png` after reframing the controlled bed fixture.
+- Actual GPU partial drop into a one-cell legal cavity: **1 placed / 687 retained**;
+  including that separate cavity, the total remains exactly **110,592**.
+- Separate native four-moisture fixture retains histogram
+  **[27,648, 27,648, 27,648, 27,648]** after scoop and deposition.
+- Native runs used the existing `Infinite Materials=true` debug setting and still
+  conserved finite carried soil. No inventory minting is hidden by debug supply.
+- Formatting/check/Release build, input/persistence/deposition-related tests and
+  ordinary hidden muted smoke pass. Inspected final logs: no ERROR, panic or VUID.
+  Automated input-state and native geometry/persistence checks are not subjective
+  manual gesture approval. Drop cost inherits the existing Soil sampling mode;
+  no sustained interaction performance acceptance is claimed.
+
+```sh
+RE_FLORA_SHOVEL_REVIEW=hold cargo run --release -- --hidden --mute \
+  --terrain-save target/garden-shovel-held.rflterrain \
+  --screenshot garden-arrival target/garden-shovel-held.png --screenshot-delay 2 --auto-exit 3
+RE_FLORA_SHOVEL_REVIEW=load-drop cargo run --release -- --hidden --mute \
+  --terrain-load target/garden-shovel-held.rflterrain \
+  --screenshot garden-arrival target/garden-shovel-drop.png --screenshot-delay 2 --auto-exit 3
+RE_FLORA_SHOVEL_REVIEW=partial cargo run --release -- --hidden --mute --auto-exit 1
+RE_FLORA_SHOVEL_REVIEW=moisture cargo run --release -- --hidden --mute --auto-exit 1
+```
+
+All review hooks are unsaved fixtures. Generated geometry is original Rust code;
+no external image/model or AI generation service was used.

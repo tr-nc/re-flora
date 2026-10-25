@@ -137,7 +137,7 @@ known limitations; partially implemented items remain open.
 | [x] | 08 Sunflower | Registered, selectable, plantable, growth/rendering/persistence; asset provenance if added |
 | [x] | 09 Butterfly brightness | Diagnose albedo vs light; improve colored and perched butterflies without washing out white ones; screenshots |
 | [x] | 10 Plow | Drag furrows and displaced piles; exact soil conservation through boundaries/blockage/rollback; native validation |
-| [ ] | 11 Shovel | Press-scoop/hold-carry/release-deposit; reused deposition; soil ownership/cancel/load safety; explicit support/collapse behavior |
+| [x] | 11 Shovel | Press-scoop/hold-carry/release-deposit; reused deposition; soil ownership/cancel/load safety; explicit support/collapse behavior |
 | [ ] | 12 Apples, storage, currency and shop | Aim/collect; persistent inventory and money; purchase seeds/seedlings/saplings; unlimited-resource debug mode |
 | [ ] | 13 Sapling growth | Plant young trees, advance age with time, compatible saves; screenshots of multiple intermediate ages |
 | [ ] | 14 Bees and attached hives | Cached-angle post-processing; hives only on tree/pole anchors; documented husbandry choice and removal/load behavior |
@@ -232,6 +232,15 @@ known limitations; partially implemented items remain open.
   pass. Existing soil stays cohesive; moved soil settles locally. Two 95,744-byte
   edits took 17.035/20.164 ms including publication—not a 60-FPS acceptance result.
   See `docs/garden-soil-movement.md` for the support policy and research limitation.
+- Shovel: distinct press/scoop, held finite soil, captured release and reused
+  deposition. One owner persists carried moisture parcels; failed/canceled/partial
+  drops retain their remainder, even with unlimited debug resources. Native scoop
+  moved 688: terrain 109,904 + held 688 = 110,592. Actual held save/reload and full
+  drop restored 110,592; partial GPU drop placed 1 and retained 687. Four-moisture
+  histogram stayed [27,648; 4]. Input/planner/persistence checks and Release smoke
+  pass; inspected held/drop screenshots. Carry presentation is a simple brown
+  clump/status, not a finished hand/shovel animation. No subjective input approval
+  or sustained-drag performance pass is claimed.
 - Prior full test baseline: nine unrelated failures reproduced on `9e2b7977`
   (seven raster-tree tests and two saved-default expectations). Recheck rather
   than assuming any later failure belongs to that baseline.
