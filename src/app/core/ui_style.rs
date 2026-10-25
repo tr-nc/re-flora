@@ -31,12 +31,56 @@ pub(crate) const PAVEMENT_SLOT_INDEX: usize = 14;
 pub(crate) const WALL_SLOT_INDEX: usize = 15;
 pub(crate) const SPRINKLER_PLACEABLE_SLOT_INDEX: usize = 1;
 
+/// Visible order, independent of the stable internal tool IDs.
+pub(crate) const TOOLBAR_ORDER: [usize; 13] = [
+    GROW_SLOT_INDEX,
+    SHOVEL_SLOT_INDEX,
+    HOE_SLOT_INDEX,
+    WATERING_SLOT_INDEX,
+    TILLER_SLOT_INDEX,
+    SOIL_DEPOSITION_SLOT_INDEX,
+    SOIL_INSPECTOR_SLOT_INDEX,
+    SPRINKLER_SLOT_INDEX,
+    STONE_SLOT_INDEX,
+    PAVEMENT_SLOT_INDEX,
+    WALL_SLOT_INDEX,
+    MOWER_SLOT_INDEX,
+    WIND_SLOT_INDEX,
+];
+
+pub(crate) fn toolbar_number(slot: usize) -> String {
+    (TOOLBAR_ORDER
+        .iter()
+        .position(|&id| id == slot)
+        .expect("toolbar slot")
+        + 1)
+    .to_string()
+}
+
+pub(crate) fn toolbar_keyboard_slot(key: winit::keyboard::KeyCode) -> Option<usize> {
+    use winit::keyboard::KeyCode;
+    let position = match key {
+        KeyCode::Digit1 => 0,
+        KeyCode::Digit2 => 1,
+        KeyCode::Digit3 => 2,
+        KeyCode::Digit4 => 3,
+        KeyCode::Digit5 => 4,
+        KeyCode::Digit6 => 5,
+        KeyCode::Digit7 => 6,
+        KeyCode::Digit8 => 7,
+        KeyCode::Digit9 => 8,
+        KeyCode::Digit0 => 9,
+        _ => return None,
+    };
+    Some(TOOLBAR_ORDER[position])
+}
+
 pub(crate) const SOIL_INSPECTOR_TOOL_ACCENT: Color32 = Color32::from_rgb(166, 132, 88);
 
 pub(crate) struct ItemPanelSlot {
     pub index: usize,
     pub label: &'static str,
-    pub key_hint: &'static str,
+    pub number: String,
     pub enabled: bool,
 }
 
@@ -84,7 +128,7 @@ pub(crate) fn draw_item_panel(
                     .x
                     + fonts
                         .layout_no_wrap(
-                            slot.key_hint.into(),
+                            slot.number.clone(),
                             egui::TextStyle::Small.resolve(&style),
                             TEXT_COLOR,
                         )
@@ -644,7 +688,7 @@ fn draw_tool_text(
         TEXT_COLOR,
     );
     let key = ui.painter().layout_no_wrap(
-        slot.key_hint.into(),
+        slot.number.clone(),
         egui::TextStyle::Small.resolve(ui.style()),
         TEXT_COLOR,
     );
@@ -670,11 +714,11 @@ fn draw_tool_text(
         )
     });
     let response = if slot.index == MOWER_SLOT_INDEX && slot.label == "Mower" {
-        response.on_hover_text("Mower [L]\nEdit/cursor mode only (after camera transitions finish).\nLMB: spawn at the pointer; hold and drag to guide it.\nRelease: destroy. Every press spawns a fresh mower.\nFixed top speed and turn speed; the chassis follows the slope.\nCuts plants shorter without removing them.")
+        response.on_hover_text("Mower (slot 12)\nEdit/cursor mode only (after camera transitions finish).\nLMB: spawn at the pointer; hold and drag to guide it.\nRelease: destroy. Every press spawns a fresh mower.\nFixed top speed and turn speed; the chassis follows the slope.\nCuts plants shorter without removing them.")
     } else if slot.index == SOIL_DEPOSITION_SLOT_INDEX && slot.label == "Soil" {
-        response.on_hover_text("Soil [B]\nClick LMB: one adjustable batch of individual voxels. Hold: continuous batches.\nMouse wheel: Soil spread (0 = precise), not volume or Edit radius.\nUses Dirt; Infinite Materials bypasses inventory without changing it.\nAdds new soil without fertilizing or replacing existing ground.")
+        response.on_hover_text("Soil (slot 6)\nClick LMB: one adjustable batch of individual voxels. Hold: continuous batches.\nMouse wheel: Soil spread (0 = precise), not volume or Edit radius.\nUses Dirt; Infinite Materials bypasses inventory without changing it.\nAdds new soil without fertilizing or replacing existing ground.")
     } else {
-        response.on_hover_text(format!("{} [{}]", slot.label, slot.key_hint))
+        response.on_hover_text(format!("{} (slot {})", slot.label, slot.number))
     };
     let hovered = enabled && (response.hovered() || response.has_focus());
     if enabled {

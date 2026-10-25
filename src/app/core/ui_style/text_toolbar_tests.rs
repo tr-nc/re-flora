@@ -19,9 +19,9 @@ fn slots() -> Vec<ItemPanelSlot> {
     .into_iter()
     .enumerate()
     .map(|(index, label)| ItemPanelSlot {
-        index,
+        index: TOOLBAR_ORDER[index],
         label,
-        key_hint: "1",
+        number: toolbar_number(TOOLBAR_ORDER[index]),
         enabled: true,
     })
     .collect()
@@ -150,6 +150,47 @@ fn panel_outlines_toggle_only_frames_and_preserve_layout_and_controls() {
         assert!(!on.stroke.is_empty());
         assert!(off.stroke.is_empty());
         assert_eq!(on.stroke, restored.stroke);
+    }
+}
+
+#[test]
+fn toolbar_numbers_and_numeric_shortcuts_follow_visible_order() {
+    use winit::keyboard::KeyCode;
+    let slots = slots();
+    let keys = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
+        KeyCode::Digit0,
+    ];
+    let ctx = egui::Context::default();
+    for _ in 0..3 {
+        frame(&ctx, &slots, 1440., None, true, vec![]);
+    }
+    let (output, _) = frame(&ctx, &slots, 1440., None, true, vec![]);
+    for (position, slot) in slots.iter().enumerate() {
+        let number = (position + 1).to_string();
+        assert_eq!(slot.number, number);
+        assert!(label_rect(&output, &number).is_positive());
+        if let Some(&key) = keys.get(position) {
+            assert_eq!(toolbar_keyboard_slot(key), Some(slot.index));
+        }
+    }
+    for key in [
+        KeyCode::KeyB,
+        KeyCode::KeyX,
+        KeyCode::KeyN,
+        KeyCode::KeyV,
+        KeyCode::KeyJ,
+        KeyCode::KeyL,
+    ] {
+        assert_eq!(toolbar_keyboard_slot(key), None);
     }
 }
 

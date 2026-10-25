@@ -170,8 +170,8 @@ use ui_style::{
     apply_gui_style, draw_center_card, draw_item_panel, draw_plant_panel, draw_voxel_palette,
     ItemPanelSlot, PlantPanelEntry, VoxelPaletteEntry, CUSTOM_GUI_FONT_NAME, CUSTOM_GUI_FONT_PATH,
     GOLD_ACCENT, GROW_SLOT_INDEX, HOE_SLOT_INDEX, PANEL_BG, PANEL_DARK, SAGE_ACCENT, SHADOW_COLOR,
-    SHOVEL_SLOT_INDEX, SOIL_INSPECTOR_SLOT_INDEX, SOIL_INSPECTOR_TOOL_ACCENT,
-    SPRINKLER_PLACEABLE_SLOT_INDEX, SPRINKLER_SLOT_INDEX, TILLER_SLOT_INDEX, WATERING_SLOT_INDEX,
+    SHOVEL_SLOT_INDEX, SOIL_INSPECTOR_SLOT_INDEX, SOIL_INSPECTOR_TOOL_ACCENT, SPRINKLER_SLOT_INDEX,
+    TILLER_SLOT_INDEX, WATERING_SLOT_INDEX,
 };
 use winit::{
     dpi::PhysicalSize,
@@ -2100,39 +2100,22 @@ impl App {
                 if self.keyboard_tool_shortcuts_available() && event.state == ElementState::Pressed
                 {
                     let target_slot = match event.physical_key {
-                        PhysicalKey::Code(KeyCode::Digit1) => Some(0),
-                        PhysicalKey::Code(KeyCode::Digit3) => Some(2),
-                        PhysicalKey::Code(KeyCode::Digit5) => Some(4),
-                        PhysicalKey::Code(KeyCode::Digit6) => Some(5),
-                        PhysicalKey::Code(KeyCode::Digit7) => Some(6),
-                        PhysicalKey::Code(KeyCode::Digit8) => Some(7),
-                        PhysicalKey::Code(KeyCode::Digit9) => Some(ui_style::WIND_SLOT_INDEX),
-                        PhysicalKey::Code(KeyCode::KeyL) => Some(ui_style::MOWER_SLOT_INDEX),
-                        PhysicalKey::Code(KeyCode::KeyB) => {
-                            Some(ui_style::SOIL_DEPOSITION_SLOT_INDEX)
-                        }
-                        PhysicalKey::Code(KeyCode::KeyN) => Some(ui_style::STONE_SLOT_INDEX),
-                        PhysicalKey::Code(KeyCode::KeyV) => Some(ui_style::PAVEMENT_SLOT_INDEX),
-                        PhysicalKey::Code(KeyCode::KeyJ) => Some(ui_style::WALL_SLOT_INDEX),
+                        PhysicalKey::Code(code) => ui_style::toolbar_keyboard_slot(code),
                         _ => None,
                     };
 
                     if let Some(slot_idx) = target_slot {
-                        self.select_item_panel_slot(slot_idx);
+                        if slot_idx == SPRINKLER_SLOT_INDEX {
+                            self.select_placeable_tool(ui_style::SPRINKLER_PLACEABLE_SLOT_INDEX);
+                        } else {
+                            self.select_item_panel_slot(slot_idx);
+                        }
                     }
                     if event.physical_key == KeyCode::Tab
                         && !event.repeat
                         && self.player_tools.selected_tool().is_construction()
                     {
                         self.cycle_pavement_kind();
-                    }
-
-                    let target_placeable_slot = match event.physical_key {
-                        PhysicalKey::Code(KeyCode::KeyX) => Some(SPRINKLER_PLACEABLE_SLOT_INDEX),
-                        _ => None,
-                    };
-                    if let Some(slot_idx) = target_placeable_slot {
-                        self.select_placeable_tool(slot_idx);
                     }
                 }
 
@@ -2799,86 +2782,89 @@ impl App {
                         }
                         self.config_panel_visible = config_panel_open;
 
-                        let item_panel_slots = vec![
+                        let mut item_panel_slots = vec![
                             ItemPanelSlot {
                                 index: GROW_SLOT_INDEX,
                                 label: "Grow",
-                                key_hint: "1",
+                                number: ui_style::toolbar_number(GROW_SLOT_INDEX),
                                 enabled: true,
                             },
                             ItemPanelSlot {
                                 index: SHOVEL_SLOT_INDEX,
                                 label: if infinite_materials { "Edit" } else { "Dig" },
-                                key_hint: "3",
+                                number: ui_style::toolbar_number(SHOVEL_SLOT_INDEX),
                                 enabled: true,
                             },
                             ItemPanelSlot {
                                 index: HOE_SLOT_INDEX,
                                 label: "Trim",
-                                key_hint: "5",
+                                number: ui_style::toolbar_number(HOE_SLOT_INDEX),
                                 enabled: true,
                             },
                             ItemPanelSlot {
                                 index: WATERING_SLOT_INDEX,
                                 label: "Water",
-                                key_hint: "6",
+                                number: ui_style::toolbar_number(WATERING_SLOT_INDEX),
                                 enabled: true,
                             },
                             ItemPanelSlot {
                                 index: TILLER_SLOT_INDEX,
                                 label: "Till",
-                                key_hint: "8",
+                                number: ui_style::toolbar_number(TILLER_SLOT_INDEX),
                                 enabled: true,
                             },
                             ItemPanelSlot {
                                 index: ui_style::SOIL_DEPOSITION_SLOT_INDEX,
                                 label: "Soil",
-                                key_hint: "B",
+                                number: ui_style::toolbar_number(ui_style::SOIL_DEPOSITION_SLOT_INDEX),
                                 enabled: true,
                             },
                             ItemPanelSlot {
                                 index: SOIL_INSPECTOR_SLOT_INDEX,
                                 label: "Inspector",
-                                key_hint: "7",
+                                number: ui_style::toolbar_number(SOIL_INSPECTOR_SLOT_INDEX),
                                 enabled: true,
                             },
                             ItemPanelSlot {
                                 index: SPRINKLER_SLOT_INDEX,
                                 label: "Spray",
-                                key_hint: "X",
+                                number: ui_style::toolbar_number(SPRINKLER_SLOT_INDEX),
                                 enabled: true,
                             },
                             ItemPanelSlot {
                                 index: ui_style::STONE_SLOT_INDEX,
                                 label: "Stone",
-                                key_hint: "N",
+                                number: ui_style::toolbar_number(ui_style::STONE_SLOT_INDEX),
                                 enabled: self.rooftop_scene.is_none(),
                             },
                             ItemPanelSlot {
                                 index: ui_style::PAVEMENT_SLOT_INDEX,
                                 label: "Pave",
-                                key_hint: "V",
+                                number: ui_style::toolbar_number(ui_style::PAVEMENT_SLOT_INDEX),
                                 enabled: self.rooftop_scene.is_none(),
                             },
                             ItemPanelSlot {
                                 index: ui_style::WALL_SLOT_INDEX,
                                 label: "Wall",
-                                key_hint: "J",
+                                number: ui_style::toolbar_number(ui_style::WALL_SLOT_INDEX),
                                 enabled: self.rooftop_scene.is_none(),
                             },
                             ItemPanelSlot {
                                 index: ui_style::MOWER_SLOT_INDEX,
                                 label: "Mower",
-                                key_hint: "L",
+                                number: ui_style::toolbar_number(ui_style::MOWER_SLOT_INDEX),
                                 enabled: mower_mode_available,
                             },
                             ItemPanelSlot {
                                 index: ui_style::WIND_SLOT_INDEX,
                                 label: "Wind",
-                                key_hint: "9",
+                                number: ui_style::toolbar_number(ui_style::WIND_SLOT_INDEX),
                                 enabled: true,
                             },
                         ];
+                        item_panel_slots.sort_by_key(|slot| {
+                            ui_style::TOOLBAR_ORDER.iter().position(|&id| id == slot.index)
+                        });
                         let item_panel_response = draw_item_panel(
                             ctx,
                             &item_panel_slots,
