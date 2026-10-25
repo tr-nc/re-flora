@@ -147,6 +147,7 @@ public struct U_EnvInfo
 public struct U_VoxelColors
 {
     public float3 dirt_color;
+    public float3 bare_dirt_color;
     public float3 sand_color;
     public float3 cherry_wood_color;
     public float3 oak_wood_color;

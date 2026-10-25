@@ -2493,6 +2493,7 @@ mod tests {
             voxel_palette: DdgiVoxelPaletteSnapshot {
                 terrain_material: crate::terrain_material::TerrainMaterialParams::default(),
                 dirt_color: Vec3::new(0.1, 0.2, 0.3),
+                bare_dirt_color: Vec3::new(0.4, 0.3, 0.2),
                 sand_color: Vec3::new(0.4, 0.5, 0.6),
                 cherry_wood_color: Vec3::new(0.7, 0.2, 0.1),
                 oak_wood_color: Vec3::new(0.2, 0.3, 0.1),

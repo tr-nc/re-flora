@@ -1380,6 +1380,7 @@ pub struct MaterialFrameInput {
     pub glass: GlassGuiParams,
     pub terrain_material: crate::terrain_material::TerrainMaterialParams,
     pub voxel_dirt_color: Vec3,
+    pub voxel_bare_dirt_color: Vec3,
     pub voxel_sand_color: Vec3,
     pub voxel_cherry_wood_color: Vec3,
     pub voxel_oak_wood_color: Vec3,
@@ -3035,6 +3036,7 @@ impl Tracer {
                 voxel_palette: DdgiVoxelPaletteSnapshot {
                     terrain_material: materials.terrain_material.normalized(),
                     dirt_color: materials.voxel_dirt_color,
+                    bare_dirt_color: materials.voxel_bare_dirt_color,
                     sand_color: materials.voxel_sand_color,
                     cherry_wood_color: materials.voxel_cherry_wood_color,
                     oak_wood_color: materials.voxel_oak_wood_color,

@@ -52,6 +52,7 @@ public struct U_DdgiRadianceSun
 public struct U_DdgiRadianceVoxelPalette
 {
     public float3 dirt_color;
+    public float3 bare_dirt_color;
     public float3 sand_color;
     public float3 cherry_wood_color;
     public float3 oak_wood_color;

@@ -55,6 +55,7 @@ const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
 pub(crate) struct DdgiVoxelPaletteSnapshot {
     pub terrain_material: TerrainMaterialParams,
     pub dirt_color: Vec3,
+    pub bare_dirt_color: Vec3,
     pub sand_color: Vec3,
     pub cherry_wood_color: Vec3,
     pub oak_wood_color: Vec3,
@@ -95,6 +96,11 @@ impl DdgiRadianceSnapshot {
             glass_material_revision: self.glass_material_revision,
             terrain_material: self.voxel_palette.terrain_material.identity(),
             dirt_color: self.voxel_palette.dirt_color.to_array().map(f32::to_bits),
+            bare_dirt_color: self
+                .voxel_palette
+                .bare_dirt_color
+                .to_array()
+                .map(f32::to_bits),
             sand_color: self.voxel_palette.sand_color.to_array().map(f32::to_bits),
             cherry_wood_color: self
                 .voxel_palette
@@ -137,6 +143,7 @@ struct DdgiRadianceIdentity {
     glass_material_revision: u32,
     terrain_material: [u32; 3],
     dirt_color: [u32; 3],
+    bare_dirt_color: [u32; 3],
     sand_color: [u32; 3],
     cherry_wood_color: [u32; 3],
     oak_wood_color: [u32; 3],
@@ -156,6 +163,7 @@ impl DdgiRadianceIdentity {
             && self.glass_material_revision == other.glass_material_revision
             && self.terrain_material == other.terrain_material
             && self.dirt_color == other.dirt_color
+            && self.bare_dirt_color == other.bare_dirt_color
             && self.sand_color == other.sand_color
             && self.cherry_wood_color == other.cherry_wood_color
             && self.oak_wood_color == other.oak_wood_color
@@ -576,6 +584,7 @@ mod tests {
             voxel_palette: DdgiVoxelPaletteSnapshot {
                 terrain_material: TerrainMaterialParams::default(),
                 dirt_color: Vec3::new(0.1, 0.2, 0.3),
+                bare_dirt_color: Vec3::new(0.4, 0.3, 0.2),
                 sand_color: Vec3::new(0.4, 0.5, 0.6),
                 cherry_wood_color: Vec3::new(0.7, 0.2, 0.1),
                 oak_wood_color: Vec3::new(0.2, 0.3, 0.1),

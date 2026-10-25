@@ -4,6 +4,8 @@ mod hydration_review;
 mod resources;
 mod reversible;
 mod snapshot;
+mod soil_cover;
+mod soil_cover_review;
 use super::PlainBuilderResources;
 use crate::{
     flora::species,
@@ -420,6 +422,7 @@ pub struct SurfaceBuilder {
     external_grass_growth_influences: HashMap<u64, GrassGrowthInfluence>,
     next_descriptor_generation: Cell<u64>,
     hydration_elapsed: f64,
+    soil_cover: soil_cover::SoilCover,
 
     chunk_bound: UAabb3,
     voxel_dim_per_chunk: UVec3,
@@ -609,6 +612,7 @@ impl SurfaceBuilder {
             },
             next_descriptor_generation: Cell::new(1),
             hydration_elapsed: 0.0,
+            soil_cover: soil_cover::SoilCover::default(),
             chunk_bound,
             voxel_dim_per_chunk,
             flora_species_count,
@@ -1338,6 +1342,7 @@ impl SurfaceBuilder {
     /// Independent survival stage. Bounds only choose candidates; deletion is
     /// decided from current atlas support and three voxels of contiguous cover.
     pub fn reconcile_grass_terrain(&mut self, changed: UAabb3, now_ms: u32) -> Result<()> {
+        self.soil_cover.dirty = true;
         let min = changed.min().saturating_sub(UVec3::new(0, 3, 0));
         let max = changed
             .max()

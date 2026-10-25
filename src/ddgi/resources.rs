@@ -2434,6 +2434,7 @@ impl DdgiVolume {
             .ddgi_radiance_voxel_palette
             .fill_uniform(&DdgiRadianceVoxelPalette {
                 dirt_color: snapshot.voxel_palette.dirt_color.to_array(),
+                bare_dirt_color: snapshot.voxel_palette.bare_dirt_color.to_array(),
                 sand_color: snapshot.voxel_palette.sand_color.to_array(),
                 cherry_wood_color: snapshot.voxel_palette.cherry_wood_color.to_array(),
                 oak_wood_color: snapshot.voxel_palette.oak_wood_color.to_array(),
@@ -3558,7 +3559,7 @@ mod tests {
         assert_eq!(bytes.atlas_reduction, 28);
         assert_eq!(bytes.global_sky_irradiance, 3_200);
         assert_eq!(bytes.radiance_sun, 48);
-        assert_eq!(bytes.radiance_voxel_palette, 112);
+        assert_eq!(bytes.radiance_voxel_palette, 128);
         assert_eq!(bytes.transport_query_info, 64);
     }
 

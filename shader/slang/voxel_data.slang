@@ -13,6 +13,8 @@ public bool voxelIsFixedScene(uint voxelData)
     return type != VOXEL_TYPE_EMPTY && type != VOXEL_TYPE_DIRT && type != VOXEL_TYPE_SAND &&
         (voxelData & VOXEL_FIXED_SCENE_BIT) != 0u;
 }
+// Derived surface appearance on Dirt; all material/physics queries ignore it.
+public static const uint VOXEL_GRASS_COVER_BIT = 0x40u;
 public static const uint VOXEL_MOISTURE_MASK = 0x30u;
 public static const uint VOXEL_MOISTURE_SHIFT = 4u;
 public static const uint VOXEL_MOISTURE_MAX = 3u;

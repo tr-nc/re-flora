@@ -30,7 +30,7 @@ fn merge_instances(live: &mut Vec<Instance>, removed: &[Instance]) {
     );
 }
 impl SurfaceBuilder {
-    fn read_flora_species(&self, chunk: UVec3) -> Result<Vec<Vec<Instance>>> {
+    pub(super) fn read_flora_species(&self, chunk: UVec3) -> Result<Vec<Vec<Instance>>> {
         let index = self.get_chunk_resource_index(chunk)?;
         let resources = &self.resources.instances.chunk_flora_instances[index].1;
         (0..species::FLORA_SPECIES.len())

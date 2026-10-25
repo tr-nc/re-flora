@@ -3237,6 +3237,11 @@ impl App {
                     self.tracer.raster_trees.enabled = false;
                     self.tracer.invalidate_local_direct_sun_shadow_histories();
                 }
+                // Publish derived soil appearance after planting, mowing and
+                // terrain edits, before recording any consumers of the atlas.
+                self.surface_builder
+                    .refresh_grass_soil_cover(&mut self.plain_builder)
+                    .expect("grass soil coverage must publish before rendering");
                 let gpu_record_start = Instant::now();
                 let frame = match cpu_timings.time_if(
                     frame_perf_enabled,

@@ -474,10 +474,10 @@ impl App {
                     mutated = true;
                 }
                 let stage = Instant::now();
-                self.plain_builder.write_chunk_atlas_region(
+                self.plain_builder.restore_chunk_atlas_region(
                     chunk_id * VOXEL_DIM_PER_CHUNK,
                     VOXEL_DIM_PER_CHUNK,
-                    &chunk.bytes,
+                    chunk.bytes,
                 )?;
                 upload_ms += stage.elapsed().as_secs_f64() * 1000.;
             }

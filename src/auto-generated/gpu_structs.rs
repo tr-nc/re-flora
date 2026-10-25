@@ -873,19 +873,21 @@ pub struct DdgiRadianceSun {
 pub struct DdgiRadianceVoxelPalette {
     pub dirt_color: [f32; 3],
     pub _pad0: [u8; 4],
-    pub sand_color: [f32; 3],
+    pub bare_dirt_color: [f32; 3],
     pub _pad1: [u8; 4],
-    pub cherry_wood_color: [f32; 3],
+    pub sand_color: [f32; 3],
     pub _pad2: [u8; 4],
-    pub oak_wood_color: [f32; 3],
+    pub cherry_wood_color: [f32; 3],
     pub _pad3: [u8; 4],
-    pub rock_color: [f32; 3],
+    pub oak_wood_color: [f32; 3],
     pub _pad4: [u8; 4],
+    pub rock_color: [f32; 3],
+    pub _pad5: [u8; 4],
     pub emissive_color: [f32; 3],
     pub emissive_radiance: f32,
     pub terrain_variation: [f32; 2],
     pub terrain_seed: u32,
-    pub _pad5: [u8; 4],
+    pub _pad6: [u8; 4],
 }
 
 /// Auto-generated from `U_DdgiResponseRequest` (native Slang source of truth).
@@ -1332,19 +1334,21 @@ pub struct VegetationResponseInfo {
 pub struct VoxelColors {
     pub dirt_color: [f32; 3],
     pub _pad0: [u8; 4],
-    pub sand_color: [f32; 3],
+    pub bare_dirt_color: [f32; 3],
     pub _pad1: [u8; 4],
-    pub cherry_wood_color: [f32; 3],
+    pub sand_color: [f32; 3],
     pub _pad2: [u8; 4],
-    pub oak_wood_color: [f32; 3],
+    pub cherry_wood_color: [f32; 3],
     pub _pad3: [u8; 4],
-    pub rock_color: [f32; 3],
+    pub oak_wood_color: [f32; 3],
     pub _pad4: [u8; 4],
+    pub rock_color: [f32; 3],
+    pub _pad5: [u8; 4],
     pub emissive_color: [f32; 3],
     pub emissive_radiance: f32,
     pub terrain_variation: [f32; 2],
     pub terrain_seed: u32,
-    pub _pad5: [u8; 4],
+    pub _pad6: [u8; 4],
 }
 
 /// Auto-generated from `U_VoxelPropertySampleInfo` (native Slang source of truth).

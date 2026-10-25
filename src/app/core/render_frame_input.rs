@@ -115,6 +115,7 @@ pub(super) fn freeze_render_frame_inputs(
             glint_strength: gui.glass_glint_strength.value,
         },
         voxel_dirt_color: color_to_vec3(gui.voxel_dirt_color.value),
+        voxel_bare_dirt_color: color_to_vec3(gui.voxel_bare_dirt_color.value),
         voxel_sand_color: color_to_vec3(gui.voxel_sand_color.value),
         voxel_cherry_wood_color: color_to_vec3(gui.voxel_cherry_wood_color.value),
         voxel_oak_wood_color: color_to_vec3(gui.voxel_oak_wood_color.value),
@@ -514,6 +515,7 @@ mod tests {
         let glass_alpha = float!(glass_alpha);
         let glass_glint_strength = float!(glass_glint_strength);
         let voxel_dirt_color = color!(voxel_dirt_color);
+        let voxel_bare_dirt_color = color!(voxel_bare_dirt_color);
         let voxel_sand_color = color!(voxel_sand_color);
         let voxel_cherry_wood_color = color!(voxel_cherry_wood_color);
         let voxel_oak_wood_color = color!(voxel_oak_wood_color);
@@ -647,6 +649,7 @@ mod tests {
                     glint_strength: glass_glint_strength,
                 },
                 voxel_dirt_color,
+                voxel_bare_dirt_color,
                 voxel_sand_color,
                 voxel_cherry_wood_color,
                 voxel_oak_wood_color,

@@ -241,6 +241,7 @@ impl BufferUpdater {
         let terrain = palette.terrain_material.gpu();
         resources.uniforms.voxel_colors.fill_uniform(&VoxelColors {
             dirt_color: palette.dirt_color.to_array(),
+            bare_dirt_color: palette.bare_dirt_color.to_array(),
             sand_color: palette.sand_color.to_array(),
             cherry_wood_color: palette.cherry_wood_color.to_array(),
             oak_wood_color: palette.oak_wood_color.to_array(),

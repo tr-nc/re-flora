@@ -54,6 +54,8 @@ pub const VOXEL_TYPE_SAND: u32 = 3;
 pub const VOXEL_TYPE_STUCCO: u32 = 4;
 pub const VOXEL_TYPE_MASK: u8 = 0x0f;
 pub const VOXEL_FIXED_SCENE_BIT: u8 = 0x80;
+/// Derived ordinary-grass coverage on Dirt only; does not change its material.
+pub const VOXEL_GRASS_COVER_BIT: u8 = 0x40;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TerrainGeneration {
@@ -80,7 +82,8 @@ pub fn voxel_is_fixed_scene(data: u8) -> bool {
         && ty != VOXEL_TYPE_SAND
         && data & VOXEL_FIXED_SCENE_BIT != 0
 }
-// Atlas bytes retain 4 type bits and 2 moisture bits. Bits 6-7 remain reserved for soil;
+// Atlas bytes retain 4 type bits and 2 moisture bits. Bit 6 caches grass cover on Dirt;
+// bit 7 remains reserved for soil;
 // bit 7 is fixed-scene ownership on non-soil types only.
 pub const VOXEL_MOISTURE_MASK: u8 = 0x30;
 pub const VOXEL_MOISTURE_MAX: u8 = 0x03;
@@ -612,6 +615,21 @@ impl PlainBuilder {
             log::info!("[PERF][{report}] transfer_wait_ms={transfer_ms:.3} host_copy_ms={:.3} bytes={byte_count} regions={}", copy_start.elapsed().as_secs_f64() * 1000., plan.copies.len());
         }
         Ok(data)
+    }
+
+    /// Coverage is derived from restored flora, not authoritative saved terrain.
+    pub fn restore_chunk_atlas_region(
+        &mut self,
+        offset: UVec3,
+        dim: UVec3,
+        mut bytes: Vec<u8>,
+    ) -> Result<()> {
+        for byte in &mut bytes {
+            if *byte & VOXEL_TYPE_MASK == VOXEL_TYPE_DIRT as u8 {
+                *byte &= !VOXEL_GRASS_COVER_BIT;
+            }
+        }
+        self.write_chunk_atlas_region(offset, dim, &bytes)
     }
 
     pub fn write_chunk_atlas_region(

@@ -21,7 +21,7 @@ float3 voxelColorByTypeSrgb(U_VoxelColors colors, uint voxelType)
 {
     if (voxelType == VOXEL_TYPE_GLASS || voxelType >= VOXEL_TYPE_ASPHALT)
         return buildingColorByType(voxelType);
-    if (voxelType == VOXEL_TYPE_DIRT) return colors.dirt_color;
+    if (voxelType == VOXEL_TYPE_DIRT) return colors.bare_dirt_color;
     if (voxelType == VOXEL_TYPE_SAND) return colors.sand_color;
     if (voxelType == VOXEL_TYPE_STUCCO) return VOXEL_STUCCO_COLOR_SRGB;
     if (voxelType == VOXEL_TYPE_CHERRY_WOOD) return colors.cherry_wood_color;
@@ -40,9 +40,12 @@ public float3 voxelColorByType(U_VoxelColors colors, uint voxelType)
 }
 
 public float3 terrainColorAtVoxel(U_VoxelColors colors, uint voxelType,
-                                  float3 voxelCenterWorld)
+                                  float3 voxelCenterWorld, uint atlasData)
 {
-    return applyTerrainMaterial(voxelColorByType(colors, voxelType), voxelType,
+    float3 baseColor = voxelType == VOXEL_TYPE_DIRT &&
+        (atlasData & VOXEL_GRASS_COVER_BIT) != 0u
+        ? srgbToLinear(colors.dirt_color) : voxelColorByType(colors, voxelType);
+    return applyTerrainMaterial(baseColor, voxelType,
         voxelCenterWorld, colors.terrain_variation,
         colors.terrain_seed);
 }
@@ -59,7 +62,9 @@ float3 ddgiVoxelColorByTypeSrgb(U_DdgiRadianceVoxelPalette colors,
 {
     if (voxelType == VOXEL_TYPE_GLASS || voxelType >= VOXEL_TYPE_ASPHALT)
         return buildingColorByType(voxelType);
-    if (voxelType == VOXEL_TYPE_DIRT) return colors.dirt_color;
+    // Transport retains the dry bare-soil approximation; live grass coverage,
+    // like moisture, is not frozen with the multi-frame radiance build.
+    if (voxelType == VOXEL_TYPE_DIRT) return colors.bare_dirt_color;
     if (voxelType == VOXEL_TYPE_SAND) return colors.sand_color;
     if (voxelType == VOXEL_TYPE_STUCCO) return VOXEL_STUCCO_COLOR_SRGB;
     if (voxelType == VOXEL_TYPE_CHERRY_WOOD) return colors.cherry_wood_color;

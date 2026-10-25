@@ -1587,7 +1587,12 @@ mod tests {
             CAPTURE_HEADER_BYTE_COUNT - CAPTURE_MAGIC.len() - 8 * std::mem::size_of::<u32>()
         );
 
-        let mut golden_capture = encode_capture_header(1, 1, 16, 22, metadata).unwrap();
+        // The wire-format fixture has a fixed authored-model identity. Shader
+        // edits intentionally change the live identity (asserted above), not
+        // the capture encoding; do not make every material edit rewrite it.
+        let mut golden_metadata = metadata;
+        golden_metadata.radiance_model_identity = 0x9006_7e6f_6a42_a1a4;
+        let mut golden_capture = encode_capture_header(1, 1, 16, 22, golden_metadata).unwrap();
         for pixel in [
             [0.25_f32, 0.5, 0.75, 1.0],
             [1.0_f32, 2.0, 3.0, 0.0],

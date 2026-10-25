@@ -3,6 +3,56 @@ use super::*;
 use crate::app::world_edits::{TerrainBrushEdit, TreeAddOptions, TreePlacement};
 
 impl App {
+    pub(in crate::app::core) fn seed_grass_soil_cover_review(&mut self) -> Result<()> {
+        if std::env::var("RE_FLORA_GRASS_SOIL_COVER_REVIEW").as_deref() != Ok("visual") {
+            return Ok(());
+        }
+        let previous = self.player_tools.planting.flora_index;
+        self.player_tools.planting.flora_index = 0; // ordinary Grass Mix
+        let xz = Vec2::new(0.82, 1.22);
+        let center = Vec3::new(xz.x, self.query_terrain_height_cpu(xz), xz.y);
+        for serial in 1..=8 {
+            self.apply_surface_flora_regeneration(
+                TerrainBrushEdit {
+                    start: center,
+                    end: center,
+                    radius: 0.10,
+                },
+                serial,
+                true,
+            )?;
+        }
+        self.player_tools.planting.flora_index = previous;
+        let chunks: Vec<_> = self
+            .surface_builder
+            .resources
+            .instances
+            .chunk_flora_instances
+            .iter()
+            .map(|(_, r)| r.chunk_id)
+            .collect();
+        for chunk in chunks {
+            self.surface_builder
+                .update_flora_growth_for_chunk(chunk, 255)?;
+        }
+        self.surface_builder
+            .refresh_grass_soil_cover(&mut self.plain_builder)?;
+        let roots: usize = self
+            .surface_builder
+            .resources
+            .instances
+            .chunk_flora_instances
+            .iter()
+            .map(|(_, r)| r.hydration[..2].iter().map(Vec::len).sum::<usize>())
+            .sum();
+        anyhow::ensure!(
+            roots > 0,
+            "visual grass-soil fixture did not plant ordinary grass"
+        );
+        log::info!("[SOIL_COVER_REVIEW] visual roots={roots} center={center:?}");
+        Ok(())
+    }
+
     pub(in crate::app::core) fn seed_garden_snapshot_smoke(&mut self) -> Result<()> {
         if std::env::var("RE_FLORA_GARDEN_SNAPSHOT_SMOKE").as_deref() != Ok("seed") {
             return Ok(());

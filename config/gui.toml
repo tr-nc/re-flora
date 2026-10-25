@@ -2960,11 +2960,20 @@ value = false
 [[section.param]]
 id = "voxel_dirt_color"
 kind = "color"
-label = "Dirt Color"
+label = "Grass-Covered Dirt Color"
 type = "Color"
 
 [section.param.data]
 value = "#598430"
+
+[[section.param]]
+id = "voxel_bare_dirt_color"
+kind = "color"
+label = "Bare Dirt Color"
+type = "Color"
+
+[section.param.data]
+value = "#785438"
 
 [[section.param]]
 id = "voxel_sand_color"

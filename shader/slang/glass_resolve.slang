@@ -258,7 +258,8 @@ float3 glassSky(float3 direction)
 float3 glassVoxelFallback(SceneQueryEvent event)
 {
     float3 albedo = terrainColorAtVoxel(voxel_colors, event.to_voxel_type,
-                                        (float3(event.to_cell) + 0.5) / 256.0);
+                                        (float3(event.to_cell) + 0.5) / 256.0,
+                                        chunk_atlas[event.to_cell]);
     float cosine = max(0.0, dot(normalize(event.incident_face_normal),
                                 normalize(sun_info.sun_dir)));
     float3 ambient = albedo * (0.18 * sun_info.sky_light_strength);

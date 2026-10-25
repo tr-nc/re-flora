@@ -117,10 +117,10 @@ impl App {
                 loading.step_label = format!("Terrain {}/{}", current, total);
 
                 let result = match snapshot_bytes {
-                    Some(bytes) => self.plain_builder.write_chunk_atlas_region(
+                    Some(bytes) => self.plain_builder.restore_chunk_atlas_region(
                         atlas_offset,
                         VOXEL_DIM_PER_CHUNK,
-                        &bytes,
+                        bytes,
                     ),
                     // PlainBuilder's fresh atlas is already empty. Do not seed terrain beneath
                     // the model roof: this scene has no editable voxels until the first soil dab.
@@ -435,6 +435,13 @@ impl App {
         publication.complete_startup(self).unwrap_or_else(|err| {
             panic!("startup Visible Terrain Publication completion failed: {err:#}")
         });
+        if std::env::var_os("RE_FLORA_GRASS_SOIL_COVER_REVIEW").is_some() {
+            self.surface_builder
+                .verify_grass_soil_cover_runtime(&mut self.plain_builder)
+                .expect("grass soil cover runtime acceptance");
+            self.seed_grass_soil_cover_review()
+                .expect("grass soil cover visual fixture");
+        }
         self.verify_garden_snapshot_smoke()
             .unwrap_or_else(|err| panic!("[GARDEN_SMOKE] verify failed: {err:#}"));
         self.audit_garden_opening()
