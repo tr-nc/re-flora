@@ -31,8 +31,8 @@ impl FlowerModelReview {
             }
             Err(_) => return Ok(None),
         };
-        ensure!(["a", "b", "ab", "controls", "stems", "stem-continuous", "stem-surface", "stem-combined", "stem-model", "stem-model-far"].contains(&mode.as_str()),
-            "RE_FLORA_FLOWER_MODEL_REVIEW must be a, b, ab, controls, stems (four shading/model-pixelization combinations with live wind and camera sweep), or stem-continuous/surface/combined/model/model-far (fixed camera)");
+        ensure!(["a", "b", "ab", "controls", "stems", "stem-continuous", "stem-surface", "stem-combined", "stem-model", "stem-model-far", "water-dry", "water-wet", "water-cycle"].contains(&mode.as_str()),
+            "RE_FLORA_FLOWER_MODEL_REVIEW must be a, b, ab, controls, stems (four shading/model-pixelization combinations with live wind and camera sweep), stem-continuous/surface/combined/model/model-far (fixed camera), or water-dry/water-wet/water-cycle");
         Ok(Some(Self {
             mode,
             frame: 0,
@@ -165,6 +165,30 @@ impl App {
             }
             self.finish_authored_flora_placement(batch)?;
             center /= crate::flora::models::MODEL_COUNT as f32;
+            if stem_mode.starts_with("water-") {
+                crate::app::world_ops::mesh_regenerate_flora_for_brush_edit(
+                    &mut self.surface_builder,
+                    super::VOXEL_DIM_PER_CHUNK,
+                    crate::geom::UAabb3::new(
+                        glam::UVec3::new(144, 0, 320),
+                        glam::UVec3::new(304, 255, 432),
+                    ),
+                    crate::app::world_ops::FloraBrushEdit {
+                        start: center,
+                        end: center,
+                        radius: 0.26,
+                        tick: 0,
+                        spawn_time_ms: 0,
+                    },
+                    crate::flora::species::FloraPaintSelection::GrassMix,
+                    0,
+                    crate::flora::species::GRASS_MIX_PAINT_BRUSH_SETTINGS,
+                )?;
+                ensure!(
+                    self.surface_builder.capture_flora_snapshot(0)?.counts().0 > 0,
+                    "water review needs grass as well as flowers"
+                );
+            }
             let target = center + Vec3::Y * 0.035;
             let camera = target + Vec3::new(0., 0.24, 0.57);
             self.camera_control.apply_snapshot_mode(true);
@@ -225,6 +249,39 @@ impl App {
             self.tracer
                 .set_camera_pose_looking_at(target + Vec3::new(0., 0.24, 0.57), target);
             self.reset_camera_movement_input();
+        }
+        if stem_mode.starts_with("water-")
+            && (frame == 0 || (stem_mode == "water-cycle" && (frame == 48 || frame == 96)))
+        {
+            let level = if stem_mode == "water-dry" || frame == 48 {
+                0u8
+            } else {
+                3u8
+            };
+            let offset = glam::UVec3::new(144, 0, 320);
+            let dim = glam::UVec3::new(160, 256, 112);
+            let before = self.surface_builder.capture_flora_snapshot(0)?;
+            let mut soil = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+            let mut changed = 0;
+            for value in &mut soil {
+                if *value & crate::builder::VOXEL_TYPE_MASK == crate::builder::VOXEL_TYPE_DIRT as u8
+                {
+                    *value = (*value & !0x30) | (level << 4);
+                    changed += 1;
+                }
+            }
+            ensure!(changed > 0, "water review needs real soil");
+            self.plain_builder
+                .write_chunk_atlas_region(offset, dim, &soil)?;
+            ensure!(
+                self.plain_builder.read_chunk_atlas_region(offset, dim)? == soil,
+                "water review atlas write"
+            );
+            ensure!(
+                self.surface_builder.capture_flora_snapshot(0)? == before,
+                "water status must not mutate plant lifetimes or growth"
+            );
+            log::info!("[PLANT_WATER_REVIEW] frame={frame} moisture={level} soil_voxels={changed} flora_unchanged=true saved=false");
         }
         if stems {
             self.prepare_flower_stem_review(&stem_mode, frame, phase)?;

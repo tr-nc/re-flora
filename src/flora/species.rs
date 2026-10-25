@@ -399,6 +399,24 @@ mod tests {
     }
 
     #[test]
+    fn water_status_uses_live_soil_and_shared_geometry_without_touching_trees() {
+        let support = include_str!("../../shader/slang/surface_flora_vertex.slang");
+        assert!(support.contains("plantWaterDeficit(targetSpecies, atlasData,"));
+        for shader in [
+            include_str!("../../shader/slang/grass_band.vert.slang"),
+            include_str!("../../shader/slang/flora_lighting_cache.comp.slang"),
+        ] {
+            assert!(shader.contains("support.water_deficit"));
+        }
+        let flower = include_str!("../../shader/slang/flower_model.slang");
+        assert!(flower.contains("waterDeficit=plantWaterDeficit(flower_pc.species,soil,true)"));
+        assert!(flower.contains("plantWiltOffset(waterDeficit,height*frame.scale,1.0,seed)"));
+        let grass = include_str!("../../shader/slang/flora_vertex.slang");
+        assert!(grass.contains("plantWiltOffset(waterDeficit, liveHeight,"));
+        assert!(grass.contains("spawnStartMs, useResponse, response, leafAngle, 0.0)"));
+    }
+
+    #[test]
     fn grass_material_consumers_reuse_support_and_apply_before_lighting() {
         // Source-wiring guard complements the executable production Slang
         // material contract: both live consumers must use the same helper and

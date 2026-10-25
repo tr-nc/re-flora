@@ -1,5 +1,6 @@
 import tree_scene;
 module flora_vertex;
+import plant_water_status;
 
 import color;
 import environment_lighting;
@@ -195,7 +196,8 @@ public PreparedFloraVertex prepareFloraVertex(
     int3 voxelLocalPosition, uint voxelInfo, uint3 instancePositionVoxels,
     uint instanceType, uint seed, uint growthProgress,
     float competitionGrowthFactor, float environmentGrowthFactor,
-    uint spawnStartMs, bool useResponse, float3 response, float leafAngle)
+    uint spawnStartMs, bool useResponse, float3 response, float leafAngle,
+    float waterDeficit)
 {
     PreparedFloraVertex result;
     result.is_grass = instanceType == FLORA_SPECIES_TALL_GRASS ||
@@ -310,6 +312,11 @@ public PreparedFloraVertex prepareFloraVertex(
             ? leafLocalDisplacement(leafSeed, leafAngle, gui_input.leaf_local_displacement_voxels) : float3(0.0);
         windOffset = leafWindOffset(windOffset, localOffset, gui_input.leaf_global_offset_scale);
     }
+    if (result.is_grass) {
+        float liveHeight = max(grassGrownHeight(grassHeightVoxels, growthFactor) - 1.0, 1.0);
+        windOffset += plantWiltOffset(waterDeficit, liveHeight,
+            float(voxelLocalPosition.y) / liveHeight, seed);
+    }
     float3 posedVoxelLocalPosition = float3(voxelLocalPosition);
     result.anchor_position =
         (posedVoxelLocalPosition + windOffset + spawnPose.translation_voxels) *
@@ -358,7 +365,7 @@ public PreparedFloraVertex prepareFloraVertex(
         ? sampleLeafAngle(instanceSeed(responsePosition), responseLocalIndex, pc.response_offset) : 0.0;
     return prepareFloraVertex(voxelLocalPosition, voxelInfo, instancePositionVoxels,
         instanceType, seed, growthProgress, competitionGrowthFactor,
-        environmentGrowthFactor, spawnStartMs, useResponse, response, leafAngle);
+        environmentGrowthFactor, spawnStartMs, useResponse, response, leafAngle, 0.0);
 }
 
 uint floraHeightColorRow(float colorGradient)

@@ -33,7 +33,7 @@ StemBandVertex main(VertexInput input) {
     uint info=lookupFloraVoxelInfo(species,int3(0,int(band),0));
     PreparedFloraVertex pose=prepareFloraVertex(int3(0,int(band),0),info,root,species,seed,
         unpackInstanceGrowthProgress(instance.packed_local_pos),competition,environment,
-        instance.spawn_start_ms,useResponse,response,0.0);
+        instance.spawn_start_ms,useResponse,response,0.0,support.water_deficit);
     if(pose.should_trim)return output;
     // Adjacent centres define a continuous path. Halfway boundaries preserve
     // one color band per original voxel layer, including rooted and tip caps.
@@ -43,14 +43,14 @@ StemBandVertex main(VertexInput input) {
         uint previous=lookupFloraVoxelInfo(species,int3(0,int(band-1u),0));
         PreparedFloraVertex p=prepareFloraVertex(int3(0,int(band-1u),0),previous,root,species,seed,
             unpackInstanceGrowthProgress(instance.packed_local_pos),competition,environment,
-            instance.spawn_start_ms,useResponse,response,0.0);
+            instance.spawn_start_ms,useResponse,response,0.0,support.water_deficit);
         previousCenter=p.voxel_position;
     }
     if(band+1u<height) {
         uint next=lookupFloraVoxelInfo(species,int3(0,int(band+1u),0));
         PreparedFloraVertex p=prepareFloraVertex(int3(0,int(band+1u),0),next,root,species,seed,
             unpackInstanceGrowthProgress(instance.packed_local_pos),competition,environment,
-            instance.spawn_start_ms,useResponse,response,0.0);
+            instance.spawn_start_ms,useResponse,response,0.0,support.water_deficit);
         nextCenter=p.voxel_position;
         hasNext=!p.should_trim;
     }

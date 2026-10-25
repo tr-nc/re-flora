@@ -75,7 +75,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         growthProgress, competitionFactor, environmentFactor,
         instance.spawn_start_ms, vegetationResponseEnabled(),
         sampleVegetationResponse(instancePosition, seed, instanceType,
-            localInstanceIndex, floraPc.response_offset), 0.0);
+            localInstanceIndex, floraPc.response_offset), 0.0, support.water_deficit);
 
     float3 irradiance = prepared.should_trim
         ? float3(0.0)

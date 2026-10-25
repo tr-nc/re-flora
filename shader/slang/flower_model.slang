@@ -3,6 +3,7 @@
 module flower_model;
 import flora_types;
 import flora_motion;
+import plant_water_status;
 import flora_noise;
 import flora_lighting_resources;
 import vegetation_response_sample;
@@ -81,9 +82,12 @@ public FlowerPlantPose flowerPlantPose(uint plant) {
     float bend=min(whole.stem.x,whole.distribution.y*float(layers-1u)*0.25);
     float3 attachmentDelta=float3(bend-whole.stem.x,height-whole.stem.y,0);
     float moisture=1.0;
+    float waterDeficit=0.0;
     uint width,atlasHeight,depth;chunk_atlas.GetDimensions(width,atlasHeight,depth);
     if(all(base<uint3(width,atlasHeight,depth))) {
-        uint level=(chunk_atlas[base]>>4u)&3u;
+        uint soil=chunk_atlas[base];
+        uint level=(soil>>4u)&3u;
+        waterDeficit=plantWaterDeficit(flower_pc.species,soil,true);
         moisture=flora_growth_info.moisture_growth_factors[flower_pc.species][level];
     }
     float potential=gui_input.flora_growth_override_enabled!=0u?saturate(gui_input.flora_growth_override):moisture;
@@ -108,6 +112,7 @@ public FlowerPlantPose flowerPlantPose(uint plant) {
     float3 displacement=float3(wind.x+rest.x,0,wind.z+rest.z)*growth/256.0;
     // The uploaded displacement bound is also consumed by CPU culling;
     // it must not be independently tuned here.
+    displacement+=plantWiltOffset(waterDeficit,height*frame.scale,1.0,seed);
     float limit=height*frame.scale*whole.stem.z;
     displacement*=min(1.0,limit/max(length(displacement),1e-7));
     float3 attachmentOffset=(frame.axisX*attachmentDelta.x+frame.axisY*attachmentDelta.y)*frame.scale;
