@@ -16,7 +16,7 @@ import wind_field;
 [[vk::binding(3,0)]] ConstantBuffer<U_FloraGrowthInfo> flora_growth_info;
 [[vk::binding(5,0)]] ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
 [[vk::binding(6,0)]] ConstantBuffer<U_GuiInput> gui_input;
-[[vk::binding(0,1)]] StructuredBuffer<float4> sprinkler_instances;
+[[vk::binding(0,1)]] StructuredBuffer<B_SprinklerInstance> sprinkler_instances;
 [[vk::binding(1,1)]] RWStructuredBuffer<B_SprinklerMistLobe> mist_lobes;
 [[vk::binding(2,1)]] RWStructuredBuffer<B_SprinklerMistBounds> mist_bounds;
 [[vk::binding(3,1)]] RWStructuredBuffer<B_SprinklerWaterContact> water_contacts;
@@ -65,18 +65,19 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
         uint droplet=index-mist_push.lobes_per_instance;
         B_SprinklerMistLobe lobe=(B_SprinklerMistLobe)0;
         B_SprinklerWaterContact contact=(B_SprinklerWaterContact)0;
-        float4 pose=sprinkler_instances[instance];
+        B_SprinklerInstance emitter=sprinkler_instances[instance];
+        float4 pose=emitter.position_phase;
         float seconds=max(gui_input.world_tick_seconds,1.0/240.0);
         MistSpraySource source=(MistSpraySource)0;
         if(!particle) source=mistRotarySource(index,mist_push.lobes_per_instance,gui_input.sprinkler_rotor_angle,pose.w,
             gui_input.sprinkler_rotation_speed,gui_input.sprinkler_spray_angle,
             gui_input.sprinkler_pulse_duty,gui_input.sprinkler_pulse_time,gui_input.sprinkler_pulse_frequency,
-            frac(gui_input.sprinkler_quadrature+floor(frac(pose.w)*64.0)/64.0),gui_input.sprinkler_size_scale);
+            frac(gui_input.sprinkler_quadrature+floor(frac(pose.w)*64.0)/64.0),gui_input.sprinkler_size_scale,emitter.kind.x);
         else if(mist_push.particles_enabled!=0u)
             source=mistDropletSource(droplet,mist_push.droplets_per_instance,gui_input.sprinkler_droplet_time,
                 gui_input.sprinkler_rotor_angle,pose.w,gui_input.sprinkler_rotation_speed,
                 gui_input.sprinkler_spray_angle,gui_input.sprinkler_pulse_duty,
-                gui_input.sprinkler_pulse_time,gui_input.sprinkler_pulse_frequency,gui_input.sprinkler_size_scale);
+                gui_input.sprinkler_pulse_time,gui_input.sprinkler_pulse_frequency,gui_input.sprinkler_size_scale,emitter.kind.x);
         const bool rotary=true;
         float age=source.age;
         float airFraction=1.0;

@@ -705,6 +705,16 @@ options = [
 ]
 
 [[section.param]]
+id = "sprinkler_placement_type"
+kind = "choice"
+label = "Sprinklers: type for new placements"
+type = "Choice"
+
+[section.param.data]
+value = 0
+options = ["Compact", "Tall impact (higher, stronger, wider)"]
+
+[[section.param]]
 id = "sprinkler_spray_angle"
 kind = "float"
 label = "Sprinklers: spray angle (degrees)"

@@ -130,6 +130,7 @@ impl Review {
             "rotary-perf",
             "near",
             "rotary-near",
+            "rotary-tall",
             "rotary-design-current",
             "rotary-design-impact",
             "rotary-design-garden",
@@ -743,6 +744,13 @@ impl App {
                     0.0
                 };
             }
+            if review.mode == "rotary-tall" {
+                let gui = &mut self.debug_settings.adjustables;
+                gui.sprinkler_placement_type.value = 1;
+                gui.sprinkler_mist_density.value = 2.0;
+                gui.sprinkler_mist_particles.value = true;
+                gui.sprinkler_rotation_speed.value = 5.0;
+            }
             if review.mode.starts_with("rotary-design-") {
                 let gui = &mut self.debug_settings.adjustables;
                 review.hardware_enabled =
@@ -1190,6 +1198,32 @@ impl App {
             log::info!("[SPRINKLER_ROTARY_REVIEW] step={} whole_assembly=true internal_poses={} live_samples={} explicit_readback=true",
                 review.frame / 40, crate::sprinkler::ROTARY_FRAMES, live.len());
         }
+        if review.mode == "rotary-tall" && review.frame == 180 {
+            let lobes = self.tracer.sprinkler_mist_review_lobes()?;
+            let live: Vec<_> = lobes
+                .iter()
+                .filter(|l| l.center_amplitude[3] > 0.)
+                .collect();
+            let peak = live
+                .iter()
+                .map(|l| l.center_amplitude[1] - base.y)
+                .fold(0f32, f32::max);
+            let reach = live
+                .iter()
+                .map(|l| {
+                    Vec2::new(
+                        l.center_amplitude[0] - base.x,
+                        l.center_amplitude[2] - base.z,
+                    )
+                    .length()
+                })
+                .fold(0f32, f32::max);
+            let descending = live.iter().filter(|l| l.tangent_rotary[1] < -0.1).count();
+            ensure!(peak > 0.18 && reach > 0.35 && descending > 0,
+                "tall sprinkler must rise, travel further, and visibly descend: peak={peak} reach={reach} falling={descending}");
+            ensure!(self.sprinklers.render_instances()[0].kind == crate::sprinkler::Kind::Tall);
+            log::info!("[SPRINKLER_TALL] passed peak={peak:.4} reach={reach:.4} descending={descending} samples={} shared_transport=true", live.len());
+        }
         if review.mode == "mist-flow-controls" {
             let flow = (review.frame / 40) % 2 == 0;
             review.mist_flow = flow;
@@ -1255,6 +1289,7 @@ impl App {
             _ if review.isolates_wetting() || review.isolates_drying() => {
                 Vec3::new(0.001, 0.50, 0.001)
             }
+            "rotary-tall" => Vec3::new(0.65, 0.28, 0.65),
             "rotary-perf" => Vec3::new(0.75, 0.55, 0.90),
             "rotary-top" => Vec3::new(0.001, 0.10, 0.001),
             "rotary-cliff" => Vec3::new(0.65, -0.09, 0.45),

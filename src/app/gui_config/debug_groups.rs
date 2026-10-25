@@ -138,9 +138,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Sprinkler Spray & Motion",
-        description: "One rotating nozzle. The whole assembly and spray launches use the same 32 internal poses (11.25 degrees apart); existing droplets keep their birth direction. Camera directions follow the global Model direction count. Spray angle changes the shared air/soil distribution; RPM changes rotation, not flight speed. Six fixed spray bursts follow the recording.",
+        description: "Type applies to NEW placements: compact and tall impact sprinklers can coexist. Tall has a raised head, stronger upward launch and a wider falling arc. Plants never block water; terrain does. One rotating nozzle. The whole assembly and spray launches use the same 32 internal poses (11.25 degrees apart); existing droplets keep their birth direction. Camera directions follow the global Model direction count. Spray angle changes the shared air/soil distribution; RPM changes rotation, not flight speed. Six fixed spray bursts follow the recording.",
         initially_open: false,
-        params: &["sprinkler_spray_angle", "sprinkler_rotation_speed"],
+        params: &["sprinkler_placement_type", "sprinkler_spray_angle", "sprinkler_rotation_speed"],
     },
     ControlGroup {
         parent: None,

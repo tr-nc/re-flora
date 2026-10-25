@@ -80,7 +80,27 @@ impl Pose {
 pub(crate) const ROTARY_PERIOD_SECONDS: f32 = 4.0;
 pub(crate) const ROTARY_FRAMES: u32 = 32;
 
-/// Appearance only. Stable indices select complete assemblies, never water sources.
+/// Per-placement water source type. Existing placements retain their type when
+/// the placement selector changes; appearance remains independent for compact heads.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u32)]
+pub enum Kind {
+    #[default]
+    Compact = 0,
+    Tall = 1,
+}
+impl Kind {
+    pub fn from_saved(value: u32) -> Self {
+        if value == 1 {
+            Self::Tall
+        } else {
+            Self::Compact
+        }
+    }
+}
+pub(crate) const TALL_LIFT_VOXELS: f32 = 22.0;
+
+/// Stable geometry indices. The tall assembly belongs to the Tall source type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
 pub(crate) enum Design {
@@ -88,18 +108,20 @@ pub(crate) enum Design {
     BrassImpact,
     GardenPulse,
     EnclosedRotor,
+    Tall,
 }
 impl Design {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::Current,
         Self::BrassImpact,
         Self::GardenPulse,
         Self::EnclosedRotor,
+        Self::Tall,
     ];
 
     pub fn comparison(enabled: bool, candidate: u32) -> Self {
         if enabled {
-            Self::ALL[1 + candidate.min(Self::ALL.len() as u32 - 2) as usize]
+            Self::ALL[1 + candidate.min(2) as usize]
         } else {
             Self::Current
         }

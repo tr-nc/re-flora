@@ -15,7 +15,7 @@ import tracer_types;
 
 [[vk::binding(6,0)]] ConstantBuffer<U_FloraGrowthInfo> flora_growth_info;
 [[vk::binding(15,0)]] ConstantBuffer<U_TerrainEditPreview> terrain_edit_preview;
-[[vk::binding(11,1)]] StructuredBuffer<float4> sprinkler_instances;
+[[vk::binding(11,1)]] StructuredBuffer<B_SprinklerInstance> sprinkler_instances;
 [[vk::binding(18,1)]] StructuredBuffer<float4> sprinkler_model_colors;
 struct SprinklerPart { uint4 range; };
 [[vk::binding(31,1)]] StructuredBuffer<SprinklerPart> sprinkler_parts;
@@ -25,9 +25,11 @@ ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint instance:SV_VulkanInstan
 {
     uint count, stride;
     sprinkler_parts.GetDimensions(count,stride);
-    float4 pose=sprinkler_instances[instance];
+    B_SprinklerInstance emitter=sprinkler_instances[instance];
+    float4 pose=emitter.position_phase;
     float angle=gui_input.sprinkler_rotor_angle+frac(pose.w)*6.28318530718;
-    uint design=min(gui_input.sprinkler_design,count/SPRINKLER_ROTARY_FRAMES-1u);
+    uint design=emitter.kind.x==SPRINKLER_KIND_TALL?SPRINKLER_DESIGN_TALL:
+        min(gui_input.sprinkler_design,3u);
     SprinklerPart part=sprinkler_parts[design*SPRINKLER_ROTARY_FRAMES+sprinklerRotaryFrame(angle)];
     ModelMeshOutput output; output.position=float4(2,2,2,1);output.color=float4(0);
     // One fixed assembly frame selects the same camera view/grid for all discrete

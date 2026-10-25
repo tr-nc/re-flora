@@ -364,9 +364,15 @@ mod tests {
 
     #[test]
     fn candidates_are_finite_distinct_complete_meshes_with_the_same_mouth() {
-        let outlet = crate::sprinkler::RotorPose { angle: 0. }.outlet();
         let mut signatures = Vec::new();
         for design in crate::sprinkler::Design::ALL {
+            let lift = if design == crate::sprinkler::Design::Tall {
+                crate::sprinkler::TALL_LIFT_VOXELS
+            } else {
+                0.0
+            };
+            let outlet =
+                crate::sprinkler::RotorPose { angle: 0. }.outlet() + Vec3::Y * lift * WORLD_SCALE;
             let (vertices, indices) = build_design(design);
             assert!(indices.len() / 3 < 2200, "bounded prop mesh: {design:?}");
             assert!(vertices.iter().any(|v| v.animation_direction == [0.; 3]));
@@ -376,7 +382,11 @@ mod tests {
                 let p = Vec3::from_array(v.position) / WORLD_SCALE;
                 let normal = Vec3::from_array(v.shading_normal);
                 assert!(
-                    p.is_finite() && p.y >= -1e-5 && p.y < 6.5 && p.x.abs() < 5. && p.z.abs() < 5.
+                    p.is_finite()
+                        && p.y >= -1e-5
+                        && p.y < 6.5 + lift
+                        && p.x.abs() < 5.
+                        && p.z.abs() < 5.
                 );
                 assert!(normal.is_finite() && (normal.length() - 1.).abs() < 1e-5);
                 assert!(v.color_srgb.iter().all(|c| (0.0..=1.0).contains(c)));
@@ -394,7 +404,11 @@ mod tests {
                     angle: frame as f32 * std::f32::consts::TAU
                         / crate::sprinkler::ROTARY_FRAMES as f32,
                 };
-                assert!(pose.rotate(center).distance(pose.outlet()) < 1e-6);
+                assert!(
+                    pose.rotate(center)
+                        .distance(pose.outlet() + Vec3::Y * lift * WORLD_SCALE)
+                        < 1e-6
+                );
             }
             for tri in indices.chunks_exact(3) {
                 let p = tri

@@ -23,7 +23,7 @@ pub struct Options {
     pub views: u32,
     pub resolutions: [u32; MODEL_KINDS],
     pub enabled: [bool; MODEL_KINDS],
-    /// Only this hardware family is baked; other designs keep native fallback.
+    /// Compact hardware family. The tall type shares this cache owner and is baked too.
     pub sprinkler_design: u32,
 }
 impl Default for Options {
@@ -387,7 +387,9 @@ fn bake(source: &Source, options: Options, cancel: &AtomicBool) -> Result<Baked>
     let selected = |id: usize, r: &[u32; 4]| {
         options.enabled[r[2] as usize - 1]
             && (r[2] != 3 || heads.contains(&(id as u32)))
-            && (r[2] != 5 || r[3] / crate::sprinkler::ROTARY_FRAMES == options.sprinkler_design)
+            && (r[2] != 5
+                || r[3] / crate::sprinkler::ROTARY_FRAMES == options.sprinkler_design
+                || r[3] / crate::sprinkler::ROTARY_FRAMES == crate::sprinkler::Design::Tall as u32)
     };
     let needed: usize = source
         .ranges
@@ -592,7 +594,12 @@ mod tests {
                 )
                 .unwrap();
                 let frames = crate::sprinkler::ROTARY_FRAMES as usize;
-                assert_eq!(data.samples.len(), frames * 8 * (n * n) as usize);
+                let families = if design == crate::sprinkler::Design::Tall {
+                    1
+                } else {
+                    2
+                };
+                assert_eq!(data.samples.len(), families * frames * 8 * (n * n) as usize);
                 let parts = &source.sprinkler_parts[design as usize * frames..][..frames];
                 for part in parts {
                     let expected = data.entries[parts[0].range[2] as usize].bounds;
@@ -614,7 +621,10 @@ mod tests {
                     }
                 }
                 for (entry, range) in data.entries.iter().zip(&source.ranges) {
-                    if range[2] != 5 || range[3] / crate::sprinkler::ROTARY_FRAMES != design as u32
+                    if range[2] != 5
+                        || (range[3] / crate::sprinkler::ROTARY_FRAMES != design as u32
+                            && range[3] / crate::sprinkler::ROTARY_FRAMES
+                                != crate::sprinkler::Design::Tall as u32)
                     {
                         assert_eq!(
                             entry.layout, [0; 4],
@@ -648,7 +658,7 @@ mod tests {
                 views: 8,
                 resolutions: [8, 32, 32, 16, 24],
                 enabled: [false, true, false, true, true],
-                sprinkler_design: 3,
+                sprinkler_design: crate::sprinkler::Design::Tall as u32,
             }
         );
     }

@@ -2,6 +2,18 @@ module sprinkler_animation;
 
 import model_pixel_types;
 
+public struct B_SprinklerInstance {
+    public float4 position_phase;
+    public uint4 kind;
+};
+public static const uint SPRINKLER_KIND_TALL=1u;
+public static const uint SPRINKLER_DESIGN_TALL=4u;
+public static const float SPRINKLER_TALL_LIFT=22.0/256.0;
+public float3 sprinklerKindOutlet(float angle,uint kind)
+{
+    return sprinklerRotaryOutlet(angle)+float3(0,kind==SPRINKLER_KIND_TALL?SPRINKLER_TALL_LIFT:0.0,0);
+}
+
 // One ground-anchored scale for native/cache geometry and physical water outlets.
 // Keep invalid saved values from producing inverted or non-finite hardware.
 public ModelPixelFrame sprinklerHardwareFrame(float3 base,float sizeScale)

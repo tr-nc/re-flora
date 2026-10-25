@@ -332,6 +332,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "sprinkler_placement_type",
+        kind: "choice",
+        label: "Sprinklers: type for new placements",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "sprinkler_spray_angle",
         kind: "float",
         label: "Sprinklers: spray angle (degrees)",
@@ -1831,6 +1837,7 @@ pub struct GuiAdjustables {
     pub sprinkler_cache_enabled: crate::gui_adjustables::BoolParam,
     pub sprinkler_size_scale: crate::gui_adjustables::FloatParam,
     pub sprinkler_design: crate::gui_adjustables::ChoiceParam,
+    pub sprinkler_placement_type: crate::gui_adjustables::ChoiceParam,
     pub sprinkler_spray_angle: crate::gui_adjustables::FloatParam,
     pub sprinkler_rotation_speed: crate::gui_adjustables::FloatParam,
     pub sprinkler_wet_patch_size: crate::gui_adjustables::FloatParam,
@@ -2136,6 +2143,7 @@ impl GuiAdjustables {
         let mut sprinkler_cache_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_size_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_design_field: Option<crate::gui_adjustables::ChoiceParam> = None;
+        let mut sprinkler_placement_type_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut sprinkler_spray_angle_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_rotation_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_wet_patch_size_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2688,6 +2696,11 @@ impl GuiAdjustables {
                     "sprinkler_design" => {
                         if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
                             sprinkler_design_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
+                        }
+                    }
+                    "sprinkler_placement_type" => {
+                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
+                            sprinkler_placement_type_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
                         }
                     }
                     "sprinkler_spray_angle" => {
@@ -4362,6 +4375,7 @@ impl GuiAdjustables {
             sprinkler_cache_enabled: sprinkler_cache_enabled_field.expect("Missing parameter: sprinkler_cache_enabled"),
             sprinkler_size_scale: sprinkler_size_scale_field.expect("Missing parameter: sprinkler_size_scale"),
             sprinkler_design: sprinkler_design_field.expect("Missing parameter: sprinkler_design"),
+            sprinkler_placement_type: sprinkler_placement_type_field.expect("Missing parameter: sprinkler_placement_type"),
             sprinkler_spray_angle: sprinkler_spray_angle_field.expect("Missing parameter: sprinkler_spray_angle"),
             sprinkler_rotation_speed: sprinkler_rotation_speed_field.expect("Missing parameter: sprinkler_rotation_speed"),
             sprinkler_wet_patch_size: sprinkler_wet_patch_size_field.expect("Missing parameter: sprinkler_wet_patch_size"),
@@ -4868,6 +4882,7 @@ pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
         "scene_supersampling_quality" => Some(&adjustables.scene_supersampling_quality),
         "scene_pixel_resolve_mode" => Some(&adjustables.scene_pixel_resolve_mode),
         "sprinkler_design" => Some(&adjustables.sprinkler_design),
+        "sprinkler_placement_type" => Some(&adjustables.sprinkler_placement_type),
         "climbing_fixture" => Some(&adjustables.climbing_fixture),
         _ => None,
     }
@@ -5207,6 +5222,7 @@ pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
         "scene_supersampling_quality" => Some(&mut adjustables.scene_supersampling_quality),
         "scene_pixel_resolve_mode" => Some(&mut adjustables.scene_pixel_resolve_mode),
         "sprinkler_design" => Some(&mut adjustables.sprinkler_design),
+        "sprinkler_placement_type" => Some(&mut adjustables.sprinkler_placement_type),
         "climbing_fixture" => Some(&mut adjustables.climbing_fixture),
         _ => None,
     }

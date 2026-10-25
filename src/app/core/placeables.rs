@@ -63,6 +63,7 @@ struct SprinklerRecord {
     id: u32,
     base_position: Vec3,
     animation_phase: f32,
+    kind: crate::sprinkler::Kind,
     emitter_component: Option<RasterEmitterComponent>,
 }
 
@@ -223,6 +224,7 @@ impl SprinklerRuntime {
             .map(|record| SprinklerRenderInstance {
                 base_position: record.base_position,
                 animation_phase: record.animation_phase,
+                kind: record.kind,
             })
             .collect()
     }
@@ -247,6 +249,15 @@ impl SprinklerRuntime {
         target: Vec3,
         emitter_component: Option<RasterEmitterComponent>,
     ) -> Result<SprinklerPlacementPlan> {
+        self.plan_placement_of_kind(target, emitter_component, crate::sprinkler::Kind::Compact)
+    }
+
+    fn plan_placement_of_kind(
+        &self,
+        target: Vec3,
+        emitter_component: Option<RasterEmitterComponent>,
+        kind: crate::sprinkler::Kind,
+    ) -> Result<SprinklerPlacementPlan> {
         let base_position = PlaceableKind::Sprinkler
             .placement_position(target)
             .ok_or_else(|| {
@@ -259,12 +270,14 @@ impl SprinklerRuntime {
             id,
             base_position,
             animation_phase,
+            kind,
             emitter_component,
         };
         let mut render_instances = self.render_instances();
         render_instances.push(SprinklerRenderInstance {
             base_position,
             animation_phase,
+            kind,
         });
         Ok(SprinklerPlacementPlan {
             expected_revision: self.revision,
@@ -377,6 +390,7 @@ impl SprinklerRuntime {
             .map(|record| SprinklerRenderInstance {
                 base_position: record.base_position,
                 animation_phase: record.animation_phase,
+                kind: record.kind,
             })
             .collect();
         let removed_grass_influence_ids = self
@@ -542,9 +556,16 @@ impl App {
         target: Vec3,
         component: Option<RasterEmitterComponent>,
     ) -> Result<(RasterEntityId, Option<LightId>)> {
-        let plan = self
-            .sprinklers
-            .plan_placement_with_emitter(target, component)?;
+        let plan = self.sprinklers.plan_placement_of_kind(
+            target,
+            component,
+            crate::sprinkler::Kind::from_saved(
+                self.debug_settings
+                    .adjustables
+                    .sprinkler_placement_type
+                    .value,
+            ),
+        )?;
         let staged_lights = plan
             .emitter_source()
             .map(|(_, component)| {
@@ -860,6 +881,30 @@ mod tests {
             assert!(runtime.is_empty());
             assert_eq!(runtime.revision(), 0);
         }
+    }
+
+    #[test]
+    fn sprinkler_types_coexist_and_survive_publication_and_removal() {
+        use crate::sprinkler::Kind;
+        let mut runtime = SprinklerRuntime::new();
+        for (x, kind) in [(0.3, Kind::Compact), (0.6, Kind::Tall)] {
+            let plan = runtime
+                .plan_placement_of_kind(Vec3::new(x, 0.5, 0.5), None, kind)
+                .unwrap();
+            assert_eq!(plan.render_instances().last().unwrap().kind, kind);
+            runtime.commit_placement(plan);
+        }
+        let published = runtime.render_instances();
+        assert_eq!(
+            published.iter().map(|r| r.kind).collect::<Vec<_>>(),
+            [Kind::Compact, Kind::Tall]
+        );
+        let plan = runtime.plan_removal_ids(HashSet::from([1])).unwrap();
+        assert_eq!(plan.render_instances()[0].kind, Kind::Tall);
+        runtime.commit_removal(plan);
+        assert_eq!(runtime.render_instances()[0].kind, Kind::Tall);
+        assert_eq!(runtime.audio_sources().len(), 1);
+        assert_eq!(runtime.moisture_sources().len(), 1);
     }
 
     #[test]

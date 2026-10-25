@@ -31,12 +31,14 @@ pub const SPRINKLER_MIST_TILE_SIZE: u32 = 16;
 struct SprinklerInstanceGpu {
     base_position: [f32; 3],
     animation_phase: f32,
+    kind: [u32; 4],
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct SprinklerRenderInstance {
     pub base_position: Vec3,
     pub animation_phase: f32,
+    pub kind: crate::sprinkler::Kind,
 }
 
 struct SprinklerFrame {
@@ -240,6 +242,7 @@ fn encode_instances(instances: &[SprinklerRenderInstance]) -> Result<Vec<Sprinkl
             Ok(SprinklerInstanceGpu {
                 base_position: instance.base_position.to_array(),
                 animation_phase: instance.animation_phase.rem_euclid(1.),
+                kind: [instance.kind as u32, 0, 0, 0],
             })
         })
         .collect()
@@ -266,9 +269,11 @@ mod tests {
         let pose = SprinklerRenderInstance {
             base_position: Vec3::ONE,
             animation_phase: -0.25,
+            kind: crate::sprinkler::Kind::Tall,
         };
         let encoded = encode_instances(&[pose]).unwrap();
-        assert_eq!(std::mem::size_of::<SprinklerInstanceGpu>(), 16);
+        assert_eq!(std::mem::size_of::<SprinklerInstanceGpu>(), 32);
+        assert_eq!(encoded[0].kind, [1, 0, 0, 0]);
         assert_eq!(encoded[0].base_position, [1.; 3]);
         assert_eq!(encoded[0].animation_phase, 0.75);
         assert!(encode_instances(&[]).unwrap().is_empty());

@@ -384,12 +384,37 @@ fn enclosed_rotor(mesh: &mut Mesh) {
     );
 }
 
+fn tall(mesh: &mut Mesh) {
+    // A complete elevated impact head on a braced stand. The moving head and
+    // water outlet receive exactly the same lift; the ground foot stays fixed.
+    brass_impact(mesh);
+    for vertex in &mut mesh.vertices {
+        vertex.position[1] += crate::sprinkler::TALL_LIFT_VOXELS * WORLD_SCALE;
+    }
+    foot(mesh, 3.6, SAGE_DARK);
+    inlet(mesh);
+    tube(
+        mesh,
+        Vec3::Y * 0.7,
+        Vec3::Y * (crate::sprinkler::TALL_LIFT_VOXELS + 0.8),
+        0.58,
+        BRASS,
+        Vec3::ZERO,
+    );
+    for n in 0..3 {
+        let angle = n as f32 * std::f32::consts::TAU / 3.0;
+        let foot = Vec3::new(angle.cos() * 3.4, 0.4, angle.sin() * 3.4);
+        tube(mesh, foot, Vec3::Y * 8.0, 0.20, SAGE, Vec3::ZERO);
+    }
+}
+
 pub(super) fn build(design: Design) -> (Vec<SprinklerVertex>, Vec<u32>) {
     let mut mesh = Mesh::default();
     match design {
         Design::BrassImpact => brass_impact(&mut mesh),
         Design::GardenPulse => garden_pulse(&mut mesh),
         Design::EnclosedRotor => enclosed_rotor(&mut mesh),
+        Design::Tall => tall(&mut mesh),
         Design::Current => unreachable!("the reference mesh has its own authoring function"),
     }
     (mesh.vertices, mesh.indices)
