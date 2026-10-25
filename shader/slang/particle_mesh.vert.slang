@@ -12,6 +12,7 @@ import model_mesh_types;
 import flora_shadow;
 import environment_lighting;
 import sunlight;
+import butterfly_color;
 [[vk::binding(11,1)]] StructuredBuffer<ButterflyMeshInstance> butterfly_mesh_instances;
 float3 rotateMeshPose(float4 q,float3 p) {return p+2*cross(q.xyz,cross(q.xyz,p)+q.w*p);}
 [shader("vertex")]
@@ -44,5 +45,6 @@ ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint index:SV_VulkanInstanceI
     float d=dot(normal,normalize(sun_info.sun_dir));
     float direct=lerp(max(0.0,d),abs(d),saturate(instance.lighting.x));
     float3 color=applyStylizedVoxelLightingWithEnvironment(sun_info,instance.color.rgb,direct*shadow.sun_transmittance,ambient);
+    color=readableButterflyColor(color,instance.color.rgb,sun_info.sun_dir.y);
     ModelMeshOutput output;output.position=clip;output.color=float4(color,instance.color.w);return output;
 }

@@ -6,6 +6,7 @@ import model_pixel_cache;
 import model_cache_types;
 import leaf_lighting;
 import flora_shadow;
+import butterfly_color;
 [[vk::binding(11,1)]] public StructuredBuffer<ButterflyMeshInstance> butterfly_mesh_instances;
 public float3 rotatePose(float4 q,float3 p) { return p+2.0*cross(q.xyz,cross(q.xyz,p)+q.w*p); }
 // Production uses only the shared surface; physical lighting/pose remain live.
@@ -25,6 +26,7 @@ public float4 sampleCanonicalParticle(ButterflyMeshInstance instance,uint2 pixel
         float d=dot(normal,normalize(sun_info.sun_dir));
         float direct=lerp(max(0.0,d),abs(d),saturate(instance.lighting.x));
         color=applyStylizedVoxelLightingWithEnvironment(sun_info,instance.color.rgb,direct*light.w,light.rgb);
+        color=readableButterflyColor(color,instance.color.rgb,sun_info.sun_dir.y);
     }
     return float4(color,surface.positionDepth.w);
 }
