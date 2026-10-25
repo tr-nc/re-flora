@@ -1,6 +1,5 @@
-use crate::branch_skeleton::{
-    generate_branch_skeleton_with_rng, BranchSegment, BranchSegmentRole, BranchingDesc,
-};
+use super::growth::{self, TREE_DEFAULT_SIZE};
+use crate::branch_skeleton::{BranchSegment, BranchSegmentRole, BranchingDesc};
 use crate::geom::RoundCone;
 use crate::util::stable_perpendicular_basis;
 use glam::Vec3;
@@ -9,12 +8,10 @@ use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
-const TREE_DEFAULT_SIZE: f32 = 30.0;
 const TREE_SAPLING_SIZE_RATIO: f32 = 0.12;
 const TREE_SAPLING_THICKNESS_RATIO: f32 = 0.70;
 const TREE_SAPLING_LEAF_DENSITY_RATIO: f32 = 0.25;
 const TREE_SAPLING_LEAVES_SIZE_LEVEL: u32 = 1;
-const TREE_SAPLING_VISIBLE_BRANCH_LEVELS: u32 = 1;
 
 fn mature_tree_growth_age() -> f32 {
     1.0
@@ -234,75 +231,16 @@ impl Tree {
         &self.built_objects.leaf_branches
     }
 
-    fn thickness_at_level(desc: &TreeDesc, base_thickness: f32, level: u32) -> f32 {
-        let mut thickness = base_thickness;
-        for current_level in 0..level {
-            thickness = if desc.thickness_reduction > 0.0 {
-                thickness * desc.thickness_reduction
-            } else {
-                thickness * 0.1_f32.powf((current_level + 1) as f32)
-            };
-        }
-        thickness
-    }
-
     fn build(desc: &TreeDesc) -> BuiltObjects {
-        let mut branching_desc = desc.branching.normalized();
-        let length_scale = (desc.size / TREE_DEFAULT_SIZE).max(0.0);
-        branching_desc.initial_length *= length_scale;
-        let mut skeleton_rng = StdRng::seed_from_u64(branching_desc.seed);
-        let mut leaf_rng = StdRng::seed_from_u64(branching_desc.seed ^ 0xA511_E9B3_D6E8_FD9D);
+        let growth::GrowthSkeleton {
+            branches: segments,
+            axes: axis_segments,
+            wood,
+            foliage: leaf_anchors,
+        } = growth::generate(desc);
+        let mut leaf_rng = StdRng::seed_from_u64(desc.branching.seed ^ 0xA511_E9B3_D6E8_FD9D);
         let mut subdivision_rng =
-            StdRng::seed_from_u64(branching_desc.seed ^ 0x63D8_3595_B529_7A4D);
-        let base_thickness = desc.trunk_thickness * desc.size;
-        let (segments, axis_segments) = if let Some(skeleton) = super::axis::generate(desc) {
-            (skeleton.segments, skeleton.metadata)
-        } else {
-            (
-                generate_branch_skeleton_with_rng(&branching_desc, &mut skeleton_rng).segments,
-                Vec::new(),
-            )
-        };
-        let visible_branch_levels =
-            visible_branch_levels(desc.growth_age, branching_desc.iterations);
-
-        let leaf_level = visible_branch_levels
-            .saturating_sub(desc.leaf_offset)
-            .max(1);
-        let visible = |index: usize| {
-            if axis_segments.is_empty() {
-                segments[index].level < visible_branch_levels
-            } else {
-                axis_segments[index].reveal_age <= desc.growth_age.clamp(0., 1.)
-            }
-        };
-        let last_visible_trunk = axis_segments
-            .iter()
-            .enumerate()
-            .filter(|(i, meta)| meta.order == 0 && visible(*i))
-            .map(|(i, _)| i)
-            .next_back();
-        let leaf_anchors = segments
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| visible(*i))
-            .filter(|(i, segment)| {
-                if axis_segments.is_empty() {
-                    segment.level.saturating_add(1) == leaf_level
-                } else {
-                    let meta = &axis_segments[*i];
-                    // Apple's foliage masses sit on twig tips, not on every sampling point.
-                    // Pendant willow shoots and pine sprays retain foliage along the whole axis.
-                    let leafy_twig = meta.order == 2
-                        && (desc.species != super::TreeSpecies::AppleTree || meta.u_end == 1.);
-                    leafy_twig || Some(*i) == last_visible_trunk
-                }
-            })
-            .map(|(branch_index, segment)| {
-                let direction = (segment.end - segment.start).normalize_or_zero();
-                (branch_index, segment.end, direction)
-            })
-            .collect::<Vec<_>>();
+            StdRng::seed_from_u64(desc.branching.seed ^ 0x63D8_3595_B529_7A4D);
         let leaf_positions = leaf_anchors
             .iter()
             .map(|(_, position, _)| *position)
@@ -322,23 +260,14 @@ impl Tree {
                     && segment.parent.is_none_or(|parent| root_axes[parent]),
             );
         }
-        for (branch_index, segment) in segments.iter().enumerate().filter(|(i, _)| visible(*i)) {
+        for section in wood {
+            let branch_index = section.branch;
+            let segment = &segments[branch_index];
             let first_cone = trunks.len();
-            let (thickness_start, thickness_end) = if axis_segments.is_empty() {
-                (
-                    Self::thickness_at_level(desc, base_thickness, segment.level),
-                    Self::thickness_at_level(desc, base_thickness, segment.level + 1),
-                )
-            } else {
-                (
-                    axis_segments[branch_index].radius_start,
-                    axis_segments[branch_index].radius_end,
-                )
-            };
             let cone = RoundCone::new(
-                thickness_start.max(0.),
+                section.radius_start.max(0.),
                 segment.start,
-                thickness_end.max(0.),
+                section.radius_end.max(0.),
                 segment.end,
             );
             // subdivision now respects the toggle
@@ -364,15 +293,6 @@ impl Tree {
             leaf_placements,
         }
     }
-}
-
-fn visible_branch_levels(age: f32, mature_levels: u32) -> u32 {
-    let mature_levels = mature_levels.max(1);
-    let young_levels = TREE_SAPLING_VISIBLE_BRANCH_LEVELS.min(mature_levels);
-    let age = age.clamp(0.0, 1.0);
-    let smooth_age = age * age * (3.0 - 2.0 * age);
-    let level_count = mature_levels - young_levels + 1;
-    (young_levels + (smooth_age * level_count as f32).floor() as u32).min(mature_levels)
 }
 
 fn generate_leaf_sprays(
@@ -531,6 +451,7 @@ fn subdivide_trunk_segment(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tree_gen::growth::{thickness_at_level, visible_branch_levels};
 
     #[test]
     fn physical_trunks_use_root_axis_ancestry_for_every_registered_species_and_age() {
@@ -745,11 +666,11 @@ mod tests {
                     let base = aged.trunk_thickness * aged.size;
                     assert_eq!(
                         cones[0].radius_a(),
-                        Tree::thickness_at_level(&aged, base, segment.level)
+                        thickness_at_level(&aged, base, segment.level)
                     );
                     assert_eq!(
                         cones.last().unwrap().radius_b(),
-                        Tree::thickness_at_level(&aged, base, segment.level + 1)
+                        thickness_at_level(&aged, base, segment.level + 1)
                     );
                     assert_eq!(cones[0].center_a(), segment.start);
                     assert_eq!(cones.last().unwrap().center_b(), segment.end);

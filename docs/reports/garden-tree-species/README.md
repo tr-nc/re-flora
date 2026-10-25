@@ -24,7 +24,7 @@ worktree. They are actual game renders, not stock reference photos or output fro
 provider. Image model/provider/prompt influence/negative prompt: **not applicable**. No new image
 model, generated plant texture, reference-image input or audio resource was used for this report.
 
-Final implementation baseline: `2bc5b7dd` (`add apple pine and weeping willow garden trees`,
+Original capture implementation baseline: `2bc5b7dd` (`add apple pine and weeping willow garden trees`,
 2026-10-25). Research baseline: `7a8b89c0`. Source repository is this repository; no external asset
 service URL/asset ID applies. The original working capture folder was `target/tree-species-review/`,
 but originals are now embedded in `index.html`, so the bundle remains self-contained when copied.
@@ -117,10 +117,23 @@ for (const match of html.matchAll(/data-capture="([a-z0-9-]+)" src="data:image\/
 '
 ```
 
+## Follow-up architecture clarification
+
+The report now explicitly distinguishes the **four legacy Garden Trees in the fresh opening** from
+the Apple tuning description/default planting selection. The original statement that all startup
+trees became Apple Trees was incorrect. A subsequent behavior-preserving shared-growth refactor is
+summarized in the report, with [design](../../tree-growth.md) and
+[148-case compatibility/native evidence](../../evidence/tree-growth-rules.md). All 11 embedded
+original images and their manifest hashes remain unchanged. After regeneration, Chromium checks
+at 1440 × 1000 and 390 × 844 confirmed the clarification text, all 11 decoded originals, working
+all-nine filtering, valid fragment links and no document overflow or JavaScript/CSP errors. The
+updated desktop/mobile sections were also viewed; the task-isolated browser was then closed.
+
 ## Validation
 
-The app validation summarized in the report belongs to implementation `2bc5b7dd`; this documentation
-change does not claim a new game performance benchmark or a full-suite run.
+The original species-delivery checks belong to implementation `2bc5b7dd`; the later architectural
+checks are explicitly marked as a follow-up. Neither claims a new game performance benchmark or a
+full-suite run.
 
 - `node --check` for builder and interaction script: passed.
 - Rebuild using only the originals embedded in `index.html`: passed. Two successive builds produced

@@ -84,6 +84,81 @@ fn willow_has_pendant_shoots_while_apple_and_pine_keep_ascending_crowns() {
 }
 
 #[test]
+fn foliage_rules_keep_tip_crowns_and_along_shoot_sprays_distinct() {
+    for species in [
+        TreeSpecies::AppleTree,
+        TreeSpecies::Pine,
+        TreeSpecies::WeepingWillow,
+        TreeSpecies::Conifer,
+    ] {
+        for seed in [7, 122, 907] {
+            let mut desc = species.mature_desc(&TreeDesc::default());
+            desc.branching.seed = seed;
+            // Axis foliage must not accidentally inherit recursive depth/offset semantics.
+            desc.branching.iterations = 2;
+            desc.leaf_offset = 3;
+            for age in [0., 0.45, 1.] {
+                let tree = Tree::new(desc.at_age(age));
+                let anchors: std::collections::BTreeSet<_> =
+                    tree.leaf_branch_indices().iter().copied().collect();
+                let last_trunk = tree
+                    .trunk_branch_indices()
+                    .iter()
+                    .copied()
+                    .filter(|&i| tree.axis_segments()[i].order == 0)
+                    .next_back();
+                let mut twig_tip = false;
+                let mut twig_interior = false;
+                for i in anchors {
+                    let axis = tree.axis_segments()[i];
+                    if axis.order == 0 {
+                        assert_eq!(
+                            Some(i),
+                            last_trunk,
+                            "young crowns follow the visible leader"
+                        );
+                    } else {
+                        assert_eq!(axis.order, 2, "leaves attach to shoots, not scaffold wood");
+                        if species == TreeSpecies::AppleTree {
+                            assert_eq!(axis.u_end, 1., "apple leaf masses stay on twig tips");
+                        }
+                        twig_tip |= axis.u_end == 1.;
+                        twig_interior |= axis.u_end < 1.;
+                    }
+                }
+                if age == 1. {
+                    assert!(twig_tip);
+                    assert_eq!(twig_interior, species != TreeSpecies::AppleTree);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn species_profiles_are_switching_defaults_not_overrides_of_live_authoring() {
+    for species in TreeSpecies::PLANTABLE {
+        let mut authored = species.mature_desc(&TreeDesc::default());
+        authored.axis_model = false;
+        authored.size = 23.5;
+        authored.trunk_thickness = 0.27;
+        authored.branching.seed = 907;
+        authored.leaf_density = 0.071;
+        authored.leaves_size_level = 3;
+        authored.leaf_spray_width_ratio = 0.82;
+        authored.leaf_spray_tip_offset_ratio = -0.12;
+        authored.fruit_spawn_probability = 0.12;
+        authored.enable_subdivision = true;
+        let mut expected = authored.clone();
+        expected.axis_model = true;
+        assert_eq!(species.mature_desc(&authored), expected);
+        let saved = serde_json::to_vec(&authored).unwrap();
+        let restored: TreeDesc = serde_json::from_slice(&saved).unwrap();
+        assert_eq!(species.mature_desc(&restored), expected);
+    }
+}
+
+#[test]
 fn new_profiles_and_legacy_descriptions_round_trip_without_reinterpreting_saved_trees() {
     for species in TreeSpecies::ALL {
         for axis in [false, true] {

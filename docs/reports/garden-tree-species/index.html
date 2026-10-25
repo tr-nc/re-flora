@@ -23,7 +23,7 @@
 <h1>苹果树、松树与垂柳。<br><span>三种树，三种姿态。</span></h1>
 <p class="lede">这轮不是给同一棵树换名字，而是分别建立枝干结构、树冠轮廓和果实归属，再通过真实游戏截图修正外观。当前是一版已实现、已完成定向验证、可试玩的交付。</p>
 <div><span class="badge">实现与定向验证已完成</span><span class="badge">Release 已构建</span><span class="badge caution">美术效果待用户确认</span><span class="badge caution">性能未验收</span></div>
-<div class="meta"><span>实现基线 <code>2bc5b7dd</code></span><span>调研记录 <code>7a8b89c0</code></span><span>本地交付 · 未推送</span><span>图片内嵌 · 可离线单文件阅读</span></div>
+<div class="meta"><span>原始视觉基线 <code>2bc5b7dd</code></span><span>调研记录 <code>7a8b89c0</code></span><span>本地交付 · 未推送</span><span>图片内嵌 · 可离线单文件阅读</span></div>
 <nav aria-label="报告目录"><a href="#results">效果与种子对照</a><a href="#iteration">迭代过程</a><a href="#design">调研与设计</a><a href="#checks">验证证据</a><a href="#try">如何试玩</a><a href="#limits">边界与后续</a><a href="#sources">来源</a></nav>
 <div class="grid stats"><div class="card stat"><small>可种植树种</small><strong>3</strong><p>Apple Tree / Pine / Weeping Willow</p></div><div class="card stat"><small>单树实机场景</small><strong>3 × 3</strong><p>每种树查看 7、122、907 三个种子</p></div><div class="card stat"><small>额外集成检查</small><strong>混种</strong><p>年龄变化、快照还原与 GPU 读回</p></div></div>
 </header>
@@ -58,6 +58,7 @@
 
 <section id="design" class="section">
 <div class="section-head"><div class="eyebrow">03 / Research into structure</div><h2>参考植物特征，但不冒充植物学模拟。</h2><p>调研影响的是生成规则，而不只是配色。当前仍沿用游戏已有的像素叶片、树皮渲染和共享调色参数。</p></div>
+<div class="note success" id="architecture-update"><strong>后续架构整理：统一生成模块 + 树种规则。</strong><p>树种现在集中声明树冠、枝梢、叶片附着和果实规则；统一模块输出枝干骨架、年龄可见性、粗细与叶片挂点，几何代码不再判断苹果树或柳树。旧生成器通过兼容路径保留，不改写旧树形。规则是代码内的类型化配置，不是新增的 GUI 或外部脚本系统。</p><p>重构前后 <strong>148 组固定输入的生成指纹完全一致</strong>；新增规则回归后树模块 45 项测试通过，另有 1 项显式兼容性采集默认忽略。三种树和混种的原生 Release 检查通过。本页内嵌图片保留原始交付版本，不以不同分辨率的新截图冒充像素一致性比较。</p><a href="../../tree-growth.md">模块设计与扩展方法</a> · <a href="../../evidence/tree-growth-rules.md">后续验证记录</a></div>
 <div class="grid">
 <article class="card"><h3>苹果树</h3><span class="latin">Malus domestica · 园艺化阔叶轮廓</span><p>参考其宽展、结果的园林形态；没有宣称复刻某个品种，也没有把主要面向核果类的“开心形整枝”当作所有苹果树的标准。</p><ul><li>低主轴与上扬骨干枝</li><li>枝梢末端的圆润叶团</li><li>接入现有苹果生长、悬挂、掉落与交互</li></ul><p style="margin-top:15px"><a href="#source-apple">植物参考 ↗</a></p></article>
 <article class="card"><h3>松树</h3><span class="latin">Pinus sylvestris · 成熟松树启发</span><p>参考成熟松树较开阔、不规则的冠形，而不是把松树等同于规则圣诞树。旧 Conifer 的九层、每层四枝，不再决定新 Pine 的轮廓。</p><ul><li>有变化的节间与每层 2–4 根枝条</li><li>不等长枝条、偏冠与疏密间隙</li><li>下垂弧度后接上扬枝梢</li></ul><p style="margin-top:15px"><a href="#source-pine">植物参考 ↗</a></p></article>
@@ -105,12 +106,12 @@ RE_FLORA_TREE_SPECIES_REVIEW=mixed RUST_LOG=info \
 RUST_LOG=info cargo run --release -- \
   --hidden --mute --raster-tree-smoke --auto-exit 120
 cargo run --release -- --hidden --mute --auto-exit 0.5
-cargo run --release -- --tail-latest-log 180</code></pre><ul><li><code>src/tree_gen/species.rs</code>：持久化身份、树种参数、苹果归属</li><li><code>src/tree_gen/axis/garden.rs</code>：三类新树的枝干生成</li><li><code>src/tree_gen/tree.rs</code>：显现年龄与叶簇附着</li><li><code>src/app/core/plant_catalog.rs</code>：种植目录与会话选择</li><li><code>src/app/core/vegetation/species_review.rs</code>：原生验证场景</li><li><code>src/app/core/vegetation/snapshot.rs</code>：快照恢复与重建预算</li></ul></details>
+cargo run --release -- --tail-latest-log 180</code></pre><ul><li><code>src/tree_gen/species.rs</code>：持久化身份、树种参数、苹果归属</li><li><code>src/tree_gen/axis/garden.rs</code>：共用的树冠与枝梢规则实现</li><li><code>src/tree_gen/growth.rs</code>：统一生成、年龄显现、粗细与叶片挂点</li><li><code>src/tree_gen/growth/rules.rs</code>：类型化树种形态规则</li><li><code>src/tree_gen/tree.rs</code>：共同的枝干几何与叶簇实例生成</li><li><code>src/app/core/plant_catalog.rs</code>：种植目录与会话选择</li><li><code>src/app/core/vegetation/species_review.rs</code>：原生验证场景</li><li><code>src/app/core/vegetation/snapshot.rs</code>：快照恢复与重建预算</li></ul></details>
 </section>
 
 <section id="try" class="section">
 <div class="eyebrow">05 / Try it in the garden</div><h2>从 Grow 种下，而不是从 Debug 拼出一棵树。</h2>
-<div class="grid two"><div class="card"><h3>种植</h3><ol class="flow"><li>按 <kbd>1</kbd> 选择 <strong>Grow</strong>。</li><li>把 <strong>Type</strong> 切换为 <strong>Tree</strong>。</li><li>选择 <strong>Apple Tree / Pine / Weeping Willow</strong>；<kbd>Tab</kbd> 可轮换。</li><li>点击地面种一棵。每次成功种植后，下一个体获得新的种子。</li></ol></div><div class="card"><h3>调参与保存</h3><p><strong>R → Flora → Tree</strong> 保留调试树的大小、粗细、种子和叶簇控制。点击 <strong>Save</strong> 保存设置。</p><p><strong>Terrain &amp; Plants → Save / Load</strong> 保存与恢复已经种下的树。它与保存调参不是同一件事。</p><p>检查进仓库的默认启动树已换成 Apple Tree；载入旧花园不会自动把旧树替换成新树。</p><small>本轮没有自动开启可见游戏窗口。普通试玩使用 <code>cargo run --release</code>，不需要验证场景环境变量或性能面板。</small></div></div>
+<div class="grid two"><div class="card"><h3>种植</h3><ol class="flow"><li>按 <kbd>1</kbd> 选择 <strong>Grow</strong>。</li><li>把 <strong>Type</strong> 切换为 <strong>Tree</strong>。</li><li>选择 <strong>Apple Tree / Pine / Weeping Willow</strong>；<kbd>Tab</kbd> 可轮换。</li><li>点击地面种一棵。每次成功种植后，下一个体获得新的种子。</li></ol></div><div class="card"><h3>调参与保存</h3><p><strong>R → Flora → Tree</strong> 保留调试树的大小、粗细、种子和叶簇控制。点击 <strong>Save</strong> 保存设置。</p><p><strong>Terrain &amp; Plants → Save / Load</strong> 保存与恢复已经种下的树。它与保存调参不是同一件事。</p><p><strong>开局说明更正：</strong>默认花园自带的 4 棵景观树仍是旧 Garden Tree；改为 Apple Tree 的是调试树配置和默认种植选择。开局布局独立生成，未在本轮替换；载入旧花园也不会自动换树。</p><small>本轮没有自动开启可见游戏窗口。普通试玩使用 <code>cargo run --release</code>，不需要验证场景环境变量或性能面板。</small></div></div>
 </section>
 
 <section id="limits" class="section">
@@ -124,7 +125,7 @@ cargo run --release -- --tail-latest-log 180</code></pre><ul><li><code>src/tree_
 <ol class="sources"><li id="source-apple"><a href="https://plants.ces.ncsu.edu/plants/malus-domestica/" rel="noreferrer">NC State Extension · Malus domestica</a><small>苹果的结果属性、园林形态及品种／砧木差异。</small></li><li><a href="https://extension.psu.edu/pruning-and-training-home-fruit-trees-to-an-open-center" rel="noreferrer">Penn State Extension · Open-center training</a><small>用于避免错误泛化：该整枝建议主要面向核果类，不能直接视作所有苹果树的标准。</small></li><li id="source-pine"><a href="https://plants.ces.ncsu.edu/plants/pinus-sylvestris/" rel="noreferrer">NC State Extension · Pinus sylvestris</a><small>成熟后开放、圆整而不规则的冠形，以及短针叶特征。</small></li><li id="source-willow"><a href="https://plants.ces.ncsu.edu/plants/salix-babylonica/" rel="noreferrer">NC State Extension · Salix babylonica</a><small>下垂枝条、窄长叶片与临水景观形态。</small></li></ol>
 <details><summary>图片处理与离线交付说明</summary><p>共内嵌 11 个原始 PNG：9 个单树场景、1 个初版苹果树场景、1 个最终混种场景，均为 1600 × 1000 原生游戏截屏。原文件字节以 data URI 保存，放大时显示完整画面；无需 <code>target/</code> 文件夹、图片服务器、网络字体或 CDN。</p><p>桌面与手机卡片均以 CSS 展示 <code>760×740+380+50</code> 区域，保留同样的树冠与垂枝范围。浏览器按页面尺寸缩放，不改原图。未导入植物参考照片，未使用图像生成服务。</p><p>报告正文与校验清单随文件保存；截图底层游戏资源仍适用各自的许可。项目自有资产原则上为 CC BY-NC-SA 4.0；第三方资源各自授权仍有效，不能据此推定截图中所有元素都可任意再分发。完整来源与 SHA-256 见同目录 README 和 capture-manifest.json。</p></details>
 <div class="report-links"><a href="../../research/garden-tree-species.md">仓库调研记录</a><a href="../../evidence/garden-tree-species.md">仓库验证记录</a><a href="README.md">报告来源与重建方法</a></div>
-<p class="caption">上面三个相对链接用于在完整仓库中追溯；单独复制本 HTML 时不影响正文、图片、筛选和放大。外部植物来源仅在点击时需要联网。</p>
+<p class="caption">本页相对文档链接用于在完整仓库中追溯；单独复制本 HTML 时不影响正文、图片、筛选和放大。外部植物来源仅在点击时需要联网。</p>
 </section>
 <footer><p><strong>Re: Flora · Garden tree delivery report</strong> · 实现 <code>2bc5b7dd</code> · 调研 <code>7a8b89c0</code></p><p>报告记录的是这一轮交付，不是正式发行公告。功能证据、视觉判断与性能结论在文中分别标明。</p></footer>
 </main>

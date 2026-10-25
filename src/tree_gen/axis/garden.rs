@@ -1,6 +1,7 @@
-//! Species silhouettes compiled through the same connected-axis contract as legacy trees.
+//! Layout/curve adapters for the shared axis compiler. No tree-species identity switches.
 //! Parameters describe garden-scale architecture, not botanical growth simulation.
 use super::{AxisSkeleton, Compiler, TreeDesc};
+use crate::tree_gen::growth::rules::{LayeredCrown, ShootRule, SpreadingCrown};
 use glam::Vec3;
 use rand::{rngs::StdRng, RngExt, SeedableRng};
 use std::f32::consts::{PI, TAU};
@@ -23,12 +24,12 @@ fn reveal(birth: f32, duration: f32, steps: usize) -> Vec<f32> {
         .collect()
 }
 
-pub(super) fn broadleaf(desc: &TreeDesc, willow: bool) -> AxisSkeleton {
+pub(super) fn spreading(desc: &TreeDesc, profile: &SpreadingCrown) -> AxisSkeleton {
     let mut out = Compiler::default();
     let mut rng = StdRng::seed_from_u64(desc.branching.seed ^ 0xA991_E723_5711_029D);
     let scale = (desc.size / 30.).max(0.);
-    let height = if willow { 182. } else { 100. } * scale;
-    let crown = if willow { 98. } else { 82. } * scale;
+    let height = profile.height * scale;
+    let crown = profile.crown_radius * scale;
     let phase = rng.random_range(0.0..TAU);
     let lean = radial(phase) * height * rng.random_range(0.025..0.065);
     let trunk_points: Vec<_> = (0..=8)
@@ -38,7 +39,7 @@ pub(super) fn broadleaf(desc: &TreeDesc, willow: bool) -> AxisSkeleton {
         })
         .collect();
     let trunk_radii = taper(desc.size * desc.trunk_thickness, 8, 0.06);
-    let trunk = out.axis(None, &trunk_points, 0, &trunk_radii, &reveal(0., 0.48, 8));
+    let trunk = out.axis(None, &trunk_points, &trunk_radii, &reveal(0., 0.48, 8));
 
     // Unequal scaffold levels, not a stack of identical umbrellas. The trunk remains
     // connected through the crown; spaces between leaf masses reveal the curved wood.
@@ -55,11 +56,7 @@ pub(super) fn broadleaf(desc: &TreeDesc, willow: bool) -> AxisSkeleton {
             let side = radial(angle + PI * 0.5);
             let length = crown * envelope * rng.random_range(0.78..1.15);
             let curl = rng.random_range(-0.14..0.14);
-            let lift = if willow {
-                rng.random_range(0.50..0.75)
-            } else {
-                rng.random_range(1.15..1.65)
-            };
+            let lift = rng.random_range(profile.scaffold_lift.clone());
             let root = trunk_points[station];
             let points: Vec<_> = (0..=4)
                 .map(|i| {
@@ -72,50 +69,52 @@ pub(super) fn broadleaf(desc: &TreeDesc, willow: bool) -> AxisSkeleton {
             let radii = taper(trunk_radii[station] * 0.52, 4, 0.10);
             let birth = 0.10 + u * 0.42;
             let ages = reveal(birth, 0.16, 4);
-            let scaffold = out.axis(Some(trunk[station - 1]), &points, 1, &radii, &ages);
+            let scaffold = out.axis(Some(trunk[station - 1]), &points, &radii, &ages);
             for site in 2..=4 {
                 for sign in [-1., 1.] {
                     let root = points[site];
                     let twig_radius = radii[site] * 0.30;
                     let start_age = ages[site];
-                    if willow {
-                        // Each shoot has a distinct bend and free end. Leaf sprays follow the
-                        // descending axis instead of painting a solid sphere around its tip.
-                        let drop = (root.y - 16. * scale).max(0.) * rng.random_range(0.58..0.92);
-                        let sweep = length * rng.random_range(0.12..0.27);
-                        let across = (dir * 0.65 + side * sign * 0.76).normalize();
-                        let points: Vec<_> = (0..=6)
-                            .map(|i| {
-                                let v = i as f32 / 6.;
-                                root + across * sweep * (1. - (-3. * v).exp())
-                                    + side * sign * sweep * 0.12 * (v * TAU).sin()
-                                    - Vec3::Y * drop * v.powf(1.35)
-                            })
-                            .collect();
-                        out.axis(
-                            Some(scaffold[site - 1]),
-                            &points,
-                            2,
-                            &taper(twig_radius, 6, 0.08),
-                            &reveal(start_age, 0.28, 6),
-                        );
-                    } else {
-                        let direction =
-                            (dir * 0.55 + side * sign * 0.72 + Vec3::Y * 0.65).normalize();
-                        let length = length * rng.random_range(0.27..0.45);
-                        let points: Vec<_> = (0..=3)
-                            .map(|i| {
-                                let v = i as f32 / 3.;
-                                root + direction * length * v - Vec3::Y * length * 0.22 * v * v
-                            })
-                            .collect();
-                        out.axis(
-                            Some(scaffold[site - 1]),
-                            &points,
-                            2,
-                            &taper(twig_radius, 3, 0.12),
-                            &reveal(start_age, 0.25, 3),
-                        );
+                    match profile.shoots {
+                        ShootRule::Pendant => {
+                            // Each shoot has a distinct bend and free end. Leaf sprays follow the
+                            // descending axis instead of painting a solid sphere around its tip.
+                            let drop =
+                                (root.y - 16. * scale).max(0.) * rng.random_range(0.58..0.92);
+                            let sweep = length * rng.random_range(0.12..0.27);
+                            let across = (dir * 0.65 + side * sign * 0.76).normalize();
+                            let points: Vec<_> = (0..=6)
+                                .map(|i| {
+                                    let v = i as f32 / 6.;
+                                    root + across * sweep * (1. - (-3. * v).exp())
+                                        + side * sign * sweep * 0.12 * (v * TAU).sin()
+                                        - Vec3::Y * drop * v.powf(1.35)
+                                })
+                                .collect();
+                            out.axis(
+                                Some(scaffold[site - 1]),
+                                &points,
+                                &taper(twig_radius, 6, 0.08),
+                                &reveal(start_age, 0.28, 6),
+                            );
+                        }
+                        ShootRule::Rising => {
+                            let direction =
+                                (dir * 0.55 + side * sign * 0.72 + Vec3::Y * 0.65).normalize();
+                            let length = length * rng.random_range(0.27..0.45);
+                            let points: Vec<_> = (0..=3)
+                                .map(|i| {
+                                    let v = i as f32 / 3.;
+                                    root + direction * length * v - Vec3::Y * length * 0.22 * v * v
+                                })
+                                .collect();
+                            out.axis(
+                                Some(scaffold[site - 1]),
+                                &points,
+                                &taper(twig_radius, 3, 0.12),
+                                &reveal(start_age, 0.25, 3),
+                            );
+                        }
                     }
                 }
             }
@@ -124,11 +123,11 @@ pub(super) fn broadleaf(desc: &TreeDesc, willow: bool) -> AxisSkeleton {
     out.skeleton
 }
 
-pub(super) fn pine(desc: &TreeDesc) -> AxisSkeleton {
+pub(super) fn layered(desc: &TreeDesc, profile: &LayeredCrown) -> AxisSkeleton {
     let mut out = Compiler::default();
     let mut rng = StdRng::seed_from_u64(desc.branching.seed ^ 0x916E_5C07_5721_473D);
     let scale = (desc.size / 30.).max(0.);
-    let height = 205. * scale;
+    let height = profile.height * scale;
     let phase = rng.random_range(0.0..TAU);
     let lean = radial(phase) * height * rng.random_range(0.025..0.055);
     // Seeded internode spacing and branch counts break the fixed-whorl repetition.
@@ -154,10 +153,10 @@ pub(super) fn pine(desc: &TreeDesc) -> AxisSkeleton {
         .map(|&u| desc.size * desc.trunk_thickness * (1. - 0.97 * u).powf(0.85))
         .collect();
     let ages: Vec<_> = heights.iter().map(|&u| u * 0.50).collect();
-    let trunk = out.axis(None, &points, 0, &radii, &ages);
+    let trunk = out.axis(None, &points, &radii, &ages);
     for station in 3..=11 {
         let u = heights[station];
-        let count = rng.random_range(2..=4);
+        let count = rng.random_range(profile.branches_per_station.clone());
         for limb in 0..count {
             let angle = phase
                 + station as f32 * GOLDEN_ANGLE
@@ -165,8 +164,9 @@ pub(super) fn pine(desc: &TreeDesc) -> AxisSkeleton {
                 + rng.random_range(-0.35..0.35);
             let dir = radial(angle);
             let side = radial(angle + PI * 0.5);
-            let length = 90. * scale * (1. - u).powf(0.45) * rng.random_range(0.60..1.15);
-            let sag = rng.random_range(0.06..0.27);
+            let length =
+                profile.crown_radius * scale * (1. - u).powf(0.45) * rng.random_range(0.60..1.15);
+            let sag = rng.random_range(profile.scaffold_sag.clone());
             let curl = rng.random_range(-0.12..0.12);
             let limb_points: Vec<_> = (0..=4)
                 .map(|i| {
@@ -179,13 +179,7 @@ pub(super) fn pine(desc: &TreeDesc) -> AxisSkeleton {
                 .collect();
             let limb_radii = taper(radii[station] * 0.38, 4, 0.10);
             let ages = reveal(0.12 + u * 0.48, 0.16, 4);
-            let lateral = out.axis(
-                Some(trunk[station - 1]),
-                &limb_points,
-                1,
-                &limb_radii,
-                &ages,
-            );
+            let lateral = out.axis(Some(trunk[station - 1]), &limb_points, &limb_radii, &ages);
             for site in 2..=4 {
                 for sign in [-1., 1.] {
                     let direction = (dir * 0.55 + side * sign * 0.78 + Vec3::Y * 0.32).normalize();
@@ -199,7 +193,6 @@ pub(super) fn pine(desc: &TreeDesc) -> AxisSkeleton {
                     out.axis(
                         Some(lateral[site - 1]),
                         &twig_points,
-                        2,
                         &taper(limb_radii[site] * 0.32, 2, 0.10),
                         &reveal(ages[site], 0.20, 2),
                     );

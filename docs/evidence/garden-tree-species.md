@@ -4,7 +4,10 @@
 
 **Grow → Type: Tree** now offers Apple Tree, Pine and Weeping Willow. Tab, click-to-plant,
 per-placement seeds, age, existing wind/leaf audio and garden persistence are reused. The checked-in
-startup tree is an Apple Tree; settings outside `[tree.desc]` are unchanged.
+tuning-tree description is an Apple Tree; settings outside `[tree.desc]` are unchanged. **Correction:**
+the ordinary fresh garden uses an independent opening recipe and still starts with four legacy
+Garden Trees; it was not converted to Apple Tree. See [shared growth rules](../tree-growth.md) and
+its [follow-up compatibility evidence](tree-growth-rules.md).
 
 - **Apple:** short central axis, rising/spreading scaffold limbs, curved twigs, overlapping rounded
   foliage masses at twig tips rather than leaves at every segment. Apples hang below those tips
