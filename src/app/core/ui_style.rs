@@ -29,10 +29,11 @@ pub(crate) const SOIL_DEPOSITION_SLOT_INDEX: usize = 12;
 pub(crate) const STONE_SLOT_INDEX: usize = 13;
 pub(crate) const PAVEMENT_SLOT_INDEX: usize = 14;
 pub(crate) const WALL_SLOT_INDEX: usize = 15;
+pub(crate) const LANTERN_SLOT_INDEX: usize = 16;
 pub(crate) const SPRINKLER_PLACEABLE_SLOT_INDEX: usize = 1;
 
 /// Visible order, independent of the stable internal tool IDs.
-pub(crate) const TOOLBAR_ORDER: [usize; 13] = [
+pub(crate) const TOOLBAR_ORDER: [usize; 14] = [
     GROW_SLOT_INDEX,
     SHOVEL_SLOT_INDEX,
     HOE_SLOT_INDEX,
@@ -46,6 +47,7 @@ pub(crate) const TOOLBAR_ORDER: [usize; 13] = [
     WALL_SLOT_INDEX,
     MOWER_SLOT_INDEX,
     WIND_SLOT_INDEX,
+    LANTERN_SLOT_INDEX,
 ];
 
 pub(crate) fn toolbar_number(slot: usize) -> String {

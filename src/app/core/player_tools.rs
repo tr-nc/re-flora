@@ -25,6 +25,7 @@ pub(super) enum PlayerTool {
     Tiller,
     Wind,
     Stone,
+    Lantern,
     Pavement,
     Wall,
     Placeable,
@@ -34,6 +35,7 @@ impl PlayerTool {
     fn from_item_panel_slot(slot_idx: usize) -> Option<Self> {
         match slot_idx {
             super::ui_style::STONE_SLOT_INDEX => Some(Self::Stone),
+            super::ui_style::LANTERN_SLOT_INDEX => Some(Self::Lantern),
             super::ui_style::PAVEMENT_SLOT_INDEX => Some(Self::Pavement),
             super::ui_style::WALL_SLOT_INDEX => Some(Self::Wall),
             super::ui_style::MOWER_SLOT_INDEX => Some(Self::Mower),
@@ -53,6 +55,7 @@ impl PlayerTool {
         Some(match self {
             Self::Idle => return None,
             Self::Stone => super::ui_style::STONE_SLOT_INDEX,
+            Self::Lantern => super::ui_style::LANTERN_SLOT_INDEX,
             Self::Pavement => super::ui_style::PAVEMENT_SLOT_INDEX,
             Self::Wall => super::ui_style::WALL_SLOT_INDEX,
             Self::Mower => super::ui_style::MOWER_SLOT_INDEX,
@@ -75,7 +78,13 @@ impl PlayerTool {
     pub(super) fn uses_terrain_edit_radius(self) -> bool {
         !matches!(
             self,
-            Self::Idle | Self::Wind | Self::Mower | Self::Stone | Self::Pavement | Self::Wall
+            Self::Idle
+                | Self::Wind
+                | Self::Mower
+                | Self::Stone
+                | Self::Lantern
+                | Self::Pavement
+                | Self::Wall
         )
     }
 }
@@ -253,6 +262,7 @@ pub(super) enum PlayerToolPointerAction {
     PlaceablePlacement,
     PlantTree,
     StonePlacement,
+    LanternPlacement,
 }
 
 /// Select the gesture owner before entering an asynchronous single-pick queue.
@@ -601,6 +611,9 @@ impl PlayerToolRuntime {
                 Some(PlayerToolPointerAction::PlantTree)
             }
             (PlayerTool::Stone, MouseButton::Left) => Some(PlayerToolPointerAction::StonePlacement),
+            (PlayerTool::Lantern, MouseButton::Left) => {
+                Some(PlayerToolPointerAction::LanternPlacement)
+            }
             (PlayerTool::Placeable, MouseButton::Left) => {
                 Some(PlayerToolPointerAction::PlaceablePlacement)
             }
@@ -992,6 +1005,18 @@ mod tests {
         assert!(runtime.begin_pointer_action(MouseButton::Left).is_none());
     }
 
+    #[test]
+    fn lantern_click_is_discrete_and_uses_its_own_stable_toolbar_slot() {
+        let mut tools = PlayerToolRuntime::default();
+        tools.select_item_panel_slot(super::super::ui_style::LANTERN_SLOT_INDEX);
+        assert_eq!(tools.selected_tool(), PlayerTool::Lantern);
+        assert_eq!(
+            tools.pointer_action_for_button(MouseButton::Left),
+            Some(PlayerToolPointerAction::LanternPlacement)
+        );
+        assert_eq!(tools.pointer_action_for_button(MouseButton::Right), None);
+        assert!(!tools.selected_tool().uses_terrain_edit_radius());
+    }
     #[test]
     fn placeable_selection_is_atomic_and_toggles_off() {
         let mut runtime = PlayerToolRuntime::default();

@@ -132,7 +132,7 @@ known limitations; partially implemented items remain open.
 | [x] | 03 Moon and night appearance | Matching sticker style, correct night visibility, provenance, inspected night screenshot |
 | [x] | 04 Fireflies | Night-only blinking, bounded population, cached-angle post-process rendering; no disruptive popping while lit |
 | [x] | 05 Glowing blue flowers | Night emission, ordinary planting/growth intact; decide/measure environmental lighting support |
-| [ ] | 06 Voxel stone lantern | Player-placeable real terrain, emissive core, lighting/collision/edit/save validation |
+| [x] | 06 Voxel stone lantern | Player-placeable real terrain, emissive core, lighting/collision/edit/save validation |
 | [ ] | 07 Poles and rope fences | Varied real-voxel poles, thick/thin option, arbitrary rope chains, valid anchors and persistence |
 | [x] | 08 Sunflower | Registered, selectable, plantable, growth/rendering/persistence; asset provenance if added |
 | [x] | 09 Butterfly brightness | Diagnose albedo vs light; improve colored and perched butterflies without washing out white ones; screenshots |
@@ -207,6 +207,14 @@ known limitations; partially implemented items remain open.
   firefly light is omitted: rapidly moving/blinking actors are not fed into the
   persistent authored-light/GI revision stream. No measured claim that such GI
   is impossible; the flower-cluster light implementation is separate.
+- Stone lantern: normal toolbar placement produces actual editable terrain:
+  9,847 Rock cells, 150 Emissive cells, open windows, pedestal and pagoda roof.
+  Existing terrain publication owns meshing/collision queries/light/save behavior.
+  Boundary/obstruction/ground and primary-click tests pass. Native placement,
+  binary snapshot save/reload, settled physical roof ray and core removal pass.
+  Inspected `target/garden-lantern-{day,night}.png`; no final-run ERROR/panic/VUID.
+  Always-lit first design, current global light budget; construction pricing is
+  not implemented. No manual walk/collision-feel approval is claimed.
 - Prior full test baseline: nine unrelated failures reproduced on `9e2b7977`
   (seven raster-tree tests and two saved-default expectations). Recheck rather
   than assuming any later failure belongs to that baseline.

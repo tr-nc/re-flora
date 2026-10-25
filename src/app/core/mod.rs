@@ -70,6 +70,7 @@ mod player_tools;
 mod raster_tree_smoke;
 mod render_frame_input;
 mod screenshot;
+mod stone_lantern;
 mod stone_placement;
 mod terrain_connectivity;
 mod terrain_persistence;
@@ -2868,6 +2869,12 @@ impl App {
                                 label: "Mower",
                                 number: ui_style::toolbar_number(ui_style::MOWER_SLOT_INDEX),
                                 enabled: mower_mode_available,
+                            },
+                            ItemPanelSlot {
+                                index: ui_style::LANTERN_SLOT_INDEX,
+                                label: "Lantern",
+                                number: ui_style::toolbar_number(ui_style::LANTERN_SLOT_INDEX),
+                                enabled: self.rooftop_scene.is_none(),
                             },
                             ItemPanelSlot {
                                 index: ui_style::WIND_SLOT_INDEX,
