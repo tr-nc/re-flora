@@ -7,7 +7,7 @@ use anyhow::Result;
 pub(super) struct EcologyRuntime {
     scheduler: Ecology,
     next_refresh: f64,
-    births: [[u64; 3]; 2],
+    births: [[u64; 3]; 3],
     last_supply: [u64; 3],
 }
 impl EcologyRuntime {
@@ -15,7 +15,7 @@ impl EcologyRuntime {
         Self {
             scheduler: Ecology::new(9173),
             next_refresh: 0.,
-            births: [[0; 3]; 2],
+            births: [[0; 3]; 3],
             last_supply: [0; 3],
         }
     }
@@ -92,7 +92,19 @@ impl App {
                 emitter.apply_desc(&self.butterfly_emitter_desc);
             }
         }
-        for animal in [Animal::Butterfly, Animal::Cicada] {
+        let firefly_enabled = butterfly_enabled && self.current_night_visibility() > 0.;
+        let before = self.night_garden.fireflies.len();
+        self.night_garden
+            .fireflies
+            .update(now as f32, firefly_enabled);
+        if self.night_garden.fireflies.len() != before {
+            log::info!(
+                "[FIREFLY] retired={} active={} night_enabled={firefly_enabled}",
+                before - self.night_garden.fireflies.len(),
+                self.night_garden.fireflies.len()
+            );
+        }
+        for animal in [Animal::Butterfly, Animal::Cicada, Animal::Firefly] {
             let (capacity, scale) = match animal {
                 Animal::Butterfly => (
                     butterfly_enabled
@@ -103,6 +115,10 @@ impl App {
                     f64::from(self.butterfly_emitter_desc.spawn_rate_per_source) / 0.00002,
                 ),
                 Animal::Cicada => (world_ready && self.summer_cicadas.has_capacity(), 1.),
+                Animal::Firefly => (
+                    firefly_enabled && self.night_garden.fireflies.has_capacity(),
+                    1.,
+                ),
             };
             if !self.ecology.scheduler.due(animal, now, capacity, scale) {
                 continue;
@@ -133,8 +149,16 @@ impl App {
                             .is_some()
                     }
                     Animal::Cicada => self.summer_cicadas.start(site, now)?,
+                    Animal::Firefly => self.night_garden.fireflies.spawn(site.position, now as f32),
                 };
                 if accepted {
+                    if matches!(animal, Animal::Firefly) {
+                        log::info!(
+                            "[FIREFLY] emerged=true habitat_kind={} active={} via=ecology",
+                            site.kind,
+                            self.night_garden.fireflies.len()
+                        );
+                    }
                     self.ecology.births[animal as usize][site.kind] += 1;
                     self.ecology.scheduler.accepted(animal, site.region, now);
                     break;

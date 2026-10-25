@@ -517,6 +517,34 @@ mod tests {
         assert_eq!(std::mem::size_of::<Entry>(), 32);
     }
     #[test]
+    fn every_firefly_cached_pose_retains_the_emissive_abdomen_material() {
+        let source = super::super::model_geometry::source(crate::flora::models::Shape::default());
+        let data = bake(
+            &source,
+            Options {
+                views: 8,
+                resolutions: [8; MODEL_KINDS],
+                enabled: [false, true, false, false, false],
+                ..Options::default()
+            },
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        for id in super::super::model_geometry::FIREFLY_SOURCE_BASE
+            ..super::super::model_geometry::FLOWER_SOURCE_BASE
+        {
+            let entry = data.entries[id as usize];
+            assert_eq!(entry.layout[3], 1);
+            let samples =
+                &data.samples[entry.layout[0] as usize..entry.layout[0] as usize + 8 * 8 * 8];
+            for material in 0..3 {
+                assert!(samples
+                    .iter()
+                    .any(|s| s.position[3] > 0. && s.normal[3] == material as f32));
+            }
+        }
+    }
+    #[test]
     fn per_kind_keys_ignore_other_switches_and_resolutions() {
         let a = Options::default();
         let mut b = a;

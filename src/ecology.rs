@@ -32,6 +32,7 @@ pub(crate) struct Habitat {
 pub(crate) enum Animal {
     Butterfly = 0,
     Cicada = 1,
+    Firefly = 2,
 }
 struct Clock {
     next: Option<f64>,
@@ -39,9 +40,9 @@ struct Clock {
 }
 pub(crate) struct Ecology {
     regions: Vec<Region>,
-    weighted: [Vec<(usize, f64)>; 2],
-    totals: [f64; 2],
-    clocks: [Clock; 2],
+    weighted: [Vec<(usize, f64)>; 3],
+    totals: [f64; 3],
+    clocks: [Clock; 3],
     rng: SmallRng,
 }
 impl Ecology {
@@ -49,7 +50,7 @@ impl Ecology {
         Self {
             regions: Vec::new(),
             weighted: Default::default(),
-            totals: [0.; 2],
+            totals: [0.; 3],
             clocks: std::array::from_fn(|_| Clock {
                 next: None,
                 rests: HashMap::new(),
@@ -68,12 +69,12 @@ impl Ecology {
                 && r.center.distance(listener) <= RANGE + r.radius
         });
         regions.sort_by_key(|r| r.key);
-        for animal in 0..2 {
+        for animal in 0..3 {
             self.weighted[animal].clear();
             self.totals[animal] = 0.;
             for (i, r) in regions.iter().enumerate() {
                 let normalized = r.count as f64 / [1000., 8., 200.][r.kind];
-                let preference = [[1., 1.5, 1.], [1., 1., 1.5]][animal][r.kind];
+                let preference = [[1., 1.5, 1.], [1., 1., 1.5], [1.5, 1., 1.]][animal][r.kind];
                 // Limit each group's influence as well as total frequency.
                 self.totals[animal] += preference * normalized / (1. + normalized);
                 self.weighted[animal].push((i, self.totals[animal]));
@@ -101,9 +102,9 @@ impl Ecology {
         }
         let due = self.clocks[a].next.is_some_and(|next| now >= next);
         if due || self.clocks[a].next.is_none() {
-            let lambda = [0.20, 0.25][a] * total / (1. + total) * rate_scale.min(10.);
+            let lambda = [0.20, 0.25, 0.6][a] * total / (1. + total) * rate_scale.min(10.);
             let delay = -(1. - self.rng.random::<f64>()).ln() / lambda;
-            self.clocks[a].next = Some(now + [1.5, 2.7][a] + delay);
+            self.clocks[a].next = Some(now + [1.5, 2.7, 0.8][a] + delay);
         }
         due
     }
@@ -127,6 +128,7 @@ impl Ecology {
     pub fn accepted(&mut self, animal: Animal, key: RegionKey, now: f64) {
         let rest = match animal {
             Animal::Butterfly => 3.,
+            Animal::Firefly => 1.,
             Animal::Cicada => 24. + self.rng.random::<f64>() * 16.,
         };
         self.clocks[animal as usize].rests.insert(key, now + rest);
@@ -134,7 +136,7 @@ impl Ecology {
     pub fn clear(&mut self) {
         self.regions.clear();
         self.weighted.iter_mut().for_each(Vec::clear);
-        self.totals = [0.; 2];
+        self.totals = [0.; 3];
         for clock in &mut self.clocks {
             clock.next = None;
             clock.rests.clear();

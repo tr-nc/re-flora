@@ -49,6 +49,20 @@ Use `RE_FLORA_GARDEN_PLANT_REVIEW=sunflower` with `--screenshot garden-arrival` 
 reproduce the unsaved fixture. It is a stylized single-whorl sunflower, not a
 botanical seed/floret simulation.
 
+## Procedural firefly model (2026-10-26)
+
+Fireflies have original Rust-authored ellipsoid geometry in
+[`src/tracer/model_geometry/firefly.rs`](../../src/tracer/model_geometry/firefly.rs):
+head, thorax, paired wings and a luminous abdomen, sampled into four wing poses.
+The source specifies all dimensions, rotations and 12-by-6 sphere tessellation;
+materials are body/wing/tail, with color and pulse in
+[`shader/slang/firefly_material.slang`](../../shader/slang/firefly_material.slang).
+No external artwork, texture, downloaded model or AI image/3D-generation service
+was used. No binary asset must be regenerated: startup builds triangles from
+these deterministic functions and uses the same cached-angle surface bank as
+butterflies. This is not terrain voxel geometry. Visual reviews are runtime
+screenshots, not source textures.
+
 ## Publish the flower bank
 
 The seven published flowers are data presets in `flower-source.mjs` (Corn Poppy and Bellflower remain retired).

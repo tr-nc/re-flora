@@ -27,7 +27,7 @@ public ModelBakedSurface bakeModelSurface<T : IModelPixelProjectionObserver>(uin
     float2 uv=tri.uv01.xy*bary.x+tri.uv01.zw*bary.y+tri.uv2.xy*bary.z;
     // Flowers store interpolated shared-atlas UVs, not fixed anatomical roles
     // or species colors. Other consumers retain their existing material ABI.
-    result.normalMaterial.w=kind==3u?encodeFlowerUV(uv):kind==1u?tri.uv2.z:kind==0u&&uv.x>1.5?1.0:0.0;
+    result.normalMaterial.w=kind==3u?encodeFlowerUV(uv):(kind==1u||kind==2u)?tri.uv2.z:kind==0u&&uv.x>1.5?1.0:0.0;
     return result;
 }
 

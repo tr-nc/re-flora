@@ -10,7 +10,10 @@ use std::sync::LazyLock;
 pub const ANIMATION_FRAMES: u32 = 32;
 pub const APPLE_SOURCE: u32 = 0;
 pub const BUTTERFLY_SOURCE_BASE: u32 = 1;
-pub const FLOWER_SOURCE_BASE: u32 = BUTTERFLY_SOURCE_BASE + ANIMATION_FRAMES;
+mod firefly;
+pub const FIREFLY_SOURCE_BASE: u32 = BUTTERFLY_SOURCE_BASE + ANIMATION_FRAMES;
+pub const FIREFLY_POSES: u32 = 4;
+pub const FLOWER_SOURCE_BASE: u32 = FIREFLY_SOURCE_BASE + FIREFLY_POSES;
 fn representatives() -> &'static [usize] {
     static IDS: LazyLock<Vec<usize>> = LazyLock::new(|| {
         models::flowers()
@@ -140,6 +143,11 @@ pub(super) fn source(shape: Shape) -> Source {
                 0,
             ));
         }
+        ranges.push([first, triangles.len() as u32 - first, 2, frame]);
+    }
+    for frame in 0..FIREFLY_POSES {
+        let first = triangles.len() as u32;
+        triangles.extend(firefly::mesh(frame));
         ranges.push([first, triangles.len() as u32 - first, 2, frame]);
     }
     let mut flower_parts = Vec::new();
@@ -346,6 +354,9 @@ pub(super) fn source(shape: Shape) -> Source {
     let mut cache_bounds = vec![None; ranges.len()];
     for frame in 0..ANIMATION_FRAMES {
         cache_bounds[(BUTTERFLY_SOURCE_BASE + frame) as usize] = Some((Vec3::ZERO, 1.7));
+    }
+    for frame in 0..FIREFLY_POSES {
+        cache_bounds[(FIREFLY_SOURCE_BASE + frame) as usize] = Some((Vec3::ZERO, 1.0));
     }
     for (source, bounds) in sprinkler_bounds {
         cache_bounds[source as usize] = Some(bounds);

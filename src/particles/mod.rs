@@ -1,5 +1,6 @@
 mod butterfly_behavior;
 mod butterfly_flight;
+pub(crate) mod fireflies;
 pub use butterfly_behavior::ButterflyForagingSettings;
 mod butterfly_presentation;
 pub(crate) mod butterfly_wingbeat;

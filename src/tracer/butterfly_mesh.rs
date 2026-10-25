@@ -12,7 +12,7 @@ use glam::Quat;
 use glam::Vec3;
 use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 use resource_container_derive::ResourceContainer;
-const CAPACITY: usize = 256;
+const CAPACITY: usize = 256 + crate::particles::fireflies::CAPACITY;
 pub const MAX_RESOLUTION: u32 = 64;
 #[derive(Clone, Copy, Debug)]
 pub struct ButterflyMeshSettings {
@@ -100,7 +100,7 @@ impl ButterflyMeshRenderer {
         let source = crate::model_assets::butterfly();
         let mut candidates: Vec<_> = snapshots
             .iter()
-            .filter(|s| s.kind == ParticleRenderKind::Butterfly && s.color.w > 0. && s.size > 0.)
+            .filter(|s| s.kind.is_model() && s.color.w > 0. && s.size > 0.)
             .collect();
         ensure!(candidates.len() <= CAPACITY, "butterfly capacity exceeded");
         ensure!(
@@ -115,6 +115,36 @@ impl ButterflyMeshRenderer {
                 .total_cmp(&a.position_ws.distance_squared(camera))
         });
         for s in candidates {
+            if s.kind == ParticleRenderKind::Firefly {
+                let time = s.animation_sample_time.unwrap();
+                let phase = (time * 9. + s.animation_phase_offset).rem_euclid(1.);
+                self.hosts.push(None);
+                self.instances.push(Instance {
+                    position_size: s.position_ws.extend(s.size).to_array(),
+                    color: s.color.to_array(),
+                    metadata: [
+                        super::model_geometry::FIREFLY_SOURCE_BASE
+                            + (phase * super::model_geometry::FIREFLY_POSES as f32) as u32,
+                        0,
+                        settings.resolution.clamp(8, MAX_RESOLUTION),
+                        4,
+                    ],
+                    lighting: [
+                        0.4,
+                        crate::particles::fireflies::flash(time, s.animation_phase_offset)
+                            * s.color.w,
+                        0.,
+                        0.,
+                    ],
+                    tile: [0; 4],
+                    view_orientation: crate::particles::butterfly_wingbeat::flight_orientation(
+                        s.velocity, 0.,
+                    )
+                    .to_array(),
+                    flower_attachment: [0; 4],
+                });
+                continue;
+            }
             let original_phase =
                 (s.animation_sample_time.unwrap() + s.animation_phase_offset).rem_euclid(1.);
             let coupling = s.butterfly_wingbeat;
@@ -262,6 +292,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn firefly_uses_its_own_cached_source_and_blink_material() {
+        let mut s = snapshot(ParticleRenderKind::Firefly);
+        s.animation_sample_time = Some(0.384);
+        s.animation_phase_offset = 0.;
+        let mut renderer = ButterflyMeshRenderer::default();
+        renderer
+            .prepare_frame_models(&[s], settings(), Vec3::ZERO)
+            .unwrap();
+        let instance = renderer.instances[0];
+        assert_eq!(instance.metadata[3], 4);
+        assert!((super::super::model_geometry::FIREFLY_SOURCE_BASE
+            ..super::super::model_geometry::FLOWER_SOURCE_BASE)
+            .contains(&instance.metadata[0]));
+        assert!(instance.lighting[1] > 0.99);
+        assert_eq!(
+            instance.position_size,
+            s.position_ws.extend(s.size).to_array()
+        );
+        assert!(renderer.flower_hosts().is_empty());
+    }
     #[test]
     fn leaves_never_enter_the_model_stream() {
         let mut r = ButterflyMeshRenderer::default();

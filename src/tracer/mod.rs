@@ -7616,7 +7616,7 @@ impl Tracer {
         self.translucent_particle_instance_scratch.clear();
         self.translucent_particle_instance_scratch.reserve(count);
         for snap in snapshots {
-            if snap.kind == crate::particles::ParticleRenderKind::Butterfly {
+            if snap.kind.is_model() {
                 continue;
             }
             let (leaf_optics, leaf_pose_flags) = leaf_particle_pose::encode(snap);

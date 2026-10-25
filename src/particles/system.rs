@@ -206,8 +206,15 @@ pub struct ParticleSnapshot {
 pub enum ParticleRenderKind {
     Leaf,
     Butterfly,
+    Firefly,
     WaterDroplet,
     TerrainVoxel,
+}
+
+impl ParticleRenderKind {
+    pub(crate) fn is_model(self) -> bool {
+        matches!(self, Self::Butterfly | Self::Firefly)
+    }
 }
 
 /// Sample-and-hold presentation, never an input to particle mechanics.

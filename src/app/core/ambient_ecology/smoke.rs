@@ -7,7 +7,7 @@ pub(in crate::app::core) struct CicadaSmoke {
     phase: u8,
     next_action: f64,
     removed_host: Option<Habitat>,
-    empty_births: [[u64; 3]; 2],
+    empty_births: [[u64; 3]; 3],
     scene: Option<String>,
     lifecycle: bool,
 }
@@ -20,7 +20,7 @@ impl CicadaSmoke {
             phase: 0,
             next_action: 0.,
             removed_host: None,
-            empty_births: [[0; 3]; 2],
+            empty_births: [[0; 3]; 3],
             scene,
             lifecycle,
         })
