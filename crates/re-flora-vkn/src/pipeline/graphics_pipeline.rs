@@ -503,16 +503,16 @@ impl GraphicsPipeline {
         device: &Device,
         create_info: &vk::GraphicsPipelineCreateInfo,
     ) -> vk::Pipeline {
-        unsafe {
+        device.with_pipeline_cache(|cache| unsafe {
             device
                 .create_graphics_pipelines(
-                    vk::PipelineCache::null(),
+                    cache,
                     std::slice::from_ref(create_info),
                     None,
                 )
                 .map_err(|e| e.1)
                 .unwrap()[0]
-        }
+        })
     }
 
     fn record_push_constants(&self, cmdbuf: &CommandBuffer, push_constants: &PushConstantInfo) {

@@ -61,6 +61,7 @@ pub struct GpuJobFencePoolStats {
 struct DeviceInner {
     device: ash::Device,
     limits: vk::PhysicalDeviceLimits,
+    pipeline_cache: Mutex<super::pipeline_cache::PipelineCache>,
     gpu_job_fence_pool: Mutex<Vec<vk::Fence>>,
     gpu_job_fence_pool_counters: GpuJobFencePoolCounters,
 }
@@ -88,6 +89,7 @@ impl Drop for DeviceInner {
                 self.gpu_job_fence_pool_counters.max_pool_size.load(Ordering::Relaxed),
                 GPU_JOB_FENCE_POOL_CAPACITY,
             );
+            self.pipeline_cache.get_mut().unwrap_or_else(|e| e.into_inner()).destroy(&self.device);
             self.device.destroy_device(None);
         }
     }
@@ -134,18 +136,29 @@ impl Device {
             queue_family_indices,
             &extension_requirements,
         );
-        let limits = unsafe {
+        let properties = unsafe {
             instance
                 .as_raw()
                 .get_physical_device_properties(physical_device_raw)
-        }
-        .limits;
+        };
+        let pipeline_cache = Mutex::new(super::pipeline_cache::PipelineCache::new(&device, &properties));
         Self(Arc::new(DeviceInner {
             device,
-            limits,
+            limits: properties.limits,
+            pipeline_cache,
             gpu_job_fence_pool: Mutex::new(Vec::new()),
             gpu_job_fence_pool_counters: GpuJobFencePoolCounters::new(),
         }))
+    }
+
+    pub(crate) fn with_pipeline_cache<T>(&self, create: impl FnOnce(vk::PipelineCache) -> T) -> T {
+        self.0.pipeline_cache.lock().unwrap_or_else(|e| e.into_inner()).with_handle(create)
+    }
+
+    /// Save after startup and again on device teardown if late pipelines were created.
+    /// Optional cache failures never fail rendering.
+    pub fn save_pipeline_cache(&self) {
+        self.0.pipeline_cache.lock().unwrap_or_else(|e| e.into_inner()).save(&self.0.device);
     }
 
     pub fn as_raw(&self) -> &ash::Device {

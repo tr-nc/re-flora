@@ -5,6 +5,7 @@ mod surface;
 mod vulkan_context;
 pub use vulkan_context::*;
 
+mod pipeline_cache;
 mod device;
 pub use device::*;
 

@@ -3800,6 +3800,7 @@ impl App {
                         "Loading complete; first game frame ready (gpu_wait_ms={:.3})",
                         completion_start.elapsed().as_secs_f64() * 1000.0,
                     );
+                    self.vulkan_ctx.device().save_pipeline_cache();
                     if let Some(progress) = self.startup_progress.take() {
                         progress.finish();
                     }

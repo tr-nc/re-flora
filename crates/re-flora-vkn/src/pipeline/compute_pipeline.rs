@@ -78,16 +78,16 @@ impl ComputePipeline {
             .layout(pipeline_layout.as_raw());
 
         let creation_start = std::time::Instant::now();
-        let pipeline = unsafe {
+        let pipeline = device.with_pipeline_cache(|cache| unsafe {
             device
                 .create_compute_pipelines(
-                    vk::PipelineCache::null(),
+                    cache,
                     std::slice::from_ref(&pipeline_info),
                     None,
                 )
                 .map_err(|e| e.1)
                 .unwrap()[0]
-        };
+        });
 
         log::debug!(
             "[PIPELINE_CREATE] kind=compute shader={} create_ms={:.3}",

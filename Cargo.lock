@@ -3355,6 +3355,7 @@ dependencies = [
  "re-flora-shader-build",
  "spirv",
  "spirv-reflect",
+ "tempfile",
  "winit",
 ]
 
