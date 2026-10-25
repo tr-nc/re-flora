@@ -1404,6 +1404,7 @@ pub struct FloraAppearanceFrameInput {
     pub grass_tip_dark: Vec3,
     pub grass_tip_light: Vec3,
     pub grass_color_patch_scale: f32,
+    pub plant_wilt_strength: f32,
     pub grass_color_light_bias: f32,
     pub grass_color_contrast: f32,
     pub grass_color_seed: u32,

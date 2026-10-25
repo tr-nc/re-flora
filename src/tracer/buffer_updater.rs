@@ -331,6 +331,7 @@ impl BufferUpdater {
             grass_tip_dark: appearance.grass_tip_dark.to_array(),
             grass_tip_light: appearance.grass_tip_light.to_array(),
             grass_color_patch_scale: appearance.grass_color_patch_scale,
+            plant_wilt_strength: appearance.plant_wilt_strength,
             grass_color_light_bias: appearance.grass_color_light_bias,
             grass_color_contrast: appearance.grass_color_contrast,
             grass_color_seed: appearance.grass_color_seed,

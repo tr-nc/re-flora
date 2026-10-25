@@ -112,7 +112,7 @@ public FlowerPlantPose flowerPlantPose(uint plant) {
     float3 displacement=float3(wind.x+rest.x,0,wind.z+rest.z)*growth/256.0;
     // The uploaded displacement bound is also consumed by CPU culling;
     // it must not be independently tuned here.
-    displacement+=plantWiltOffset(waterDeficit,height*frame.scale,1.0,seed);
+    displacement+=plantWiltOffset(waterDeficit,height*frame.scale,1.0,seed,gui_input.plant_wilt_strength);
     float limit=height*frame.scale*whole.stem.z;
     displacement*=min(1.0,limit/max(length(displacement),1e-7));
     float3 attachmentOffset=(frame.axisX*attachmentDelta.x+frame.axisY*attachmentDelta.y)*frame.scale;

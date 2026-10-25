@@ -20,6 +20,7 @@ const GROUND_MOTION: &[&str] = &[
     "grass_vibration_primary_speed",
     "grass_vibration_secondary_speed",
 ];
+const WATER_STATUS: &[&str] = &["plant_wilt_strength"];
 const GRASS_COLORS: &[&str] = &[
     "grass_color_patch_scale",
     "grass_color_light_bias",
@@ -81,6 +82,7 @@ const PARAM_GROUPS: &[&[&str]] = &[
     MODEL_FLOWERS,
     DISTRIBUTION,
     GROUND_MOTION,
+    WATER_STATUS,
     GRASS_COLORS,
     LEAF_MOTION,
     LEAF_CURVES,
@@ -91,6 +93,7 @@ pub(super) fn search_path(section: &str, id: &str) -> Option<&'static str> {
         "Flora" if DISTRIBUTION.contains(&id) => Some("Flora / Planting / Distribution"),
         "Flora" if MODEL_FLOWERS.contains(&id) => Some("Flora / Ground Plants / Model Flowers"),
         "Flora" if GROUND_MOTION[..1].contains(&id) => Some("Flora / Ground Plants / Rest Shape"),
+        "Flora" if WATER_STATUS.contains(&id) => Some("Flora / Ground Plants / Water Response"),
         "Flora" if GRASS_COLORS.contains(&id) => Some("Flora / Ground Plants / Grass Colors"),
         "Flora" if GROUND_MOTION[1..].contains(&id) => Some("Wind / Response / Grass"),
         "Flora" if LEAF_MOTION.contains(&id) || LEAF_CURVES.contains(&id) => {
@@ -206,6 +209,9 @@ pub(super) fn render(
                 controls(ui, flora, MODEL_FLOWER_PIXEL_CONTROLS, adjustables);
                 controls(ui, flora, STEM_CONTROLS, adjustables);
             }
+        });
+        category(ui, "Water Response", |ui| {
+            controls(ui, flora, WATER_STATUS, adjustables);
         });
         category(ui, "Rest Shape", |ui| {
             controls(ui, flora, &GROUND_MOTION[..1], adjustables);

@@ -314,7 +314,7 @@ public PreparedFloraVertex prepareFloraVertex(
     if (result.is_grass) {
         float liveHeight = max(grassGrownHeight(grassHeightVoxels, growthFactor) - 1.0, 1.0);
         windOffset += plantWiltOffset(waterDeficit, liveHeight,
-            float(voxelLocalPosition.y) / liveHeight, seed);
+            float(voxelLocalPosition.y) / liveHeight, seed, gui_input.plant_wilt_strength);
     }
     float3 posedVoxelLocalPosition = float3(voxelLocalPosition);
     result.anchor_position =

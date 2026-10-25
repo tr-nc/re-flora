@@ -25,6 +25,7 @@ public struct U_GuiInput
     public float3 grass_tip_dark;
     public float3 grass_tip_light;
     public float grass_color_patch_scale;
+    public float plant_wilt_strength;
     public float grass_color_light_bias;
     public float grass_color_contrast;
     public uint grass_color_seed;

@@ -410,7 +410,7 @@ mod tests {
         }
         let flower = include_str!("../../shader/slang/flower_model.slang");
         assert!(flower.contains("waterDeficit=plantWaterDeficit(flower_pc.species,soil,true)"));
-        assert!(flower.contains("plantWiltOffset(waterDeficit,height*frame.scale,1.0,seed)"));
+        assert!(flower.contains("plantWiltOffset(waterDeficit,height*frame.scale,1.0,seed,gui_input.plant_wilt_strength)"));
         let grass = include_str!("../../shader/slang/flora_vertex.slang");
         assert!(grass.contains("plantWiltOffset(waterDeficit, liveHeight,"));
         assert!(grass.contains("spawnStartMs, useResponse, response, leafAngle, 0.0)"));
