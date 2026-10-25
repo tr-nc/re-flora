@@ -11,7 +11,7 @@ pub const REVIEW_PRESETS: &[&str] = &[
 pub fn is_review_preset(name: &str) -> bool {
     REVIEW_PRESETS.contains(&name)
 }
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 // Keep the established flower stream stable when only the tree recipe changes.
 const FLOWER_SEED_SALT: u32 = 1;
 pub const DEFAULT_SEED: u32 = 20260519;
@@ -33,14 +33,9 @@ pub const FLOWER_KEYS: [&str; 3] = ["wild-geranium", "forget-me-not", "oxeye-dai
 pub const MAX_ATTEMPTS: u32 = 2304;
 
 pub fn tree_descriptor(seed: u32, index: usize) -> crate::tree_gen::TreeDesc {
-    // The current Apple profile, not an opening-only test-tree shape or fruit override.
-    let mut desc = crate::tree_gen::TreeDesc {
-        size: 17. + index as f32 * 1.4,
-        // Match sprays to this compact planting footprint instead of shrinking only the wood
-        // under full-sized leaf clouds, which hides the Apple scaffold and trunk.
-        leaves_size_level: 4,
-        ..Default::default()
-    };
+    // Use the same human-scale mature Apple as Grow; the individual seed supplies variation.
+    // Matched scale, leaf sprays and fruit hang offsets are owned by the species profile.
+    let mut desc = crate::tree_gen::TreeDesc::default();
     desc.branching.seed = hash(seed ^ index as u32 ^ 0x74726565) as u64;
     // Bounded fitting against actual generated mature wood + canopy, not just anchors.
     for _ in 0..8 {
@@ -245,6 +240,17 @@ mod tests {
                 assert_eq!(
                     serde_json::to_value(&desc).unwrap(),
                     serde_json::to_value(tree_descriptor(seed, i)).unwrap()
+                );
+                let height = crate::tree_gen::Tree::new(desc.clone()).height_voxels();
+                assert!(
+                    (35.0..=45.0).contains(&height),
+                    "seed={seed} tree={i} height={height}"
+                );
+                let defaults = crate::tree_gen::TreeDesc::default();
+                assert_eq!(desc.leaves_size_level, defaults.leaves_size_level);
+                assert_eq!(
+                    desc.fruit_down_offset_voxels,
+                    defaults.fruit_down_offset_voxels
                 );
                 let radius = tree_radius_voxels(&desc);
                 assert!(radius <= 46.);

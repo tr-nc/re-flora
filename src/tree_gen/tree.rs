@@ -57,7 +57,7 @@ pub struct TreeDesc {
 
 impl Default for TreeDesc {
     fn default() -> Self {
-        super::TreeSpecies::AppleTree.mature_desc(&Self::legacy_wire_defaults())
+        super::TreeSpecies::AppleTree.default_desc()
     }
 }
 
@@ -124,6 +124,20 @@ impl Tree {
 
     pub fn trunks(&self) -> &[RoundCone] {
         &self.built_objects.trunks
+    }
+
+    /// Root-to-crown height of the generated rest geometry, including half-voxel leaf extents.
+    /// This is not the leader height, an age-independent authored size, or a wind/GPU bound.
+    pub fn height_voxels(&self) -> f32 {
+        self.trunks()
+            .iter()
+            .map(|cone| cone.aabb().max().y)
+            .chain(
+                self.relative_leaf_placements()
+                    .iter()
+                    .map(|leaf| leaf.position.y + 0.5),
+            )
+            .fold(0., f32::max)
     }
 
     /// The exact world-voxel wood used by stamping, surface extraction and ownership.

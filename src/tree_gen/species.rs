@@ -21,6 +21,8 @@ struct SpeciesDefinition {
     label: &'static str,
     growth: rules::GrowthRule,
     apples: bool,
+    /// Native scale for a newly selected species, not a multiplier on another species' size.
+    planting_size: f32,
     authoring: AuthoringDefaults,
 }
 
@@ -36,6 +38,8 @@ struct GardenDefaults {
     spray_width: f32,
     spray_thickness: f32,
     spray_tip_offset: f32,
+    fruit_down_offset: f32,
+    fruit_down_variance: f32,
 }
 
 impl TreeSpecies {
@@ -57,25 +61,30 @@ impl TreeSpecies {
                 label: "Conifer (legacy)",
                 growth: rules::LEGACY_CONIFER,
                 apples: false,
+                planting_size: 20.,
                 authoring: AuthoringDefaults::LegacyConifer,
             },
             Self::AppleTree => &SpeciesDefinition {
                 label: "Apple Tree",
                 growth: rules::APPLE,
                 apples: true,
+                planting_size: 5.8,
                 authoring: AuthoringDefaults::Garden(GardenDefaults {
                     trunk_thickness: 0.32,
-                    leaf_size_level: 5,
-                    leaf_density: 0.035,
+                    leaf_size_level: 3,
+                    leaf_density: 0.12,
                     spray_width: 0.95,
                     spray_thickness: 0.85,
                     spray_tip_offset: 0.10,
+                    fruit_down_offset: 6.,
+                    fruit_down_variance: 1.5,
                 }),
             },
             Self::Pine => &SpeciesDefinition {
                 label: "Pine",
                 growth: rules::PINE,
                 apples: false,
+                planting_size: 20.,
                 authoring: AuthoringDefaults::Garden(GardenDefaults {
                     trunk_thickness: 0.19,
                     leaf_size_level: 4,
@@ -83,12 +92,15 @@ impl TreeSpecies {
                     spray_width: 0.75,
                     spray_thickness: 0.45,
                     spray_tip_offset: 0.10,
+                    fruit_down_offset: 14.,
+                    fruit_down_variance: 4.,
                 }),
             },
             Self::WeepingWillow => &SpeciesDefinition {
                 label: "Weeping Willow",
                 growth: rules::WILLOW,
                 apples: false,
+                planting_size: 20.,
                 authoring: AuthoringDefaults::Garden(GardenDefaults {
                     trunk_thickness: 0.38,
                     leaf_size_level: 4,
@@ -96,6 +108,8 @@ impl TreeSpecies {
                     spray_width: 0.35,
                     spray_thickness: 0.22,
                     spray_tip_offset: -0.35,
+                    fruit_down_offset: 14.,
+                    fruit_down_variance: 4.,
                 }),
             },
         }
@@ -125,12 +139,31 @@ impl TreeSpecies {
         self.definition().label
     }
 
+    /// Fresh authoring, distinct from decoding/migrating an existing tree's dimensions.
+    pub fn default_desc(self) -> TreeDesc {
+        let mut desc = self.mature_desc(&TreeDesc::legacy_wire_defaults());
+        desc.size = self.definition().planting_size;
+        desc
+    }
+
     pub fn mature_desc(self, authored: &TreeDesc) -> TreeDesc {
         if self == Self::RetiredGardenTree {
             return Self::AppleTree.mature_desc(authored);
         }
+        // Switching varieties must not turn Pine/Willow into miniature Apple-sized trees,
+        // nor carry a tall species' scale back into Apple. Existing identities keep authoring;
+        // retirement is a migration, not a new planting, and retains the saved dimensions.
+        let size = if authored.species == self || authored.is_retired() {
+            authored.size
+        } else {
+            self.definition().planting_size
+        };
         match &self.definition().authoring {
-            AuthoringDefaults::LegacyConifer => legacy_conifer_desc(authored),
+            AuthoringDefaults::LegacyConifer => {
+                let mut desc = legacy_conifer_desc(authored);
+                desc.size = size;
+                desc
+            }
             AuthoringDefaults::Garden(defaults) => {
                 // A profile is a switching default, never a replacement for saved live authoring.
                 if authored.species == self {
@@ -141,7 +174,7 @@ impl TreeSpecies {
                 let mut desc = TreeDesc {
                     species: self,
                     axis_model: true,
-                    size: authored.size,
+                    size,
                     trunk_thickness: defaults.trunk_thickness,
                     leaves_size_level: defaults.leaf_size_level,
                     leaf_offset: 0,
@@ -152,8 +185,8 @@ impl TreeSpecies {
                     fruit_spawn_probability: if self.bears_apples() { 0.45 } else { 0. },
                     fruit_side_offset_voxels: 1.,
                     fruit_side_offset_variance_voxels: 2.,
-                    fruit_down_offset_voxels: 14.,
-                    fruit_down_offset_variance_voxels: 4.,
+                    fruit_down_offset_voxels: defaults.fruit_down_offset,
+                    fruit_down_offset_variance_voxels: defaults.fruit_down_variance,
                     enable_subdivision: false,
                     ..TreeDesc::legacy_wire_defaults()
                 };

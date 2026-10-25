@@ -64,6 +64,8 @@ fn willow_has_pendant_shoots_while_apple_and_pine_keep_ascending_crowns() {
         for seed in [7, 122, 907] {
             let mut desc = species.mature_desc(&TreeDesc::default());
             desc.branching.seed = seed;
+            // The 16-voxel clearance below is specified at the architecture's reference size.
+            desc.size = 30.;
             let tree = Tree::new(desc);
             let twigs: Vec<_> = tree
                 .branches()
@@ -156,6 +158,59 @@ fn species_profiles_are_switching_defaults_not_overrides_of_live_authoring() {
         let restored: TreeDesc = serde_json::from_slice(&saved).unwrap();
         assert_eq!(species.mature_desc(&restored), expected);
     }
+}
+
+#[test]
+fn new_apples_are_mature_human_scale_trees_across_individual_seeds() {
+    for seed in (0..64).chain([122, 907, u64::MAX]) {
+        let mut desc = TreeDesc::default();
+        desc.branching.seed = seed;
+        let tree = Tree::new(desc.at_age(1.));
+        let height = tree.height_voxels();
+        // Roughly 1.5–1.8 of the current 24-voxel player body; keep a voxel of
+        // tolerance for the randomly sampled leaf envelope, rather than clipping crowns.
+        assert!(
+            (35.0..=45.0).contains(&height),
+            "seed={seed} height={height}"
+        );
+        assert_eq!(
+            tree.trunks().len(),
+            tree.branches().len(),
+            "not a hidden sapling"
+        );
+        assert!(!tree.relative_leaf_placements().is_empty());
+        assert!(Tree::new(desc.at_age(0.)).height_voxels() < height * 0.5);
+    }
+}
+
+#[test]
+fn species_switches_use_native_sizes_without_resizing_current_authoring_or_retired_saves() {
+    for from in TreeSpecies::ALL {
+        let mut authored = from.default_desc();
+        authored.size = 17.25;
+        authored.branching.seed = u64::MAX;
+        for to in TreeSpecies::ALL {
+            let switched = to.mature_desc(&authored);
+            assert_eq!(switched.branching.seed, authored.branching.seed);
+            assert_eq!(
+                switched.size,
+                if from == to {
+                    17.25
+                } else {
+                    to.default_desc().size
+                }
+            );
+            if from != to && to != TreeSpecies::AppleTree {
+                assert_eq!(
+                    switched.size, 20.,
+                    "keep the former configured non-Apple scale"
+                );
+            }
+        }
+    }
+    let mut retired = TreeDesc::legacy_wire_defaults();
+    retired.size = 17.25;
+    assert_eq!(retired.into_current().size, 17.25);
 }
 
 #[test]

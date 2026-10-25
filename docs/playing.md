@@ -150,6 +150,11 @@ Loading does not overwrite the save file; use **Save** to persist the conversion
 Willow and existing Apple descriptions retain their authoring. All architectures pass through the
 [shared growth module and species rules](tree-growth.md).
 
+New Apple Trees and the fresh opening now use a compact mature garden scale, roughly 1.5–1.8
+player-body heights (seed variation applies). Pine and Willow retain their larger native planting
+scales. Existing saved Apple trees keep their authored sizes; loading a garden is not a resize
+operation. See [scale measurements and review](evidence/apple-tree-player-scale.md).
+
 Apple Trees use the existing apple growth, hanging, falling and interaction systems. Pine and
 Willow do not produce apples. All three share the existing pixel-leaf renderer, palette, wind,
 editing and save/load systems; literal needles, pine cones and additional fruit types are not

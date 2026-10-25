@@ -2,10 +2,12 @@
 //! Never writes config or garden saves. Captures use the ordinary --screenshot path.
 use super::*;
 use crate::tree_gen::TreeSpecies;
+use glam::Vec3Swizzles;
 
 pub(in crate::app::core) struct TreeSpeciesReview {
     species: Vec<TreeSpecies>,
     seed: u64,
+    walking_view: bool,
     frame: u32,
     target: Vec3,
 }
@@ -16,11 +18,13 @@ impl TreeSpeciesReview {
             return Ok(None);
         };
         let species = match mode.as_str() {
-            "apple" => vec![TreeSpecies::AppleTree],
+            "apple" | "apple-walk" => vec![TreeSpecies::AppleTree],
             "pine" => vec![TreeSpecies::Pine],
             "willow" => vec![TreeSpecies::WeepingWillow],
             "mixed" => TreeSpecies::PLANTABLE.to_vec(),
-            _ => anyhow::bail!("RE_FLORA_TREE_SPECIES_REVIEW must be apple, pine, willow or mixed"),
+            _ => anyhow::bail!(
+                "RE_FLORA_TREE_SPECIES_REVIEW must be apple, apple-walk, pine, willow or mixed"
+            ),
         };
         let seed = std::env::var("RE_FLORA_TREE_SPECIES_SEED")
             .ok()
@@ -31,6 +35,7 @@ impl TreeSpeciesReview {
         Ok(Some(Self {
             species,
             seed,
+            walking_view: mode == "apple-walk",
             frame: 0,
             target: Vec3::ZERO,
         }))
@@ -103,24 +108,30 @@ impl App {
                     !record.fruit_specs.is_empty() == species.bears_apples(),
                     "incorrect species fruit"
                 );
-                log::info!("[TREE_SPECIES_REVIEW] planted={species:?} seed={} axes={} leaves={} fruit={} position={position:?} real_preview=true saved=false",
-                    desc.branching.seed, record.rest_tree.branches().len(), record.leaf_render_positions.len(), record.fruit_specs.len());
+                log::info!("[TREE_SPECIES_REVIEW] planted={species:?} seed={} axes={} leaves={} fruit={} height_voxels={:.3} position={position:?} real_preview=true saved=false",
+                    desc.branching.seed, record.rest_tree.branches().len(), record.leaf_render_positions.len(), record.fruit_specs.len(), record.rest_tree.height_voxels());
                 center += position;
             }
             // Clear Grow after exercising selection/preview; don't let the next-placement
             // ghost obscure the planted crown in captures.
             self.select_item_panel_slot(crate::app::core::ui_style::GROW_SLOT_INDEX);
-            review.target = center / review.species.len() as f32 + Vec3::Y * 0.22;
+            review.target = center / review.species.len() as f32
+                + Vec3::Y * if review.walking_view { 0.08 } else { 0.22 };
         }
         // Retain the fixture view after any one-shot startup camera placement.
         self.camera_control.apply_snapshot_mode(true);
         self.camera_control.set_orbit_focus(review.target);
-        let distance = if review.species.len() == 1 { 1.0 } else { 1.8 };
+        let eye = if review.walking_view {
+            // Frozen review at the ordinary standing eye height, not an elevated orbit.
+            // This opt-in pose does not change the player or any saved camera preference.
+            let xz = review.target.xz() + Vec2::new(0.12, 0.28);
+            Vec3::new(xz.x, self.query_terrain_height_cpu(xz) + 0.08, xz.y)
+        } else {
+            let distance = if review.species.len() == 1 { 1.0 } else { 1.8 };
+            review.target + Vec3::new(0.25, 0.16, distance)
+        };
         anyhow::ensure!(
-            self.tracer.set_camera_pose_looking_at(
-                review.target + Vec3::new(0.25, 0.16, distance),
-                review.target
-            ),
+            self.tracer.set_camera_pose_looking_at(eye, review.target),
             "tree review camera"
         );
         self.reset_camera_movement_input();

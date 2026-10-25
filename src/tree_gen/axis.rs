@@ -109,7 +109,9 @@ mod tests {
 
     #[test]
     fn conifer_has_one_continuous_trunk_independent_of_branch_order() {
-        let desc = TreeSpecies::Conifer.mature_desc(&TreeDesc::default());
+        let mut desc = TreeSpecies::Conifer.default_desc();
+        // This reference-height fixture owns its size, independently of planting defaults.
+        desc.size = 30.;
         let tree = conifer(&desc);
         let trunk = tree
             .metadata

@@ -279,8 +279,8 @@ impl TerrainPhysics {
             .map_err(anyhow::Error::msg)
     }
 
-    /// Read-only broad phase for the *visual* posed surface. The caller supplies
-    /// its exact displacement bound; padding never changes physical collisions.
+    /// Test-only broad phase over committed trunk collision triangles. Triangle IDs belong
+    /// to that compact topology, not the independent full visual mesh. Padding is read-only.
     #[cfg(test)]
     pub(super) fn tree_ray_candidates(
         &self,
@@ -1666,6 +1666,7 @@ mod tests {
             .unwrap();
         assert!(movement.translation.x < 4.);
         let original_topology = physics.tree_surface_topology.as_ref().unwrap().clone();
+        let (collision_positions, collision_triangles) = mesh.rest_collision_geometry().unwrap();
         for frame in 0..16 {
             let poses: Vec<_> = rest_poses
                 .iter()
@@ -1675,15 +1676,14 @@ mod tests {
                 })
                 .collect();
             let surface = mesh.posed_surface(|_| Some(poses.as_slice())).unwrap();
-            let rest = mesh.posed_surface(|_| Some(rest_poses.as_slice())).unwrap();
-            // Sample posed triangle rays outside the original BVH bounds. Padding
-            // must preserve all actual visual hits without touching the collider.
-            for (id, t) in mesh.indices.chunks_exact(3).enumerate() {
-                let points = [
-                    surface.position(t[0] as usize),
-                    surface.position(t[1] as usize),
-                    surface.position(t[2] as usize),
-                ];
+            // Query the collision topology, not visual triangle IDs: compact trees can
+            // leave part of this synthetic cube outside root-axis wood. Those visual faces
+            // intentionally have no physical counterpart. Probe padding out to its full
+            // displacement bound without changing the resident collider.
+            let margin = surface.query_margin();
+            for (id, t) in collision_triangles.iter().enumerate() {
+                let rest_points = t.map(|i| collision_positions[i as usize]);
+                let points = rest_points.map(|p| p + margin);
                 let normal = (points[1] - points[0])
                     .cross(points[2] - points[0])
                     .normalize_or_zero();
@@ -1695,15 +1695,11 @@ mod tests {
                     ray_origin,
                     -normal,
                     points,
-                    [
-                        rest.position(t[0] as usize),
-                        rest.position(t[1] as usize),
-                        rest.position(t[2] as usize)
-                    ]
+                    rest_points
                 )
                 .is_some());
                 assert!(physics
-                    .tree_ray_candidates(ray_origin, -normal, surface.query_margin())
+                    .tree_ray_candidates(ray_origin, -normal, margin)
                     .contains(&(id as u32)));
             }
             physics.validate_tree_rest_collision(&mesh).unwrap();

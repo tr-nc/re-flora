@@ -289,6 +289,22 @@ mod tests {
     }
 
     #[test]
+    fn fresh_apple_tuning_uses_current_defaults_without_overriding_saved_authoring() {
+        // The user's mutable config file is not a test fixture. Missing tuning uses the
+        // current defaults, while an explicitly authored older Apple must remain unchanged.
+        let fresh: TreeGuiConfig = toml::from_str("").unwrap();
+        assert_eq!(fresh.desc, TreeDesc::default());
+        let saved: TreeGuiConfig = toml::from_str(
+            "[desc]\nspecies = \"apple_tree\"\nsize = 20.0\nleaves_size_level = 5\nfruit_down_offset_voxels = 14.0\n",
+        ).unwrap();
+        assert_eq!(saved.desc.size, 20.);
+        assert_eq!(saved.desc.leaves_size_level, 5);
+        assert_eq!(saved.desc.fruit_down_offset_voxels, 14.);
+        let restored: TreeGuiConfig = toml::from_str(&toml::to_string(&saved).unwrap()).unwrap();
+        assert_eq!(restored, saved);
+    }
+
+    #[test]
     fn legacy_tuning_tree_loads_as_current_apple_and_saves_without_retired_identity() {
         for species in ["", "species = \"garden_tree\"\n"] {
             let source = format!("[desc]\n{species}size = 17.25\n");

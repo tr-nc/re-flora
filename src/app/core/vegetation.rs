@@ -5548,6 +5548,45 @@ mod tests {
     }
 
     #[test]
+    fn compact_apples_publish_mature_fruit_above_ground_from_real_attachment_sites() {
+        let mut descriptions = Vec::new();
+        for seed in [0, 7, 122, 907, u64::MAX] {
+            let mut desc = TreeDesc::default();
+            desc.branching.seed = seed;
+            descriptions.push(desc);
+        }
+        descriptions.extend(
+            (0..4).map(|i| {
+                crate::garden_layout::tree_descriptor(crate::garden_layout::DEFAULT_SEED, i)
+            }),
+        );
+        for desc in descriptions {
+            let root = Vec3::new(0.75, 0.5, 0.75);
+            let compiled =
+                TreePlacementService::compile(desc.clone(), root, UAabb3::default(), 1., 1, 32);
+            assert!(
+                !compiled.fruit_specs.is_empty(),
+                "seed={}",
+                desc.branching.seed
+            );
+            let tree_height = compiled.rest_tree.height_voxels();
+            for fruit in &compiled.fruit_specs {
+                let height = fruit.position_voxels.y as f32 - root.y * 256.;
+                // Whole mature apples clear flat ground, including the outer voxel half-cell.
+                let radius = fruit.attached_radius_voxels(1.).unwrap() as f32 + 0.5;
+                assert!(
+                    height - radius >= 4.,
+                    "seed={} fruit_height={height}",
+                    desc.branching.seed
+                );
+                assert!(height < tree_height);
+                assert!(fruit.grow_start_phase < fruit.full_growth_phase);
+            }
+            assert!(!compiled.quantized_leaf_render_positions.is_empty());
+        }
+    }
+
+    #[test]
     fn fruit_offsets_are_controlled_relative_to_branch_anchors() {
         let tree_pos_voxels = Vec3::new(100.0, 100.0, 100.0);
         let branch_anchors = [UVec3::new(110, 120, 100), UVec3::new(90, 130, 100)];

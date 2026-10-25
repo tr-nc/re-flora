@@ -8,7 +8,7 @@ preference is rewritten.
 
 | Launch | Terrain and vegetation |
 | --- | --- |
-| Ordinary fresh launch | Version 2 garden, seed `20260519` |
+| Ordinary fresh launch | Version 3 garden, seed `20260519` |
 | `--garden-seed <u32>` | Same composition recipe with independently addressed individual variation |
 | `--legacy-terrain` | Original procedural terrain and startup tuning tree |
 | `--flat-terrain` | Existing flat soil debugging path |
@@ -40,12 +40,15 @@ Grow occupancy, tree placement, authored flower placement and trim/removal trans
 Dirt has a 30-voxel upper layer over rock; there are no protected scene bits.
 
 - Four deterministic **Apple Trees** use the current shared Apple architecture and fruit lifecycle
-  at the original four anchors, with the original individual seed mapping. Bounded size fitting and
-  compact level-4 leaf sprays keep actual generated wood and leaf positions within a 46-voxel
-  radius; shrinking only wood beneath full-sized leaf clouds was rejected in native review.
+  at the original four anchors, with the original individual seed mapping. Version 3 uses the same
+  human-scale Apple defaults as new planting: size `5.8`, level-3 leaf sprays, density `0.12`, and
+  fruit hanging offset `6 ± 1.5` voxels. The default opening measures about **1.54–1.74 player-body
+  heights**, instead of version 2's 2.60–2.83. Bounded footprint fitting still limits generated wood
+  and leaves to a 46-voxel radius (the current default crowns measure about 26–27 voxels).
   They do not inherit the user's tuning-tree descriptor or age. Route/border tests and real capsule
   traversal verify clearance. There is no fruit-disable override or opening-only branch recipe.
-  Version 2 changes trees only; the independent flower hash salt remains at its original value.
+  Version 3 changes new tree authoring only; the independent flower hash salt remains unchanged.
+  Existing saved Apple trees are not resized. See [scale evidence](evidence/apple-tree-player-scale.md).
 - At most 180 authored flowers, 2,304 candidate attempts, nine-voxel anchor separation,
   valid realized soil columns, stable species keys (`wild-geranium`, `forget-me-not`,
   `oxeye-daisy`) and explicit clustering/outlier hashes. Rejection terminates even when
@@ -54,7 +57,7 @@ Dirt has a 30-voxel upper layer over rock; there are no protected scene bits.
   the existing occupancy density and per-chunk/per-species allocator limits (40,000),
   not a new per-frame scattering system. The original version-1 accepted snapshot contained
   **130,010 ordinary grass instances plus 180 flowers**, and four trees. Grass totals can change
-  with the trees' republished footprint; the version-2 flower fingerprint remains `c285dfeb`. This is not a
+  with the trees' republished footprint; the version-3 flower fingerprint remains `c285dfeb`. This is not a
   promise of 180 total vegetation instances; grass has its own existing storage budget.
 - Arrival/route/pocket mowing reserves real plantable room; short trimmed margins soften
   the opening. All later player edits use the same data. No new live soil-water or wet

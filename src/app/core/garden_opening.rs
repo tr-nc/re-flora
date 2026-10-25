@@ -57,11 +57,12 @@ impl App {
             let y = self.query_terrain_height_cpu(xz);
             let desc = layout::tree_descriptor(seed, i);
             let radius = layout::tree_radius_voxels(&desc);
+            let height = crate::tree_gen::Tree::new(desc.clone()).height_voxels();
             anyhow::ensure!(
                 radius <= 46.,
                 "mature tree exceeded bounded opening footprint"
             );
-            log::info!("[GARDEN_OPENING] tree={i} species={} seed={} size={:.3} crown_radius_voxels={radius:.3} position={:?} apple_probability={:.2}",
+            log::info!("[GARDEN_OPENING] tree={i} species={} seed={} size={:.3} crown_radius_voxels={radius:.3} height_voxels={height:.3} position={:?} apple_probability={:.2}",
                 desc.species.label(), desc.branching.seed, desc.size,
                 Vec3::new(xz.x, y, xz.y), desc.fruit_spawn_probability);
             self.apply_tree_placement_at_age(

@@ -60,8 +60,12 @@ saved TreeDesc + individual seed + age
    a child is not revealed before its parent. Consecutive samples share radii and axis identity.
 3. Leaf sites are generated only on visible wood. Apple masses attach at twig tips; Pine/Willow
    sprays follow shoot axes. Their distinction is a rule, not a renderer species check.
-4. Species profiles provide defaults when switching species. Matching-species live authoring is
-   preserved (apart from the existing normalization that new species always use axes).
+4. Species profiles provide native scale as well as shape defaults when switching species.
+   `default_desc()` constructs fresh authoring; `mature_desc()` retains matching-species live
+   authoring (apart from the existing axis normalization). New Apple defaults use size `5.8`,
+   matched level-3 foliage and shorter fruit offsets; switching to Pine/Willow/Conifer retains their
+   former configured size `20`, rather than inheriting the dwarf Apple's size. Retired-description
+   migration remains distinct and preserves the historical authored size.
 5. Fruit policy stays authoritative even when an incompatible nonzero apple probability is copied
    into a non-apple description. No new fruit lifecycle was introduced.
 6. Conifer A/B, Pine, Willow and existing Apple authoring remain unchanged. `garden_tree` and missing
@@ -94,11 +98,15 @@ plugin registry or runtime scripting system.
   Test/Garden Tree no longer has an independent species profile or normal generation entry point;
   only historical decoding and old-wood reconstruction are retained for safe migration.
 - **The ordinary fresh garden now establishes four current Apple Trees at the original anchors.**
-  Its compact size/leaf-spray fitting in `src/garden_layout.rs` remains independent of `[tree.desc]`.
-  This is a subsequent player-visible recipe change, not part of the earlier invariant refactor.
+  Its version-3 recipe derives compact scale, foliage and fruit offsets from the Apple profile;
+  only the individual seed and footprint fitting belong to `src/garden_layout.rs`. It remains
+  independent of live `[tree.desc]` edits. This is a subsequent player-visible defaults change,
+  not part of the earlier invariant refactor. Existing saved current-species geometry is unchanged.
 - Retired trees' hand-edited wood is replaced with Apple geometry. Unretired trees take the normal
   saved-atlas restoration path; overlapping trees follow existing replacement transaction semantics.
 
 Validation and the same-machine compatibility comparison are recorded in
 [`evidence/tree-growth-rules.md`](evidence/tree-growth-rules.md). The later opening and retirement
 checks are in [`evidence/apple-opening-and-test-tree-retirement.md`](evidence/apple-opening-and-test-tree-retirement.md).
+The subsequent human-scale Apple defaults and native review are documented in
+[`evidence/apple-tree-player-scale.md`](evidence/apple-tree-player-scale.md).

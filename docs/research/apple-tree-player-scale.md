@@ -2,6 +2,10 @@
 
 Research date: 2026-10-25. Measured code/config baseline: `e0b69371`.
 
+**Implementation follow-up:** the user subsequently approved resizing. See
+[human-scale Apple delivery evidence](../evidence/apple-tree-player-scale.md) for the implemented
+defaults and current measurements. The research/baseline observations below remain historical.
+
 ## Conclusion and scope
 
 For this small, approachable garden, a **managed dwarf apple tree around 2.5–3.0 m tall**
