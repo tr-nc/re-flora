@@ -1,4 +1,22 @@
-# Recorded tree-leaf audio A/B — implementation and validation
+# Recorded tree-leaf audio — implementation and validation
+
+## 2026-10-26 default activation
+
+The recorded breeze / strong-wind pair is now enabled in the shipped local
+configuration. Normal startup was verified with `recorded_mix=true`; the legacy
+procedural comparison remains available explicitly in Debug, not the default.
+Existing wind response, per-canopy take/phase selection, mixer controls and one
+Voice per canopy are retained. No new sound files or licensing claims were added.
+
+Validation: asset preparation `--check` verifies all eight derivatives;
+`recorded_tree_leaves` unit tests and the explicit `recorded_leaf_mix_keeps`
+native lifecycle test pass. A Release five-canopy hidden/muted run passed all six
+calm/weak/strong and mode-switch stages, with blends 0 / 0.266667 / 1 and no
+ERROR/panic/VUID. Final ordinary Release smoke confirms recorded mode by default.
+Release was rebuilt. Listening approval and the commercial/redistribution block
+below remain unresolved; muted validation does not establish subjective sound.
+
+The following sections describe the original comparison implementation/history.
 
 Date: 2026-10-24. Research and first-party references:
 [recorded-tree-leaf-audio.md](../research/recorded-tree-leaf-audio.md).

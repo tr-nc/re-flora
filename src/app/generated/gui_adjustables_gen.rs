@@ -550,7 +550,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Wind",
         id: "tree_leaf_recorded_mix",
         kind: "bool",
-        label: "Tree leaves: recorded breeze / strong wind (A/B)",
+        label: "Tree leaves: recorded breeze / strong wind",
     },
     GeneratedGuiParamDescriptor {
         section: "Wind",

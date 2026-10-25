@@ -1092,11 +1092,11 @@ name = "Wind"
 [[section.param]]
 id = "tree_leaf_recorded_mix"
 kind = "bool"
-label = "Tree leaves: recorded breeze / strong wind (A/B)"
+label = "Tree leaves: recorded breeze / strong wind"
 type = "Bool"
 
 [section.param.data]
-value = false
+value = true
 
 [[section.param]]
 id = "canopy_audio_sample_budget"
