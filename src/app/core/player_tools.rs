@@ -26,6 +26,9 @@ pub(super) enum PlayerTool {
     Wind,
     Stone,
     Lantern,
+    ThinPole,
+    ThickPole,
+    Rope,
     Pavement,
     Wall,
     Placeable,
@@ -36,6 +39,9 @@ impl PlayerTool {
         match slot_idx {
             super::ui_style::STONE_SLOT_INDEX => Some(Self::Stone),
             super::ui_style::LANTERN_SLOT_INDEX => Some(Self::Lantern),
+            super::ui_style::THIN_POLE_SLOT_INDEX => Some(Self::ThinPole),
+            super::ui_style::THICK_POLE_SLOT_INDEX => Some(Self::ThickPole),
+            super::ui_style::ROPE_SLOT_INDEX => Some(Self::Rope),
             super::ui_style::PAVEMENT_SLOT_INDEX => Some(Self::Pavement),
             super::ui_style::WALL_SLOT_INDEX => Some(Self::Wall),
             super::ui_style::MOWER_SLOT_INDEX => Some(Self::Mower),
@@ -56,6 +62,9 @@ impl PlayerTool {
             Self::Idle => return None,
             Self::Stone => super::ui_style::STONE_SLOT_INDEX,
             Self::Lantern => super::ui_style::LANTERN_SLOT_INDEX,
+            Self::ThinPole => super::ui_style::THIN_POLE_SLOT_INDEX,
+            Self::ThickPole => super::ui_style::THICK_POLE_SLOT_INDEX,
+            Self::Rope => super::ui_style::ROPE_SLOT_INDEX,
             Self::Pavement => super::ui_style::PAVEMENT_SLOT_INDEX,
             Self::Wall => super::ui_style::WALL_SLOT_INDEX,
             Self::Mower => super::ui_style::MOWER_SLOT_INDEX,
@@ -83,6 +92,9 @@ impl PlayerTool {
                 | Self::Mower
                 | Self::Stone
                 | Self::Lantern
+                | Self::ThinPole
+                | Self::ThickPole
+                | Self::Rope
                 | Self::Pavement
                 | Self::Wall
         )
@@ -263,6 +275,7 @@ pub(super) enum PlayerToolPointerAction {
     PlantTree,
     StonePlacement,
     LanternPlacement,
+    FenceAction,
 }
 
 /// Select the gesture owner before entering an asynchronous single-pick queue.
@@ -614,6 +627,10 @@ impl PlayerToolRuntime {
             (PlayerTool::Lantern, MouseButton::Left) => {
                 Some(PlayerToolPointerAction::LanternPlacement)
             }
+            (
+                PlayerTool::ThinPole | PlayerTool::ThickPole | PlayerTool::Rope,
+                MouseButton::Left,
+            ) => Some(PlayerToolPointerAction::FenceAction),
             (PlayerTool::Placeable, MouseButton::Left) => {
                 Some(PlayerToolPointerAction::PlaceablePlacement)
             }

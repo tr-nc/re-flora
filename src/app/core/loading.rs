@@ -429,6 +429,8 @@ impl App {
             .unwrap_or_else(|err| panic!("[LOW_WALL_REVIEW] failed: {err:#}"));
         self.seed_stone_lantern_review()
             .expect("stone lantern review");
+        self.seed_garden_fence_review()
+            .expect("garden fence review");
         if let Some(path) = self.terrain_persistence.take_startup_save_path() {
             self.perform_startup_terrain_save(Path::new(&path))
                 .unwrap_or_else(|err| panic!("[TERRAIN_PERSISTENCE] CLI save failed: {err:#}"));

@@ -549,6 +549,7 @@ impl VisibleTerrainPublicationHost for App {
             .source
             .observe_terrain(revision, affected_voxels);
         self.climbing_plants.observe_edit(affected_voxels);
+        self.garden_fence.observe_edit(affected_voxels);
         self.visible_terrain_revision = revision;
     }
 

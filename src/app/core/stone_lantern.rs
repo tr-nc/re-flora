@@ -61,6 +61,10 @@ impl Plan {
     fn new(hit: Vec3, world_dim: UVec3) -> Result<Self> {
         ensure!(hit.is_finite(), "invalid lantern contact");
         let v = hit * 256.;
+        ensure!(
+            v.is_finite() && v.cmpge(Vec3::ZERO).all() && v.cmplt(world_dim.as_vec3()).all(),
+            "lantern contact outside editable terrain"
+        );
         let base = IVec3::new(
             v.x.floor() as i32,
             v.y.ceil() as i32 - 1,

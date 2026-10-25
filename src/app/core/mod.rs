@@ -57,6 +57,7 @@ pub(crate) use lighting_mode_acceptance::{
     ResolvedLightingFrameInputs, ResolvedRasterLightingState,
 };
 mod ambient_ecology;
+mod garden_fence;
 mod loading;
 mod local_player_footsteps;
 mod moisture;
@@ -455,6 +456,7 @@ pub struct App {
     tracer: Tracer,
     local_lights: LocalLightRegistry,
     night_garden: night_garden::NightGarden,
+    garden_fence: garden_fence::GardenFence,
     raster_entity_emitters: crate::lighting::RasterEntityEmitterProvider,
     emissive_voxel_lighting: Option<emissive_voxel_lighting::EmissiveVoxelLightingRuntime>,
 
@@ -1569,6 +1571,7 @@ impl App {
             tracer,
             local_lights: LocalLightRegistry::default(),
             night_garden: night_garden::NightGarden::default(),
+            garden_fence: garden_fence::GardenFence::default(),
             raster_entity_emitters: crate::lighting::RasterEntityEmitterProvider::default(),
             emissive_voxel_lighting,
 
@@ -2870,6 +2873,9 @@ impl App {
                                 number: ui_style::toolbar_number(ui_style::MOWER_SLOT_INDEX),
                                 enabled: mower_mode_available,
                             },
+                            ItemPanelSlot {index:ui_style::THIN_POLE_SLOT_INDEX,label:"Thin pole",number:ui_style::toolbar_number(ui_style::THIN_POLE_SLOT_INDEX),enabled:self.rooftop_scene.is_none()},
+                            ItemPanelSlot {index:ui_style::THICK_POLE_SLOT_INDEX,label:"Thick pole",number:ui_style::toolbar_number(ui_style::THICK_POLE_SLOT_INDEX),enabled:self.rooftop_scene.is_none()},
+                            ItemPanelSlot {index:ui_style::ROPE_SLOT_INDEX,label:"Rope",number:ui_style::toolbar_number(ui_style::ROPE_SLOT_INDEX),enabled:self.rooftop_scene.is_none()},
                             ItemPanelSlot {
                                 index: ui_style::LANTERN_SLOT_INDEX,
                                 label: "Lantern",
@@ -3215,6 +3221,9 @@ impl App {
 
                 if let Err(error) = self.update_mower(frame_delta_time) {
                     log::error!("[MOWER] update failed: {error:#}");
+                }
+                if let Err(error) = self.update_garden_fence_anchors() {
+                    log::warn!("[GARDEN_FENCE] anchor reconciliation failed: {error:#}");
                 }
                 if let Err(error) = cpu_timings.time(FrameCpuScope::Ecology, || {
                     self.update_ambient_ecology(f64::from(time_since_start))

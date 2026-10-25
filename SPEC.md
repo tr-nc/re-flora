@@ -133,7 +133,7 @@ known limitations; partially implemented items remain open.
 | [x] | 04 Fireflies | Night-only blinking, bounded population, cached-angle post-process rendering; no disruptive popping while lit |
 | [x] | 05 Glowing blue flowers | Night emission, ordinary planting/growth intact; decide/measure environmental lighting support |
 | [x] | 06 Voxel stone lantern | Player-placeable real terrain, emissive core, lighting/collision/edit/save validation |
-| [ ] | 07 Poles and rope fences | Varied real-voxel poles, thick/thin option, arbitrary rope chains, valid anchors and persistence |
+| [x] | 07 Poles and rope fences | Varied real-voxel poles, thick/thin option, arbitrary rope chains, valid anchors and persistence |
 | [x] | 08 Sunflower | Registered, selectable, plantable, growth/rendering/persistence; asset provenance if added |
 | [x] | 09 Butterfly brightness | Diagnose albedo vs light; improve colored and perched butterflies without washing out white ones; screenshots |
 | [ ] | 10 Plow | Drag furrows and displaced piles; exact soil conservation through boundaries/blockage/rollback; native validation |
@@ -215,6 +215,14 @@ known limitations; partially implemented items remain open.
   Inspected `target/garden-lantern-{day,night}.png`; no final-run ERROR/panic/VUID.
   Always-lit first design, current global light budget; construction pricing is
   not implemented. No manual walk/collision-feel approval is claimed.
+- Fence poles/ropes: Thin pole / Thick pole / Rope toolbar tools, varied actual
+  Oak Wood terrain, arbitrary click-to-click chains and sagged face-connected
+  ropes. Post IDs/recipes persist in a backward-compatible snapshot field; deleted
+  caps retire their IDs and reject new links. Native three-post/two-link save/load
+  and cap-removal checks pass; inspected `target/garden-fence.png`. Three focused
+  tests plus persistence/toolbar checks and Release validation pass. Rope height
+  is currently fixed below each cap. Existing ropes remain editable terrain when
+  a post is removed—no cloth/collapse simulation or automatic deletion is claimed.
 - Prior full test baseline: nine unrelated failures reproduced on `9e2b7977`
   (seven raster-tree tests and two saved-default expectations). Recheck rather
   than assuming any later failure belongs to that baseline.

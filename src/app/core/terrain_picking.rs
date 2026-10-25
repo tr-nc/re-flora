@@ -153,6 +153,10 @@ impl App {
             PlayerToolPointerAction::PlaceablePlacement | PlayerToolPointerAction::PlantTree => {
                 self.try_discrete_placement()
             }
+            PlayerToolPointerAction::FenceAction => {
+                self.stop_terrain_edit_loop_sound();
+                self.try_garden_fence_action();
+            }
             PlayerToolPointerAction::LanternPlacement => {
                 self.stop_terrain_edit_loop_sound();
                 self.try_lantern_placement();

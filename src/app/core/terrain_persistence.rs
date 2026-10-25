@@ -17,6 +17,8 @@ pub(super) struct GardenSnapshot {
     trees: TreeSnapshot,
     growth_override_enabled: bool,
     growth_override: f32,
+    #[serde(default)]
+    fences: garden_fence::FenceSnapshot,
 }
 
 impl GardenSnapshot {
@@ -34,6 +36,7 @@ impl GardenSnapshot {
     fn validate(&self) -> Result<()> {
         self.flora.validate(CHUNK_DIM, VOXEL_DIM_PER_CHUNK)?;
         self.trees.validate()?;
+        self.fences.validate(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)?;
         anyhow::ensure!(
             (0.0..=1.0).contains(&self.growth_override),
             "invalid flora growth override"
@@ -386,6 +389,7 @@ impl App {
                 .flora_growth_override_enabled
                 .value,
             growth_override: self.debug_settings.adjustables.flora_growth_override.value,
+            fences: self.garden_fence.saved.clone(),
         };
         garden.validate()?;
         let (flora_count, authored_count) = garden.flora.counts();
@@ -537,6 +541,7 @@ impl App {
         let (flora_count, authored_count) = garden.flora.counts();
         log::info!("[GARDEN_PERSISTENCE] restored flora={} authored={} trees={} tree_age={:.3} retired_tree_migration={migrated_trees}; current species retain saved wood",
             flora_count, authored_count, garden.trees.count(), self.debug_settings.adjustables.tree_age.value);
+        self.garden_fence.restore(garden.fences);
         Ok(())
     }
 
