@@ -320,6 +320,6 @@ Release 配对测量应覆盖无喷头、单喷头、重叠多个喷头，稀疏
 - 已查看桌面首屏/性能表与窄屏首屏/性能表截图；证据为
   `target/sprinkler-response-report/delivery-*.png`。
 - 桌面和窄屏 axe 4.12.1 均 **0 violations**，仍有 SVG/裁剪导航的颜色对比
-  `incomplete`（8/10 节点），不宣称完整 WCAG 合规。
+  `incomplete`（节点数随滚动视口变化，最后复查为 16/14），不宣称完整 WCAG 合规。
 - 用户改动用原补丁 `git apply --reverse --check` 验证仍存在；原备份 SHA-256
   与上面的基准一致。它不是新增控件后当前完整 GUI 文件的哈希。
