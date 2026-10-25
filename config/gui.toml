@@ -2049,7 +2049,7 @@ label = "Grass & Flowers: Root Uptake Time (s)"
 type = "Float"
 
 [section.param.data]
-value = 8
+value = 30
 min = 0.1
 max = 120
 
@@ -2060,7 +2060,7 @@ label = "Grass & Flowers: Transpiration Time (s)"
 type = "Float"
 
 [section.param.data]
-value = 120
+value = 180
 min = 1
 max = 1200
 
