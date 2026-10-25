@@ -91,8 +91,15 @@ void main(uint3 baseLocal : SV_DispatchThreadID)
     if (occupancy_to_instances_info.preserve_existing_placements != 0u)
     {
         addFloraInstance(worldBasePosition, paintSelection,
-                         min(growthProgress, growthLimit), growthLimit,
-                         spawnAgeMs);
+                         occupancy_to_instances_info.preserve_existing_placements == 2u
+                             ? growthProgress : min(growthProgress, growthLimit),
+                         growthLimit, spawnAgeMs);
+        return;
+    }
+
+    if ((occupancyValue & FLORA_OCCUPANCY_EXISTING_BIT) != 0u)
+    {
+        addFloraInstance(worldBasePosition, paintSelection, growthProgress, growthLimit, spawnAgeMs);
         return;
     }
 

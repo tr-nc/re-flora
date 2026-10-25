@@ -34,6 +34,7 @@ enum OccupancyEditMode {
     Add = 1,
     Trim = 2,
     RefreshGrowthPotential = 3,
+    ValidateTerrain = 4,
 }
 
 #[allow(dead_code)]
@@ -389,7 +390,13 @@ impl AuthoredFloraStore {
     }
 }
 
+#[derive(resource_container_derive::ResourceContainer)]
+struct TerrainObservationResources {
+    chunk_atlas: crate::resource::Resource<re_flora_vkn::Texture>,
+}
+
 pub struct SurfaceBuilder {
+    terrain_observation: TerrainObservationResources,
     vulkan_ctx: VulkanContext,
     pub resources: SurfaceResources,
 
@@ -592,6 +599,11 @@ impl SurfaceBuilder {
             gpu_job_profiler: None,
             authored_flora: AuthoredFloraStore::default(),
             external_grass_growth_influences: HashMap::new(),
+            terrain_observation: TerrainObservationResources {
+                chunk_atlas: crate::resource::Resource::new(
+                    plain_builder_resources.chunk_atlas.clone(),
+                ),
+            },
             next_descriptor_generation: Cell::new(1),
             chunk_bound,
             voxel_dim_per_chunk,
@@ -648,7 +660,7 @@ impl SurfaceBuilder {
                 atlas_read_offset,
                 self.voxel_dim_per_chunk,
                 0,
-                false,
+                0,
             )?;
             cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
             let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx].1;
@@ -1318,6 +1330,43 @@ impl SurfaceBuilder {
         Ok(())
     }
 
+    /// Independent survival stage. Bounds only choose candidates; deletion is
+    /// decided from current atlas support and three voxels of contiguous cover.
+    pub fn reconcile_grass_terrain(&mut self, changed: UAabb3, now_ms: u32) -> Result<()> {
+        let min = changed.min().saturating_sub(UVec3::new(0, 3, 0));
+        let max = changed
+            .max()
+            .min(self.chunk_bound.max() * self.voxel_dim_per_chunk - UVec3::ONE);
+        let first = min / self.voxel_dim_per_chunk;
+        let last = max / self.voxel_dim_per_chunk;
+        for z in first.z..=last.z {
+            for y in first.y..=last.y {
+                for x in first.x..=last.x {
+                    let chunk = UVec3::new(x, y, z);
+                    let index = self.get_chunk_resource_index(chunk)?;
+                    let resources = &self.resources.instances.chunk_flora_instances[index].1;
+                    if resources.species_len(0) == 0 && resources.species_len(1) == 0 {
+                        continue;
+                    }
+                    self.run_occupancy_edit(
+                        chunk,
+                        Vec3::ZERO,
+                        Vec3::ZERO,
+                        0.,
+                        0,
+                        now_ms,
+                        0,
+                        species::FloraPaintSelection::GrassMix,
+                        0,
+                        species::GRASS_MIX_PAINT_BRUSH_SETTINGS,
+                        OccupancyEditMode::ValidateTerrain,
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn edit_flora_instances_for_brush(
         &mut self,
         chunk_id: UVec3,
@@ -1476,7 +1525,11 @@ impl SurfaceBuilder {
             chunk_world_offset,
             self.voxel_dim_per_chunk,
             spawn_time_ms,
-            mode == OccupancyEditMode::RefreshGrowthPotential,
+            match mode {
+                OccupancyEditMode::RefreshGrowthPotential => 1,
+                OccupancyEditMode::ValidateTerrain => 2,
+                _ => 0,
+            },
         )?;
         cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
 
@@ -1608,10 +1661,17 @@ impl SurfaceBuilder {
         let chunk_resources_mut = &mut self.resources.instances.chunk_flora_instances[chunk_idx].1;
         let mut after_total = 0_u32;
         for (species_idx, len) in result.flora_instance_len.iter().enumerate() {
+            if mode == OccupancyEditMode::ValidateTerrain
+                && species_idx >= species::MODEL_FLOWER_FIRST_SPECIES as usize
+            {
+                continue;
+            }
             chunk_resources_mut.set_species_len(species_idx, *len);
             after_total = after_total.saturating_add(*len);
         }
-        self.sync_authored_flora_chunk_to_gpu(chunk_id)?;
+        if mode != OccupancyEditMode::ValidateTerrain {
+            self.sync_authored_flora_chunk_to_gpu(chunk_id)?;
+        }
 
         let appended_total = if mode == OccupancyEditMode::Add {
             after_total.saturating_sub(before_total)
@@ -1751,7 +1811,7 @@ impl SurfaceBuilder {
         pipeline.publish_descriptors(
             "surface.instance.descriptors",
             generation,
-            DescriptorUpdate::All(&[&self.resources, resources]),
+            DescriptorUpdate::All(&[&self.resources, resources, &self.terrain_observation]),
         )
     }
 
@@ -1973,13 +2033,13 @@ fn update_occupancy_to_instances_info(
     chunk_world_offset: UVec3,
     chunk_dim: UVec3,
     spawn_time_ms: u32,
-    preserve_existing_placements: bool,
+    preserve_existing_placements: u32,
 ) -> Result<()> {
     occupancy_to_instances_info.fill_uniform(&OccupancyToInstancesInfo {
         chunk_world_offset: chunk_world_offset.to_array(),
         chunk_dim: chunk_dim.to_array(),
         spawn_time_ms,
-        preserve_existing_placements: u32::from(preserve_existing_placements),
+        preserve_existing_placements,
         ..OccupancyToInstancesInfo::zeroed()
     })
 }

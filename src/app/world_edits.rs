@@ -136,6 +136,7 @@ pub(crate) enum VoxelEdit {
 #[derive(Clone, Debug)]
 #[allow(clippy::enum_variant_names)]
 pub(crate) enum BuildEdit {
+    #[allow(dead_code)] // Explicit regeneration is not a runtime terrain-edit policy.
     RebuildMesh(UAabb3),
     RebuildMeshWithoutFlora(UAabb3),
     #[allow(dead_code)]
@@ -224,7 +225,9 @@ impl WorldEditTransaction {
                         .is_empty(),
                     "terrain world edit requires at least one affected chunk"
                 );
-                Some(vec![BuildEdit::RebuildMesh(bound)])
+                // Existing roots survive terrain edits according to their own
+                // support/burial policy; never regenerate an entire chunk's grass.
+                Some(vec![BuildEdit::RebuildMeshWithoutFlora(bound)])
             }
             WorldEditPublication::Trees(affected_regions) => {
                 let chunk_ids = tree_chunks(&affected_regions, voxel_dim_per_chunk);

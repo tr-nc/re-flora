@@ -144,6 +144,7 @@ pub(super) trait VisibleTerrainPublicationHost {
         &mut self,
         publication: &mut physical_visible_terrain::PhysicalTerrainPublication,
     ) -> Result<physical_visible_terrain::PhysicalTerrainPublicationProgress>;
+    fn reconcile_grass_terrain(&mut self, affected_voxels: UAabb3) -> Result<()>;
     fn emissive_observe_change(&mut self, affected_voxels: UAabb3) -> Result<()>;
     fn invalidate_direct_sun_shadows(&mut self);
     fn visible_terrain_revision(&self) -> u32;
@@ -410,6 +411,9 @@ impl VisibleTerrainPublication {
         host: &mut impl VisibleTerrainPublicationHost,
     ) -> Result<()> {
         if self.terrain_changed {
+            if self.kind == VisibleTerrainPublicationKind::Edit {
+                host.reconcile_grass_terrain(self.affected_voxels)?;
+            }
             host.emissive_observe_change(self.affected_voxels)?;
         }
         host.invalidate_direct_sun_shadows();
@@ -498,6 +502,13 @@ impl VisibleTerrainPublicationHost for App {
             &mut self.contree_builder,
             &mut self.scene_accel_builder,
         ))
+    }
+
+    fn reconcile_grass_terrain(&mut self, affected_voxels: UAabb3) -> Result<()> {
+        self.surface_builder.reconcile_grass_terrain(
+            affected_voxels,
+            self.time_info.time_since_start_duration().as_millis() as u32,
+        )
     }
 
     fn emissive_observe_change(&mut self, affected_voxels: UAabb3) -> Result<()> {
@@ -667,6 +678,7 @@ mod tests {
     enum Event {
         PhysicalPreparing,
         PhysicalComplete,
+        Grass,
         Emissive,
         Shadow,
         CollidersDirty,
@@ -718,6 +730,11 @@ mod tests {
                 } => Event::PhysicalComplete,
             });
             Ok(progress)
+        }
+
+        fn reconcile_grass_terrain(&mut self, _affected_voxels: UAabb3) -> Result<()> {
+            self.events.push(Event::Grass);
+            Ok(())
         }
 
         fn emissive_observe_change(&mut self, _affected_voxels: UAabb3) -> Result<()> {
@@ -830,6 +847,7 @@ mod tests {
             host.events,
             vec![
                 Event::PhysicalComplete,
+                Event::Grass,
                 Event::Emissive,
                 Event::Shadow,
                 Event::CollidersDirty,

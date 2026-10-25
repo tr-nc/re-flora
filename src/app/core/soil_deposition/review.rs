@@ -152,16 +152,127 @@ impl App {
             untouched_removed
         );
         ensure!(untouched_removed == 0, "Soil removed {untouched_removed} grass roots whose support and headroom did not change");
-        let buried: BTreeSet<_> = result
-            .deposited_voxels
+        let expected: BTreeSet<_> = before
             .iter()
-            .map(|p| (*p - UVec3::Y).to_array())
+            .copied()
+            .filter(|&root| {
+                let p = UVec3::from_array(root) - offset;
+                let solid = |y| {
+                    actual[((p.z * dim.y + y) * dim.x + p.x) as usize]
+                        & crate::builder::VOXEL_TYPE_MASK
+                        != 0
+                };
+                solid(p.y) && !(solid(p.y + 1) && solid(p.y + 2) && solid(p.y + 3))
+            })
             .collect();
-        let expected: BTreeSet<_> = before.difference(&buried).copied().collect();
         ensure!(
             after == expected,
-            "only roots buried by actual deposits may disappear"
+            "grass must follow current support and three-layer burial, not the deposit mask"
         );
+
+        let root = offset + UVec3::new(8, 0, 8);
+        ensure!(
+            after.contains(&root.to_array()),
+            "burial witness must be alive"
+        );
+        for layers in 1..=3 {
+            let cover = UVec3::new(1, 3, 1);
+            let mut bytes = vec![0u8; 3];
+            bytes[..layers].fill(crate::builder::VOXEL_TYPE_DIRT as u8);
+            self.plain_builder
+                .write_chunk_atlas_region(root + UVec3::Y, cover, &bytes)?;
+            // Queueing a candidate is not permission to use stale terrain: three
+            // layers written then removed before publication must leave grass alive.
+            if layers == 2 {
+                self.plain_builder.write_chunk_atlas_region(
+                    root + UVec3::Y * 3,
+                    UVec3::ONE,
+                    &[crate::builder::VOXEL_TYPE_DIRT as u8],
+                )?;
+                self.plain_builder.write_chunk_atlas_region(
+                    root + UVec3::Y * 3,
+                    UVec3::ONE,
+                    &[0],
+                )?;
+            }
+            self.publish_grass_survival_review(root, false)?;
+            if layers == 2 {
+                // Grow/Trim near a partially buried existing root must not
+                // accidentally re-run surface-placement rejection over it.
+                let chunk = root / 256;
+                let point = (root.as_vec3() + Vec3::splat(0.5)) / 256.;
+                self.surface_builder.build_surface(chunk, false)?;
+                self.surface_builder.regenerate_flora_instances_for_brush(
+                    chunk,
+                    point,
+                    point,
+                    0.49 / 256.,
+                    0,
+                    0,
+                    crate::flora::species::FloraPaintSelection::GrassMix,
+                    0,
+                    crate::flora::species::GRASS_MIX_PAINT_BRUSH_SETTINGS,
+                )?;
+                self.surface_builder.trim_flora_instances_for_brush(
+                    chunk,
+                    point,
+                    point,
+                    0.49 / 256.,
+                    0,
+                    0,
+                    200,
+                )?;
+            }
+            let live = grass_roots(&self.surface_builder.capture_flora_snapshot(0)?)?;
+            let mut expected = after.clone();
+            if layers == 3 {
+                expected.remove(&root.to_array());
+            }
+            ensure!(
+                live == expected,
+                "grass burial threshold failed at {layers} layers"
+            );
+        }
+        let support = offset + UVec3::new(10, 0, 8);
+        self.plain_builder
+            .write_chunk_atlas_region(support, UVec3::ONE, &[0])?;
+        self.publish_grass_survival_review(support, true)?;
+        let live = grass_roots(&self.surface_builder.capture_flora_snapshot(0)?)?;
+        let mut expected = after;
+        expected.remove(&root.to_array());
+        ensure!(
+            expected.remove(&support.to_array()),
+            "support witness must be alive"
+        );
+        ensure!(
+            live == expected,
+            "support loss must remove only the unsupported root before publication returns"
+        );
+        log::info!("[GRASS_SURVIVAL_REVIEW] offset={offset:?} cover_1_2=retained cover_3=removed support_loss=immediate latest_atlas=true neighbors=unchanged");
+        Ok(())
+    }
+
+    fn publish_grass_survival_review(&mut self, root: UVec3, support_removed: bool) -> Result<()> {
+        self.plain_builder.mark_all_solid_workgroups_dirty();
+        let point = root.as_vec3() / 256.;
+        self.publish_visible_terrain(VisibleTerrainChange::preserving_flora(
+            UAabb3::new(
+                if support_removed {
+                    root
+                } else {
+                    root + UVec3::Y
+                },
+                root + UVec3::new(1, 4, 1),
+            ),
+            world_ops::FloraBrushEdit {
+                start: point,
+                end: point,
+                radius: 33. / 256.,
+                tick: 0,
+                spawn_time_ms: 0,
+            },
+            true,
+        ))?;
         Ok(())
     }
 }

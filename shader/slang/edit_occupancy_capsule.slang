@@ -4,12 +4,15 @@ import flora_types;
 import grass_growth_potential;
 import hash;
 import voxel_data;
+import grass_survival;
+import flora_lighting_resources;
 
 static const uint OCCUPANCY_WORKGROUP_SIZE = 8u;
 static const uint OCCUPANCY_MODE_REMOVE = 0u;
 static const uint OCCUPANCY_MODE_ADD = 1u;
 static const uint OCCUPANCY_MODE_TRIM = 2u;
 static const uint OCCUPANCY_MODE_REFRESH_GROWTH_POTENTIAL = 3u;
+static const uint OCCUPANCY_MODE_VALIDATE_TERRAIN = 4u;
 static const uint OCCUPANCY_TRIM_MIN_GROWTH_PROGRESS = 128u;
 
 struct U_EditOccupancyInfo
@@ -85,6 +88,28 @@ void main(uint3 baseLocal : SV_DispatchThreadID)
         return;
     }
 
+    if (edit_occupancy_info.mode == OCCUPANCY_MODE_VALIDATE_TERRAIN)
+    {
+        if (occupancy_data[baseLocal] == 0u) return;
+        uint3 root = edit_occupancy_info.chunk_world_offset + baseLocal;
+        uint width,height,depth;
+        chunk_atlas.GetDimensions(width,height,depth);
+        if (any(root >= uint3(width,height,depth))) {
+            occupancy_data[baseLocal] = 0u;
+            return;
+        }
+        // World-space atlas reads cross vertical chunk boundaries. Outside the
+        // world is air; never sample beyond the image at the topmost root.
+        uint cover[3];
+        for(uint i=0u;i<3u;i++) {
+            cover[i] = 0u;
+            if(root.y+i+1u < height) cover[i] = chunk_atlas[root+uint3(0,i+1u,0)];
+        }
+        if (!grassSurvivesTerrain(chunk_atlas[root],cover[0],cover[1],cover[2]))
+            occupancy_data[baseLocal] = 0u;
+        return;
+    }
+
     float3 baseWorldCenter = float3(
         edit_occupancy_info.chunk_world_offset + baseLocal) + float3(0.5);
     float radius =
@@ -141,7 +166,7 @@ void main(uint3 baseLocal : SV_DispatchThreadID)
             uint selection =
                 unpackFloraOccupancySelection(currentOccupancy);
             occupancy_data[baseLocal] = packFloraOccupancy(
-                selection, trimmedGrowthProgress);
+                selection, trimmedGrowthProgress) | (currentOccupancy & FLORA_OCCUPANCY_EXISTING_BIT);
         }
     }
 }

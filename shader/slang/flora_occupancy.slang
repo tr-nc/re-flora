@@ -3,6 +3,9 @@ module flora_occupancy;
 public static const uint FLORA_OCCUPANCY_SELECTION_GRASS_MIX = 254u;
 public static const uint FLORA_OCCUPANCY_SELECTION_NATURAL = 255u;
 
+// Transient staging bit, never serialized: existing roots bypass procedural
+// placement eligibility when editing/painting neighboring plants.
+public static const uint FLORA_OCCUPANCY_EXISTING_BIT = 0x80000000u;
 public static const uint FLORA_OCCUPANCY_OCCUPIED_BIT = 1u;
 public static const uint FLORA_OCCUPANCY_GROWTH_SHIFT = 1u;
 public static const uint FLORA_OCCUPANCY_GROWTH_MASK = 0xffu;

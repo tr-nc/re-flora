@@ -59,7 +59,7 @@ void markBaseOccupied(uint speciesIndex, uint index, uint instanceCount)
         speciesIndex,
         unpackInstanceGrowthProgress(instance.packed_local_pos),
         spawnAgeMs);
-    occupancy_data[baseLocal] = occupancyValue;
+    occupancy_data[baseLocal] = occupancyValue | FLORA_OCCUPANCY_EXISTING_BIT;
 }
 
 [shader("compute")]

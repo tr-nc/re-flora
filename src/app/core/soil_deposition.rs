@@ -166,7 +166,7 @@ impl App {
                     .min(self.world_chunk_dim * VOXEL_DIM_PER_CHUNK - UVec3::ONE),
             );
             self.surface_builder
-                .remove_flora_buried_by_voxels(&result.deposited_voxels)?;
+                .remove_authored_flora_buried_by_voxels(&result.deposited_voxels)?;
             self.publish_visible_terrain(
                 VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
                     bound,

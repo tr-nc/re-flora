@@ -1,5 +1,7 @@
 # Soil preserves unburied plants
 
+Historical one-voxel burial fix. The grass deletion threshold and survival owner are now superseded by [grass terrain survival](grass-terrain-survival.md): one/two layers retain grass, three contiguous layers remove it; support loss removes it immediately. Authored plants retain exact immediate burial removal.
+
 ## Impact and cause
 
 A single Soil voxel could delete grass across its search halo. The opt-in native GPU replay started with 1,936 grass roots on a flat soil fixture: the old path removed 1,362 roots whose support and headroom had not changed. This is deletion, not delayed cache invalidation.

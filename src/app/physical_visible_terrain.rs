@@ -232,13 +232,13 @@ impl PhysicalTerrainPublication {
             .record("build_surface", surface_elapsed);
 
         if let PhysicalTerrainSurfaceMode::PreserveFlora(flora_edit) = self.mode {
-            builders.surface_builder.edit_flora_instances_for_brush(
+            // Explicit authored-plant clearing remains separate. Grass survival
+            // is checked against the atlas by the publication observer, not this brush.
+            builders.surface_builder.remove_authored_flora_for_brush(
                 chunk_id,
                 flora_edit.start,
                 flora_edit.end,
                 flora_edit.radius,
-                flora_edit.tick,
-                flora_edit.spawn_time_ms,
             )?;
         }
 

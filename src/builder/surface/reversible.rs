@@ -50,9 +50,9 @@ impl SurfaceBuilder {
             })
             .collect()
     }
-    /// Soil only buries roots directly below actual new solid voxels. Do not run
-    /// procedural placement/density selection again for already-established plants.
-    pub fn remove_flora_buried_by_voxels(&mut self, deposited: &[UVec3]) -> Result<()> {
+    /// Authored plants retain their immediate burial policy. Ordinary grass has
+    /// a separate support/three-layer burial stage in reconcile_grass_terrain.
+    pub fn remove_authored_flora_buried_by_voxels(&mut self, deposited: &[UVec3]) -> Result<()> {
         let mut roots_by_chunk: HashMap<UVec3, HashSet<UVec3>> = HashMap::new();
         for &voxel in deposited {
             if voxel.y > 0 {
@@ -67,7 +67,11 @@ impl SurfaceBuilder {
         for (chunk, buried) in roots_by_chunk {
             let mut live = self.read_flora_species(chunk)?;
             let index = self.get_chunk_resource_index(chunk)?;
-            for (species, instances) in live.iter_mut().enumerate() {
+            for (species, instances) in live
+                .iter_mut()
+                .enumerate()
+                .skip(species::MODEL_FLOWER_FIRST_SPECIES as usize)
+            {
                 let before = instances.len();
                 instances.retain(|instance| {
                     !buried.contains(
