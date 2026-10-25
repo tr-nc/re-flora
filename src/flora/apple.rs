@@ -2,8 +2,6 @@
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Appearance {
-    pub directional_lighting: bool,
-    pub light_bands: bool,
     pub color_patches: bool,
     pub color_stripes: bool,
     pub sun_gloss: bool,
@@ -13,8 +11,6 @@ pub struct Appearance {
 impl Default for Appearance {
     fn default() -> Self {
         Self {
-            directional_lighting: false,
-            light_bands: false,
             color_patches: false,
             color_stripes: false,
             sun_gloss: false,
@@ -25,9 +21,7 @@ impl Default for Appearance {
 
 impl Appearance {
     pub fn shader_flags(self) -> u32 {
-        u32::from(self.directional_lighting)
-            | (u32::from(self.directional_lighting && self.light_bands) << 1)
-            | (u32::from(self.color_patches) << 2)
+        (u32::from(self.color_patches) << 2)
             | (u32::from(self.color_stripes) << 3)
             | (u32::from(self.sun_gloss) << 4)
     }
@@ -68,30 +62,20 @@ mod tests {
     }
 
     #[test]
-    fn experiments_default_to_original_and_flags_match_shader_contract() {
+    fn peel_experiments_default_off_and_flags_match_shader_contract() {
         let mut appearance = Appearance::default();
         assert_eq!(appearance.shader_flags(), 0);
         assert_eq!(appearance.normalized_environment_fill(), 1.);
-        appearance.light_bands = true;
-        assert_eq!(
-            appearance.shader_flags(),
-            0,
-            "light bands require directional sunlight"
-        );
-        appearance.directional_lighting = true;
-        assert_eq!(appearance.shader_flags(), 3);
         appearance.color_patches = true;
         appearance.color_stripes = true;
         appearance.sun_gloss = true;
-        assert_eq!(appearance.shader_flags(), 31);
+        assert_eq!(appearance.shader_flags(), 28);
         appearance.environment_fill = f32::NAN;
         assert_eq!(appearance.normalized_environment_fill(), 1.);
         appearance.environment_fill = -1.;
         assert_eq!(appearance.normalized_environment_fill(), 0.);
         let shader = include_str!("../../shader/slang/apple_appearance.slang");
         for (name, value) in [
-            ("DIRECTIONAL_LIGHTING", 1),
-            ("LIGHT_BANDS", 2),
             ("COLOR_PATCHES", 4),
             ("COLOR_STRIPES", 8),
             ("SUN_GLOSS", 16),

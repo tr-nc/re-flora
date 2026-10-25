@@ -124,8 +124,6 @@ pub(super) fn freeze_render_frame_inputs(
         appearance: FloraAppearanceFrameInput {
             apple_size_scale: crate::flora::apple::normalize_size_scale(gui.apple_size_scale.value),
             apple_appearance: crate::flora::apple::Appearance {
-                directional_lighting: gui.apple_directional_lighting.value,
-                light_bands: gui.apple_light_bands.value,
                 color_patches: gui.apple_color_patches.value,
                 color_stripes: gui.apple_color_stripes.value,
                 sun_gloss: gui.apple_sun_gloss.value,
@@ -488,8 +486,6 @@ mod tests {
         gui.flower_stem_radius_scale.value = 0.8;
         gui.flower_stem_tip_radius_ratio.value = 0.35;
         gui.apple_size_scale.value = 0.7;
-        gui.apple_directional_lighting.value = true;
-        gui.apple_light_bands.value = true;
         gui.apple_color_patches.value = true;
         gui.apple_color_stripes.value = true;
         gui.apple_sun_gloss.value = true;
@@ -662,8 +658,6 @@ mod tests {
                 appearance: FloraAppearanceFrameInput {
                     apple_size_scale: 0.7,
                     apple_appearance: crate::flora::apple::Appearance {
-                        directional_lighting: true,
-                        light_bands: true,
                         color_patches: true,
                         color_stripes: true,
                         sun_gloss: true,

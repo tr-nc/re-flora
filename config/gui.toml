@@ -551,41 +551,15 @@ min = 0.25
 max = 2
 
 [[section.param]]
-id = "apple_directional_lighting"
-kind = "bool"
-label = "Apples: directional sunlight (A/B)"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
 id = "apple_environment_fill"
 kind = "float"
 label = "Apples: environment fill"
 type = "Float"
 
-[section.param.enabled_if]
-param = "apple_directional_lighting"
-equals = true
-
 [section.param.data]
 value = 1.5
 min = 0
 max = 1.5
-
-[[section.param]]
-id = "apple_light_bands"
-kind = "bool"
-label = "Apples: stepped sunlight bands (A/B)"
-type = "Bool"
-
-[section.param.enabled_if]
-param = "apple_directional_lighting"
-equals = true
-
-[section.param.data]
-value = true
 
 [[section.param]]
 id = "apple_color_patches"

@@ -81,6 +81,8 @@ impl GuiConfigLoader {
             section.param.retain(|param| {
                 param.id != "grass_natural_bend_min_voxels"
                     && param.id != "flora_bend_height_power"
+                    && param.id != "apple_directional_lighting"
+                    && param.id != "apple_light_bands"
                     && param.id != "sprinkler_wetting_patches"
                     && !matches!(
                         param.id.as_str(),
@@ -134,7 +136,7 @@ impl GuiConfigLoader {
             // Permanent paths keep saved tuning but no obsolete A/B dependency.
             if matches!(
                 param.id.as_str(),
-                "walk_ground_detail_height" | "sprinkler_wet_patch_size"
+                "walk_ground_detail_height" | "sprinkler_wet_patch_size" | "apple_environment_fill"
             ) {
                 param.enabled_if = None;
             }
@@ -267,9 +269,7 @@ impl GuiConfigLoader {
         Self::migrate_stem_rendering_controls(&mut config);
         for id in [
             "apple_size_scale",
-            "apple_directional_lighting",
             "apple_environment_fill",
-            "apple_light_bands",
             "apple_color_patches",
             "apple_color_stripes",
             "apple_sun_gloss",
@@ -2358,6 +2358,66 @@ mod tests {
             assert!(!std::fs::read_to_string(&path)
                 .unwrap()
                 .contains("stone_direct_triangles"));
+        }
+    }
+
+    #[test]
+    fn retired_apple_lighting_switches_preserve_fill_without_gating_or_rewriting() {
+        use crate::app::gui_config_model::{GuiParamEnabledIf, GuiParamValue};
+        for directional in [false, true] {
+            for bands in [false, true] {
+                let mut config: GuiConfigFile =
+                    toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+                let template = config
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .find(|p| p.id == "apple_color_patches")
+                    .unwrap()
+                    .clone();
+                for (id, value) in [
+                    ("apple_directional_lighting", directional),
+                    ("apple_light_bands", bands),
+                ] {
+                    let mut param = template.clone();
+                    param.id = id.into();
+                    param.value = GuiParamValue::Bool { value };
+                    config.section[0].param.push(param);
+                }
+                let fill = config
+                    .section
+                    .iter_mut()
+                    .flat_map(|s| &mut s.param)
+                    .find(|p| p.id == "apple_environment_fill")
+                    .unwrap();
+                fill.value = GuiParamValue::Float {
+                    value: 0.73,
+                    min: Some(0.0),
+                    max: Some(1.5),
+                };
+                fill.enabled_if = Some(GuiParamEnabledIf {
+                    param: "apple_directional_lighting".into(),
+                    equals: super::GuiParamConditionValue::Bool(true),
+                });
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("gui.toml");
+                GuiConfigLoader::save_to_path(&config, &path).unwrap();
+                let bytes = std::fs::read(&path).unwrap();
+                let loaded = GuiConfigLoader::load_from_path(&path);
+                assert_eq!(std::fs::read(&path).unwrap(), bytes);
+                let fill = loaded
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .find(|p| p.id == "apple_environment_fill")
+                    .unwrap();
+                assert_eq!(fill.value.get_float(), Some((0.73, Some(0.0), Some(1.5))));
+                assert!(fill.enabled_if.is_none());
+                GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+                let saved = std::fs::read_to_string(&path).unwrap();
+                assert!(!saved.contains("apple_directional_lighting"));
+                assert!(!saved.contains("apple_light_bands"));
+            }
         }
     }
 

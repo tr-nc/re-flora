@@ -117,12 +117,10 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Apple Appearance & Lighting",
-        description: "All five switches off restores the original appearance. Directional sunlight uses live surface normals and shadows: first compare it alone on plain red peel. Environment fill adjusts indirect light, not sun visibility; 1 is unchanged. Light bands require directional sunlight. Color patches and stripes are peel pigments fixed to the apple, not shadows. Sun highlights follow the light and camera. Works on attached/fallen apples with native triangles and pre-cache; size and physics are unchanged.",
+        description: "Apples use smooth directional sunlight with live surface normals and shadows. Environment fill adjusts indirect light, not sun visibility; 1 is unchanged. Color patches and stripes are peel pigments fixed to the apple, not shadows. Sun highlights follow the light and camera. Works on attached/fallen apples with native triangles and pre-cache; size and physics are unchanged.",
         initially_open: true,
         params: &[
-            "apple_directional_lighting",
             "apple_environment_fill",
-            "apple_light_bands",
             "apple_color_patches",
             "apple_color_stripes",
             "apple_sun_gloss",

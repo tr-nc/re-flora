@@ -254,21 +254,9 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "apple_directional_lighting",
-        kind: "bool",
-        label: "Apples: directional sunlight (A/B)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "apple_environment_fill",
         kind: "float",
         label: "Apples: environment fill",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
-        id: "apple_light_bands",
-        kind: "bool",
-        label: "Apples: stepped sunlight bands (A/B)",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -1836,9 +1824,7 @@ pub struct GuiAdjustables {
     pub flower_stem_tip_radius_ratio: crate::gui_adjustables::FloatParam,
     pub flower_stem_test_branches: crate::gui_adjustables::BoolParam,
     pub apple_size_scale: crate::gui_adjustables::FloatParam,
-    pub apple_directional_lighting: crate::gui_adjustables::BoolParam,
     pub apple_environment_fill: crate::gui_adjustables::FloatParam,
-    pub apple_light_bands: crate::gui_adjustables::BoolParam,
     pub apple_color_patches: crate::gui_adjustables::BoolParam,
     pub apple_color_stripes: crate::gui_adjustables::BoolParam,
     pub apple_sun_gloss: crate::gui_adjustables::BoolParam,
@@ -2144,9 +2130,7 @@ impl GuiAdjustables {
         let mut flower_stem_tip_radius_ratio_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flower_stem_test_branches_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_size_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut apple_directional_lighting_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_environment_fill_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut apple_light_bands_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_color_patches_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_color_stripes_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut apple_sun_gloss_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -2645,21 +2629,11 @@ impl GuiAdjustables {
                             apple_size_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "apple_directional_lighting" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            apple_directional_lighting_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
                     "apple_environment_fill" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             apple_environment_fill_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "apple_light_bands" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            apple_light_bands_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "apple_color_patches" => {
@@ -4394,9 +4368,7 @@ impl GuiAdjustables {
             flower_stem_tip_radius_ratio: flower_stem_tip_radius_ratio_field.expect("Missing parameter: flower_stem_tip_radius_ratio"),
             flower_stem_test_branches: flower_stem_test_branches_field.expect("Missing parameter: flower_stem_test_branches"),
             apple_size_scale: apple_size_scale_field.expect("Missing parameter: apple_size_scale"),
-            apple_directional_lighting: apple_directional_lighting_field.expect("Missing parameter: apple_directional_lighting"),
             apple_environment_fill: apple_environment_fill_field.expect("Missing parameter: apple_environment_fill"),
-            apple_light_bands: apple_light_bands_field.expect("Missing parameter: apple_light_bands"),
             apple_color_patches: apple_color_patches_field.expect("Missing parameter: apple_color_patches"),
             apple_color_stripes: apple_color_stripes_field.expect("Missing parameter: apple_color_stripes"),
             apple_sun_gloss: apple_sun_gloss_field.expect("Missing parameter: apple_sun_gloss"),
@@ -4942,8 +4914,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "grass_band_pose_reuse" => Some(&adjustables.grass_band_pose_reuse),
         "cpu_stem_band_rendering" => Some(&adjustables.cpu_stem_band_rendering),
         "flower_stem_test_branches" => Some(&adjustables.flower_stem_test_branches),
-        "apple_directional_lighting" => Some(&adjustables.apple_directional_lighting),
-        "apple_light_bands" => Some(&adjustables.apple_light_bands),
         "apple_color_patches" => Some(&adjustables.apple_color_patches),
         "apple_color_stripes" => Some(&adjustables.apple_color_stripes),
         "apple_sun_gloss" => Some(&adjustables.apple_sun_gloss),
@@ -5284,8 +5254,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "grass_band_pose_reuse" => Some(&mut adjustables.grass_band_pose_reuse),
         "cpu_stem_band_rendering" => Some(&mut adjustables.cpu_stem_band_rendering),
         "flower_stem_test_branches" => Some(&mut adjustables.flower_stem_test_branches),
-        "apple_directional_lighting" => Some(&mut adjustables.apple_directional_lighting),
-        "apple_light_bands" => Some(&mut adjustables.apple_light_bands),
         "apple_color_patches" => Some(&mut adjustables.apple_color_patches),
         "apple_color_stripes" => Some(&mut adjustables.apple_color_stripes),
         "apple_sun_gloss" => Some(&mut adjustables.apple_sun_gloss),

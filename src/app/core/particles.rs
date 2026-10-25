@@ -747,21 +747,17 @@ impl App {
         }
         if let Ok(request) = std::env::var("RE_FLORA_APPLE_APPEARANCE_REVIEW") {
             let stage = match request.as_str() {
-                "sweep" => (frame / 30) % 7,
-                "baseline" => 0,
-                "lighting" => 1,
-                "bands" => 2,
-                "patches" => 3,
-                "stripes" => 4,
-                "gloss" => 5,
-                "all" => 6,
-                _ => panic!("apple appearance review: use sweep, baseline, lighting, bands, patches, stripes, gloss or all"),
+                "sweep" => (frame / 30) % 5,
+                "baseline" | "lighting" | "bands" => 0, // Retired modes use smooth sunlight.
+                "patches" => 1,
+                "stripes" => 2,
+                "gloss" => 3,
+                "all" => 4,
+                _ => panic!("apple appearance review: use sweep, baseline, lighting, patches, stripes, gloss or all"),
             };
-            settings.apple_directional_lighting.value = matches!(stage, 1 | 2 | 5 | 6);
-            settings.apple_light_bands.value = matches!(stage, 2 | 6);
-            settings.apple_color_patches.value = matches!(stage, 3 | 6);
-            settings.apple_color_stripes.value = matches!(stage, 4 | 6);
-            settings.apple_sun_gloss.value = matches!(stage, 5 | 6);
+            settings.apple_color_patches.value = matches!(stage, 1 | 4);
+            settings.apple_color_stripes.value = matches!(stage, 2 | 4);
+            settings.apple_sun_gloss.value = matches!(stage, 3 | 4);
             settings.apple_environment_fill.value = 1.0;
             settings.apple_pixel_resolution.value = 32;
             if request == "sweep" {
