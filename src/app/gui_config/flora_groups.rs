@@ -21,6 +21,10 @@ const GROUND_MOTION: &[&str] = &[
     "grass_vibration_secondary_speed",
 ];
 const GRASS_COLORS: &[&str] = &[
+    "grass_color_patch_scale",
+    "grass_color_light_bias",
+    "grass_color_contrast",
+    "grass_color_seed",
     "grass_bottom_dark_color",
     "grass_bottom_light_color",
     "grass_tip_dark_color",

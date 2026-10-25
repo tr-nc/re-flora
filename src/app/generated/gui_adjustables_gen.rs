@@ -1178,6 +1178,30 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Flora",
+        id: "grass_color_patch_scale",
+        kind: "float",
+        label: "Grass Color Patch Size (multiplier)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "grass_color_light_bias",
+        kind: "float",
+        label: "Grass Color Light Bias (-1 Dark / +1 Light)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "grass_color_contrast",
+        kind: "float",
+        label: "Grass Color Transition Contrast",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
+        id: "grass_color_seed",
+        kind: "uint",
+        label: "Grass Color Distribution Seed",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Flora",
         id: "grass_bottom_dark_color",
         kind: "color",
         label: "Bottom Dark",
@@ -1966,6 +1990,10 @@ pub struct GuiAdjustables {
     pub leaf_paddle_frequency_wind_knee_bias: crate::gui_adjustables::FloatParam,
     pub leaf_paddle_frequency_min_multiplier: crate::gui_adjustables::FloatParam,
     pub leaf_paddle_frequency_max_multiplier: crate::gui_adjustables::FloatParam,
+    pub grass_color_patch_scale: crate::gui_adjustables::FloatParam,
+    pub grass_color_light_bias: crate::gui_adjustables::FloatParam,
+    pub grass_color_contrast: crate::gui_adjustables::FloatParam,
+    pub grass_color_seed: crate::gui_adjustables::UintParam,
     pub grass_bottom_dark_color: crate::gui_adjustables::ColorParam,
     pub grass_bottom_light_color: crate::gui_adjustables::ColorParam,
     pub grass_tip_dark_color: crate::gui_adjustables::ColorParam,
@@ -2270,6 +2298,10 @@ impl GuiAdjustables {
         let mut leaf_paddle_frequency_wind_knee_bias_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_paddle_frequency_min_multiplier_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut leaf_paddle_frequency_max_multiplier_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_color_patch_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_color_light_bias_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_color_contrast_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_color_seed_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut grass_bottom_dark_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut grass_bottom_light_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut grass_tip_dark_color_field: Option<crate::gui_adjustables::ColorParam> = None;
@@ -3635,6 +3667,34 @@ impl GuiAdjustables {
                             leaf_paddle_frequency_max_multiplier_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "grass_color_patch_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_color_patch_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_color_light_bias" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_color_light_bias_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_color_contrast" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_color_contrast_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_color_seed" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            grass_color_seed_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
                     "grass_bottom_dark_color" => {
                         if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
                             grass_bottom_dark_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
@@ -4488,6 +4548,10 @@ impl GuiAdjustables {
             leaf_paddle_frequency_wind_knee_bias: leaf_paddle_frequency_wind_knee_bias_field.expect("Missing parameter: leaf_paddle_frequency_wind_knee_bias"),
             leaf_paddle_frequency_min_multiplier: leaf_paddle_frequency_min_multiplier_field.expect("Missing parameter: leaf_paddle_frequency_min_multiplier"),
             leaf_paddle_frequency_max_multiplier: leaf_paddle_frequency_max_multiplier_field.expect("Missing parameter: leaf_paddle_frequency_max_multiplier"),
+            grass_color_patch_scale: grass_color_patch_scale_field.expect("Missing parameter: grass_color_patch_scale"),
+            grass_color_light_bias: grass_color_light_bias_field.expect("Missing parameter: grass_color_light_bias"),
+            grass_color_contrast: grass_color_contrast_field.expect("Missing parameter: grass_color_contrast"),
+            grass_color_seed: grass_color_seed_field.expect("Missing parameter: grass_color_seed"),
             grass_bottom_dark_color: grass_bottom_dark_color_field.expect("Missing parameter: grass_bottom_dark_color"),
             grass_bottom_light_color: grass_bottom_light_color_field.expect("Missing parameter: grass_bottom_light_color"),
             grass_tip_dark_color: grass_tip_dark_color_field.expect("Missing parameter: grass_tip_dark_color"),
@@ -4724,6 +4788,9 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "leaf_paddle_frequency_wind_knee_bias" => Some(&adjustables.leaf_paddle_frequency_wind_knee_bias),
         "leaf_paddle_frequency_min_multiplier" => Some(&adjustables.leaf_paddle_frequency_min_multiplier),
         "leaf_paddle_frequency_max_multiplier" => Some(&adjustables.leaf_paddle_frequency_max_multiplier),
+        "grass_color_patch_scale" => Some(&adjustables.grass_color_patch_scale),
+        "grass_color_light_bias" => Some(&adjustables.grass_color_light_bias),
+        "grass_color_contrast" => Some(&adjustables.grass_color_contrast),
         "water_substep_hz" => Some(&adjustables.water_substep_hz),
         "water_world_tick_multiplier" => Some(&adjustables.water_world_tick_multiplier),
         "water_particle_edge_len" => Some(&adjustables.water_particle_edge_len),
@@ -4834,6 +4901,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "god_ray_max_checks" => Some(&adjustables.god_ray_max_checks),
         "model_flower_pixel_resolution" => Some(&adjustables.model_flower_pixel_resolution),
         "special_flora_plants_per_release" => Some(&adjustables.special_flora_plants_per_release),
+        "grass_color_seed" => Some(&adjustables.grass_color_seed),
         "butterfly_pixel_resolution" => Some(&adjustables.butterfly_pixel_resolution),
         "butterfly_animation_fps" => Some(&adjustables.butterfly_animation_fps),
         "soil_deposition_batch_size" => Some(&adjustables.soil_deposition_batch_size),
@@ -5062,6 +5130,9 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "leaf_paddle_frequency_wind_knee_bias" => Some(&mut adjustables.leaf_paddle_frequency_wind_knee_bias),
         "leaf_paddle_frequency_min_multiplier" => Some(&mut adjustables.leaf_paddle_frequency_min_multiplier),
         "leaf_paddle_frequency_max_multiplier" => Some(&mut adjustables.leaf_paddle_frequency_max_multiplier),
+        "grass_color_patch_scale" => Some(&mut adjustables.grass_color_patch_scale),
+        "grass_color_light_bias" => Some(&mut adjustables.grass_color_light_bias),
+        "grass_color_contrast" => Some(&mut adjustables.grass_color_contrast),
         "water_substep_hz" => Some(&mut adjustables.water_substep_hz),
         "water_world_tick_multiplier" => Some(&mut adjustables.water_world_tick_multiplier),
         "water_particle_edge_len" => Some(&mut adjustables.water_particle_edge_len),
@@ -5172,6 +5243,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "god_ray_max_checks" => Some(&mut adjustables.god_ray_max_checks),
         "model_flower_pixel_resolution" => Some(&mut adjustables.model_flower_pixel_resolution),
         "special_flora_plants_per_release" => Some(&mut adjustables.special_flora_plants_per_release),
+        "grass_color_seed" => Some(&mut adjustables.grass_color_seed),
         "butterfly_pixel_resolution" => Some(&mut adjustables.butterfly_pixel_resolution),
         "butterfly_animation_fps" => Some(&mut adjustables.butterfly_animation_fps),
         "soil_deposition_batch_size" => Some(&mut adjustables.soil_deposition_batch_size),

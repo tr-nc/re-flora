@@ -2261,6 +2261,50 @@ min = 0
 max = 3
 
 [[section.param]]
+id = "grass_color_patch_scale"
+kind = "float"
+label = "Grass Color Patch Size (multiplier)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.1
+max = 8
+
+[[section.param]]
+id = "grass_color_light_bias"
+kind = "float"
+label = "Grass Color Light Bias (-1 Dark / +1 Light)"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = -1
+max = 1
+
+[[section.param]]
+id = "grass_color_contrast"
+kind = "float"
+label = "Grass Color Transition Contrast"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0
+max = 10
+
+[[section.param]]
+id = "grass_color_seed"
+kind = "uint"
+label = "Grass Color Distribution Seed"
+type = "Uint"
+
+[section.param.data]
+value = 9041
+min = 0
+max = 65535
+
+[[section.param]]
 id = "grass_bottom_dark_color"
 kind = "color"
 label = "Bottom Dark"

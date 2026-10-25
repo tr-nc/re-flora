@@ -2362,6 +2362,47 @@ mod tests {
     }
 
     #[test]
+    fn old_saves_gain_grass_color_distribution_defaults_without_rewriting() {
+        let ids = [
+            "grass_color_patch_scale",
+            "grass_color_light_bias",
+            "grass_color_contrast",
+            "grass_color_seed",
+        ];
+        let defaults: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let mut old = defaults.clone();
+        for section in &mut old.section {
+            section.param.retain(|p| !ids.contains(&p.id.as_str()));
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        GuiConfigLoader::save_to_path(&old, &path).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let loaded = GuiConfigLoader::load_from_path(&path);
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        for id in ids {
+            let expected = defaults
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == id)
+                .unwrap();
+            let actual: Vec<_> = loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .filter(|p| p.id == id)
+                .collect();
+            assert_eq!(actual.len(), 1);
+            assert_eq!(
+                toml::to_string(&actual[0].value).unwrap(),
+                toml::to_string(&expected.value).unwrap()
+            );
+        }
+    }
+
+    #[test]
     fn retired_bend_height_power_is_ignored_and_not_saved() {
         for value in [0.25, 1.0, 1.55, 5.0] {
             let mut config: GuiConfigFile =

@@ -390,7 +390,9 @@ public float3 sampleFloraBaseColor(bool isGrass, uint instanceType, uint seed,
     if (isGrass)
     {
         float bandValue = sampleGrassBandInterpolation(
-            float2(float(instancePositionVoxels.x), float(instancePositionVoxels.z)));
+            float2(float(instancePositionVoxels.x), float(instancePositionVoxels.z)),
+            gui_input.grass_color_patch_scale, gui_input.grass_color_light_bias,
+            gui_input.grass_color_contrast, gui_input.grass_color_seed);
         float3 lightHeightColor =
             unpackLinearRgb10(pc.height_light_color_rgb10[colorRow]);
         return lerp(darkHeightColor, lightHeightColor, bandValue);

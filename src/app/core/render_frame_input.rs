@@ -152,6 +152,10 @@ pub(super) fn freeze_render_frame_inputs(
             grass_bottom_light: color_to_vec3(gui.grass_bottom_light_color.value),
             grass_tip_dark: color_to_vec3(gui.grass_tip_dark_color.value),
             grass_tip_light: color_to_vec3(gui.grass_tip_light_color.value),
+            grass_color_patch_scale: gui.grass_color_patch_scale.value,
+            grass_color_light_bias: gui.grass_color_light_bias.value,
+            grass_color_contrast: gui.grass_color_contrast.value,
+            grass_color_seed: gui.grass_color_seed.value,
         },
         motion: FloraMotionFrameInput {
             leaf_flutter_frequency: [
@@ -529,6 +533,10 @@ mod tests {
         let grass_bottom_light = color!(grass_bottom_light_color);
         let grass_tip_dark = color!(grass_tip_dark_color);
         let grass_tip_light = color!(grass_tip_light_color);
+        let grass_color_patch_scale = float!(grass_color_patch_scale);
+        let grass_color_light_bias = float!(grass_color_light_bias);
+        let grass_color_contrast = float!(grass_color_contrast);
+        let grass_color_seed = uint!(grass_color_seed);
         let grass_vibration_amplitude_voxels = float!(grass_vibration_amplitude_voxels);
         let grass_vibration_primary_speed = float!(grass_vibration_primary_speed);
         let grass_vibration_secondary_speed = float!(grass_vibration_secondary_speed);
@@ -692,6 +700,10 @@ mod tests {
                     grass_bottom_light,
                     grass_tip_dark,
                     grass_tip_light,
+                    grass_color_patch_scale,
+                    grass_color_light_bias,
+                    grass_color_contrast,
+                    grass_color_seed,
                 },
                 motion: FloraMotionFrameInput {
                     leaf_flutter_frequency: [

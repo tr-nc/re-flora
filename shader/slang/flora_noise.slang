@@ -68,21 +68,27 @@ public float3 applyHsvOffset(float3 linearRgb, float3 hsvOffset)
     return hsvToRgb(hsv);
 }
 
-public float sampleGrassBandInterpolation(float2 worldXz)
+// Scale changes patch size, bias shifts the mix, contrast sharpens transitions.
+// Defaults (1, 0, 1, 9041) preserve the original world-anchored distribution.
+public float sampleGrassBandInterpolation(float2 worldXz, float patchScale,
+                                         float lightBias, float contrast, uint seed)
 {
     float sum = 0.0;
     float amplitude = 1.0;
     float amplitudeSum = 0.0;
-    float frequency = 0.008;
+    float frequency = 0.008 / max(patchScale, 0.001);
     for (int octave = 0; octave < 3; ++octave)
     {
         sum += seededClassicGradientNoise2D(
-                   worldXz * frequency, 9041u + uint(octave) * 1000u) *
+                   worldXz * frequency, seed + uint(octave) * 1000u) *
                amplitude;
         amplitudeSum += amplitude;
         frequency *= 2.0;
         amplitude *= 0.5;
     }
     float noise = sum / amplitudeSum;
-    return clamp(noise * 0.5 + 0.5, 0.0, 1.0);
+    float centered = noise * 0.5 * max(contrast, 0.0);
+    // Bias endpoints select an entire palette, regardless of contrast.
+    return clamp(centered * (1.0 - abs(clamp(lightBias, -1.0, 1.0))) +
+                 0.5 + lightBias * 0.5, 0.0, 1.0);
 }
