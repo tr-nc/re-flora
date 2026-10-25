@@ -37,6 +37,7 @@ mod material_supply;
 mod model_cache_review;
 mod model_view_review;
 mod mower;
+mod night_garden;
 mod ordered_dither_review;
 mod rooftop_scene;
 mod scene_supersampling;
@@ -452,6 +453,7 @@ pub struct App {
 
     tracer: Tracer,
     local_lights: LocalLightRegistry,
+    night_garden: night_garden::NightGarden,
     raster_entity_emitters: crate::lighting::RasterEntityEmitterProvider,
     emissive_voxel_lighting: Option<emissive_voxel_lighting::EmissiveVoxelLightingRuntime>,
 
@@ -1565,6 +1567,7 @@ impl App {
 
             tracer,
             local_lights: LocalLightRegistry::default(),
+            night_garden: night_garden::NightGarden::default(),
             raster_entity_emitters: crate::lighting::RasterEntityEmitterProvider::default(),
             emissive_voxel_lighting,
 
@@ -3330,6 +3333,8 @@ impl App {
                     self.debug_settings.adjustables.season.value,
                 );
                 let sun_dir = get_sun_dir(sun_altitude.asin().to_degrees(), sun_azimuth * 360.0);
+                self.update_night_flower_lights(sun_dir.y)
+                    .expect("night flower lights");
 
                 if !self.sprinklers.is_empty() {
                     let sprinkler_moisture_gpu_scope =
