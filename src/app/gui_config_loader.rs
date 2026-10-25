@@ -80,6 +80,7 @@ impl GuiConfigLoader {
         for section in &mut config.section {
             section.param.retain(|param| {
                 param.id != "grass_natural_bend_min_voxels"
+                    && param.id != "flora_bend_height_power"
                     && param.id != "sprinkler_wetting_patches"
                     && !matches!(
                         param.id.as_str(),
@@ -2357,6 +2358,43 @@ mod tests {
             assert!(!std::fs::read_to_string(&path)
                 .unwrap()
                 .contains("stone_direct_triangles"));
+        }
+    }
+
+    #[test]
+    fn retired_bend_height_power_is_ignored_and_not_saved() {
+        for value in [0.25, 1.0, 1.55, 5.0] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let mut param = config
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == "grass_natural_bend_max_voxels")
+                .unwrap()
+                .clone();
+            param.id = "flora_bend_height_power".into();
+            param.value = super::GuiParamValue::Float {
+                value,
+                min: Some(0.25),
+                max: Some(5.0),
+            };
+            config.section[0].param.push(param);
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&config, &path).unwrap();
+            let bytes = std::fs::read(&path).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert!(!loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .any(|p| p.id == "flora_bend_height_power"));
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            assert!(!std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("flora_bend_height_power"));
         }
     }
 

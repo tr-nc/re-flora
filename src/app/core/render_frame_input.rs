@@ -205,7 +205,6 @@ pub(super) fn freeze_render_frame_inputs(
             grass_vibration_primary_speed: gui.grass_vibration_primary_speed.value,
             grass_vibration_secondary_speed: gui.grass_vibration_secondary_speed.value,
             grass_natural_bend_max_voxels: gui.grass_natural_bend_max_voxels.value,
-            bend_height_power: gui.flora_bend_height_power.value,
             leaf_paddle_amplitude_voxels: gui.leaf_paddle_amplitude_voxels.value,
             leaf_paddle_primary_speed: gui.leaf_paddle_primary_speed.value,
             leaf_paddle_secondary_speed: gui.leaf_paddle_secondary_speed.value,
@@ -534,7 +533,6 @@ mod tests {
         let grass_vibration_primary_speed = float!(grass_vibration_primary_speed);
         let grass_vibration_secondary_speed = float!(grass_vibration_secondary_speed);
         let grass_natural_bend_max_voxels = float!(grass_natural_bend_max_voxels);
-        let flora_bend_height_power = float!(flora_bend_height_power);
         let leaf_paddle_amplitude_voxels = float!(leaf_paddle_amplitude_voxels);
         let leaf_paddle_primary_speed = float!(leaf_paddle_primary_speed);
         let leaf_paddle_secondary_speed = float!(leaf_paddle_secondary_speed);
@@ -754,7 +752,6 @@ mod tests {
                     grass_vibration_primary_speed,
                     grass_vibration_secondary_speed,
                     grass_natural_bend_max_voxels,
-                    bend_height_power: flora_bend_height_power,
                     leaf_paddle_amplitude_voxels,
                     leaf_paddle_primary_speed,
                     leaf_paddle_secondary_speed,

@@ -252,8 +252,7 @@ public PreparedFloraVertex prepareFloraVertex(
     float grassRootedHeight = float(voxelLocalPosition.y) /
                               max(float(grassHeightVoxels) - 1.0, 1.0);
     float bendHeight = result.is_grass ? grassRootedHeight : windGradient;
-    float bendWeight = pow(clamp(bendHeight, 0.0, 1.0),
-                           max(gui_input.flora_bend_height_power, 0.05));
+    float bendWeight = clamp(bendHeight, 0.0, 1.0);
     float windBendWeight = isSurfaceFlora
         ? bendWeight
         : ((useResponse && instanceType == FLORA_SPECIES_TREE_LEAF)

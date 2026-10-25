@@ -19,10 +19,9 @@ public float floraSmootherstep(float value)
            (value * (value * 6.0 - 15.0) + 10.0);
 }
 
-float floraBendHeightFactor(U_GuiInput gui, float heightFraction)
+float floraBendHeightFactor(float heightFraction)
 {
-    return pow(clamp(heightFraction, 0.0, 1.0),
-               max(gui.flora_bend_height_power, 0.05));
+    return clamp(heightFraction, 0.0, 1.0);
 }
 
 float floraWindPlanarStrength(float3 wind)
@@ -121,7 +120,7 @@ public float3 floraNaturalRestBend(U_GuiInput gui, uint seed,
     float tipBendVoxels = bendMaximum * amountJitter;
 
     float bladeHeight = max(floraHeightVoxels, 1.0);
-    float bendValue = floraBendHeightFactor(gui, clamp(heightFraction, 0.0, 1.0));
+    float bendValue = floraBendHeightFactor(heightFraction);
     float bendCenterY = bendValue * bladeHeight;
     float bendAngle = clamp(2.0 * tipBendVoxels / bladeHeight, 0.0,
                             FLORA_NATURAL_BEND_MAX_ANGLE);
@@ -142,7 +141,7 @@ public float3 floraWindVibration(U_GuiInput gui, float3 wind, float windGradient
 
     float2 windDirection = floraWindPlanarDirection(wind);
     float3 crossWindDirection = float3(-windDirection.y, 0.0, windDirection.x);
-    float tipWeight = floraBendHeightFactor(gui, windGradient);
+    float tipWeight = floraBendHeightFactor(windGradient);
     float phase = floraWindPhase(seed, voxelLocalPosition, 0xB5297A4Du);
     float heightPhase = float(voxelLocalPosition.y) * 1.35;
     float vibration = sin(time * gui.grass_vibration_primary_speed + phase + heightPhase);

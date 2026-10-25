@@ -358,7 +358,6 @@ impl BufferUpdater {
             grass_vibration_primary_speed: motion.grass_vibration_primary_speed,
             grass_vibration_secondary_speed: motion.grass_vibration_secondary_speed,
             grass_natural_bend_max_voxels: motion.grass_natural_bend_max_voxels,
-            flora_bend_height_power: motion.bend_height_power,
             // Either endpoint can drive flutter (including a falling curve).
             leaf_flutter_strength: motion.response_controls[3].max(motion.leaf_flutter_curve[3]),
             leaf_global_offset_scale: motion.leaf_global_offset_scale,

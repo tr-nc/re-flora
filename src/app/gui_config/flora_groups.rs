@@ -16,7 +16,6 @@ const DISTRIBUTION: &[&str] = &[
 ];
 const GROUND_MOTION: &[&str] = &[
     "grass_natural_bend_max_voxels",
-    "flora_bend_height_power",
     "grass_vibration_amplitude_voxels",
     "grass_vibration_primary_speed",
     "grass_vibration_secondary_speed",
@@ -246,7 +245,6 @@ pub(super) fn render_wind(
         egui::CollapsingHeader::new("Grass")
             .default_open(true)
             .show(ui, |ui| {
-                controls(ui, flora, &GROUND_MOTION[1..2], adjustables);
                 if let Some(grass) = config.iter().find(|s| s.name == "Grass Wind Response") {
                     for (title, scale, kind) in [
                         (
@@ -267,7 +265,7 @@ pub(super) fn render_wind(
                 }
                 if !adjustables.flora_inertial_response.value {
                     ui_text::section(ui, "Direct grass vibration (inertia off)");
-                    controls(ui, flora, &GROUND_MOTION[2..], adjustables);
+                    controls(ui, flora, &GROUND_MOTION[1..], adjustables);
                 }
             });
         egui::CollapsingHeader::new("Leaves")

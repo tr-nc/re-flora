@@ -1423,7 +1423,6 @@ pub struct FloraMotionFrameInput {
     pub grass_vibration_primary_speed: f32,
     pub grass_vibration_secondary_speed: f32,
     pub grass_natural_bend_max_voxels: f32,
-    pub bend_height_power: f32,
     pub leaf_paddle_amplitude_voxels: f32,
     pub leaf_paddle_primary_speed: f32,
     pub leaf_paddle_secondary_speed: f32,

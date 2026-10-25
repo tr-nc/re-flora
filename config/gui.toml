@@ -2107,17 +2107,6 @@ min = 0
 max = 4
 
 [[section.param]]
-id = "flora_bend_height_power"
-kind = "float"
-label = "Flora Bend Height Power"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = 0.25
-max = 5
-
-[[section.param]]
 id = "grass_vibration_amplitude_voxels"
 kind = "float"
 label = "Flora Vibration Amplitude (voxels)"
