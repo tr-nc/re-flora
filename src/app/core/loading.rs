@@ -459,6 +459,8 @@ impl App {
             self.validate_material_supply()
                 .unwrap_or_else(|err| panic!("[MATERIAL_SUPPLY] validation failed: {err:#}"));
         }
+        self.seed_garden_plant_review()
+            .expect("garden plant review");
         if let Ok(mode) = std::env::var("RE_FLORA_NIGHT_REVIEW") {
             self.set_manual_time_of_day(0.08);
             if mode == "moon" {

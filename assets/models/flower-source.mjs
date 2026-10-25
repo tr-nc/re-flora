@@ -14,6 +14,7 @@ export const flowerShapes={
   coneflower:{petalCount:12,petalWidth:.14,petalShoulder:.38,petalLength:1.1,tipSharpness:.4,opening:-.57,petalCup:.065,petalArch:.11,tipCurl:-.13,poseVariation:.085,centerRadius:.30,centerHeight:.55,centerShape:'cone'},
   // Upright overlapping spoons wrap around the cup; tips open slightly out.
   tulip:{petalCount:6,petalWidth:.49,petalShoulder:.67,petalLength:1.08,tipSharpness:0,opening:.98,petalCup:.14,petalArch:.06,tipCurl:-.08,poseVariation:.04,centerRadius:.15,centerHeight:.06},
+  sunflower:{flowerSize:1.3,petalCount:20,petalWidth:.16,petalLength:.85,petalShoulder:.56,tipSharpness:.65,opening:.08,petalCup:.045,petalArch:.1,tipCurl:-.10,poseVariation:.035,centerRadius:.35,centerHeight:.19},
 };
 const entry=(id,displayName,stemLayers,label,latin,tilt,palette)=>({id,displayName,stemLayers,label,latin,
   cacheFamily:id,defaults:{...flowerShapeDefaults,...flowerShapes[id],tilt,
@@ -27,6 +28,7 @@ export const flowerCatalog=[
   entry('cosmos','Cosmos',42,'波斯菊','Cosmos bipinnatus',44,['#b94880','#e4a0c0','#e9be4c','#52734a']),
   entry('coneflower','Coneflower',43,'紫松果菊','Echinacea purpurea',55,['#b36c98','#d18bb4','#b77c3c','#52734a']),
   entry('tulip','Tulip',37,'郁金香','Tulipa',70,['#f3c38e','#e8a075','#755048','#52734a']),
+  entry('sunflower','Sunflower',68,'向日葵','Helianthus annuus',70,['#d99922','#ffdc52','#664323','#4f7135']),
 ];
 export function flowerGeometry(id,settings={}){
   const spec=flowerCatalog.find(spec=>spec.id===id);

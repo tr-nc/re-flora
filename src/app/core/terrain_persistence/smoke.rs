@@ -3,6 +3,37 @@ use super::*;
 use crate::app::world_edits::{TerrainBrushEdit, TreeAddOptions, TreePlacement};
 
 impl App {
+    pub(in crate::app::core) fn seed_garden_plant_review(&mut self) -> Result<()> {
+        let Ok(key) = std::env::var("RE_FLORA_GARDEN_PLANT_REVIEW") else {
+            return Ok(());
+        };
+        let model = crate::flora::models::FLOWER_REGISTRY
+            .iter()
+            .position(|(id, _, _)| *id == key)
+            .context("unknown garden plant review species")?;
+        let previous = self.player_tools.planting.flora_index;
+        self.player_tools.planting.flora_index = model + 1;
+        self.debug_settings
+            .adjustables
+            .flora_growth_override_enabled
+            .value = true;
+        self.debug_settings.adjustables.flora_growth_override.value = 1.0;
+        let xz = Vec2::new(0.82, 1.22);
+        let center = Vec3::new(xz.x, self.query_terrain_height_cpu(xz), xz.y);
+        self.apply_surface_flora_regeneration(
+            TerrainBrushEdit {
+                start: center,
+                end: center,
+                radius: 0.035,
+            },
+            918,
+            true,
+        )?;
+        self.player_tools.planting.flora_index = previous;
+        log::info!("[GARDEN_PLANT_REVIEW] species={key} center={center:?} saved=false");
+        Ok(())
+    }
+
     pub(in crate::app::core) fn seed_grass_soil_cover_review(&mut self) -> Result<()> {
         if std::env::var("RE_FLORA_GRASS_SOIL_COVER_REVIEW").as_deref() != Ok("visual") {
             return Ok(());

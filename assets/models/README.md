@@ -1,7 +1,7 @@
 # Shared model assets
 
 This directory is the **one published model/animation source** for models shared by the game and preview.
-Flowers now share `parametric-flower.mjs`, `palette-mask.mjs` and the six presets in `flower-source.mjs`
+Flowers now share `parametric-flower.mjs`, `palette-mask.mjs` and the seven presets in `flower-source.mjs`
 between the game and web. Extra flower studies and bee/bird models remain web-only; they are not
 parallel game implementations or automatically published assets.
 `butterfly.glb` is read directly by Three.js `GLTFLoader` and embedded/read by
@@ -32,9 +32,26 @@ or local animation. Butterfly flight coupling still owns world attitude and supp
 root bob to avoid double world displacement. Its stroke integrals are now derived from the same GLB
 rotation channel. Browser lights are not a substitute for in-game environment lighting.
 
+## Sunflower addition (2026-10-26)
+
+`sunflower` is appended after all existing stable species IDs. It uses the same
+original parametric head generator, not an imported image/model: 20 pointed gold
+rays, a broad brown seed disk, 68 stem layers, 70-degree head tilt, palette
+`#d99922 / #ffdc52 / #664323 / #4f7135`. The exact repeatable shape parameters are
+in `flower-source.mjs`; `node scripts/publish-flower-models.mjs` regenerates the
+mesh and embedded resolved RGB texture together. No AI provider, external texture
+or reference image was used. Existing bundle/source licensing is unchanged.
+
+Native species registry, Grow selection, model cache and snapshot migration derive
+from the published catalog. Flora tests and all nine snapshot tests pass; a hidden
+Release production planting fixture was inspected in `target/garden-sunflower.png`.
+Use `RE_FLORA_GARDEN_PLANT_REVIEW=sunflower` with `--screenshot garden-arrival` to
+reproduce the unsaved fixture. It is a stylized single-whorl sunflower, not a
+botanical seed/floret simulation.
+
 ## Publish the flower bank
 
-The six published flowers are data presets in `flower-source.mjs` (Corn Poppy and Bellflower remain retired).
+The seven published flowers are data presets in `flower-source.mjs` (Corn Poppy and Bellflower remain retired).
 Both the native publisher and web studio call the one `parametric-flower.mjs` generator; it also
 publishes the head's `socket_normal` for the analytic stem's closed attachment-plane cut. Source
 hits and world-direction texel display points must remain on the inward side, rather than relying
@@ -61,7 +78,7 @@ hand-edit the atlas/mesh JSON; change the shared preset/generator and republish.
 
 To add a flower, give its recipe an `id`, `displayName` and `stemLayers`, publish the bank, and update `FLORA_SPECIES_COUNT` in `shader/slang/flora_types.slang`. To retire one, delete its recipe, add its stable key to `RETIRED` in `src/builder/surface/snapshot.rs`, publish, and update that same shader count. `build.rs` derives the Rust registry and count; Grow choices, stem assembly and cache shape counts follow automatically. A flower within the current single-whorl radial family is a preset operation; unsupported layered/fused/bilateral structures are explicitly accepted limitations, not a reason to add species-specific geometry. A future topology extension needs separate design and visual review. Validate historical save schemas and shader-generated layouts with `cargo check`, tests and a hidden Release run. Older research/evidence captures may still mention retired flowers; they are not live assets.
 
-All six are plantable from **item slot 2 / Grow → the right-side Plant Brush panel**. For visual debugging, **Debug Panel → Terrain & Plants → Plant all flowers & grasses around me** places the six model flowers, Tall Grass and Short Grass in separate positions around the walking player's feet (or the edit-camera focus). It excludes the session-only climbing vine. The one-shot action changes terrain flora and persists only when the terrain snapshot is saved.
+All seven are plantable from **item slot 2 / Grow → the right-side Plant Brush panel**. For visual debugging, **Debug Panel → Terrain & Plants → Plant all flowers & grasses around me** places the six model flowers, Tall Grass and Short Grass in separate positions around the walking player's feet (or the edit-camera focus). It excludes the session-only climbing vine. The one-shot action changes terrain flora and persists only when the terrain snapshot is saved.
 The list scrolls on short windows; the status-only backpack is hidden while Grow is active
 so it cannot cover plant choices. Existing species
 keys and identities are preserved when loading older gardens; model flowers occupy 4–9. **Debug → Pixel Models — Global** owns the flower pixel resolution and static view count, while **Debug → Flora → Ground Plants → Model Flowers** retains head scale, stem height and overall size controls. The former height slider is now **Stem Height Multiplier Mean**
