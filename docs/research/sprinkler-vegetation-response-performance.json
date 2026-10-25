@@ -1,0 +1,172 @@
+{
+  "source_commit": "377f75cf",
+  "hardware": "NVIDIA GeForce RTX 3060 Ti",
+  "build": "Release, no Vulkan validation layers",
+  "command": "RUST_LOG=info RE_FLORA_SPRINKLER_REVIEW=<mode> RE_FLORA_VEGETATION_WATER_AB=<0|1> cargo run --release -- --flat-terrain --hidden --mute --auto-exit 14 --perf",
+  "units": "microseconds; GPU timestamp scope samples, not all frames",
+  "limitations": [
+    "Initial sequential paired runs, not performance acceptance or calibrated visual equivalence",
+    "Before final attached-fruit pivot correction 1d5bee2a; final revision was rebuilt and runtime-validated, not rebenchmarked",
+    "Small overlap sample count; no CPU percentile, peak VRAM, or remap-spike acceptance",
+    "Review fixtures include periodic explicit diagnostic readback, which can perturb timings; these are not production-only acceptance runs",
+    "Other render scopes can change as plants move; total frame delta is not all water-solver work"
+  ],
+  "results": [
+    {
+      "mode": "rotary-tall",
+      "enabled": false,
+      "records": 72,
+      "measured": 67,
+      "frame.render": {
+        "median_us": 4231,
+        "p95_us": 5271
+      },
+      "sprinkler_spray.prepare": {
+        "median_us": 649,
+        "p95_us": 745
+      },
+      "vegetation_water.pass": {
+        "median_us": 1,
+        "p95_us": 1
+      },
+      "graphics.flora_lighting_cache": {
+        "median_us": 1,
+        "p95_us": 1
+      },
+      "graphics.flora": {
+        "median_us": 1,
+        "p95_us": 1
+      }
+    },
+    {
+      "mode": "rotary-tall",
+      "enabled": true,
+      "records": 55,
+      "measured": 50,
+      "frame.render": {
+        "median_us": 6055,
+        "p95_us": 7065
+      },
+      "sprinkler_spray.prepare": {
+        "median_us": 2388,
+        "p95_us": 2591
+      },
+      "vegetation_water.pass": {
+        "median_us": 10,
+        "p95_us": 152
+      },
+      "graphics.flora_lighting_cache": {
+        "median_us": 1,
+        "p95_us": 1
+      },
+      "graphics.flora": {
+        "median_us": 1,
+        "p95_us": 1
+      }
+    },
+    {
+      "mode": "rotary-water",
+      "enabled": false,
+      "records": 50,
+      "measured": 45,
+      "frame.render": {
+        "median_us": 6437,
+        "p95_us": 8000
+      },
+      "sprinkler_spray.prepare": {
+        "median_us": 636,
+        "p95_us": 685
+      },
+      "vegetation_water.pass": {
+        "median_us": 1,
+        "p95_us": 1
+      },
+      "graphics.flora_lighting_cache": {
+        "median_us": 312,
+        "p95_us": 315
+      },
+      "graphics.flora": {
+        "median_us": 344,
+        "p95_us": 346
+      }
+    },
+    {
+      "mode": "rotary-water",
+      "enabled": true,
+      "records": 26,
+      "measured": 21,
+      "frame.render": {
+        "median_us": 10194,
+        "p95_us": 16248
+      },
+      "sprinkler_spray.prepare": {
+        "median_us": 2416,
+        "p95_us": 3073
+      },
+      "vegetation_water.pass": {
+        "median_us": 161,
+        "p95_us": 706
+      },
+      "graphics.flora_lighting_cache": {
+        "median_us": 344,
+        "p95_us": 1469
+      },
+      "graphics.flora": {
+        "median_us": 345,
+        "p95_us": 348
+      }
+    },
+    {
+      "mode": "rotary-water-overlap",
+      "enabled": false,
+      "records": 7,
+      "measured": 5,
+      "frame.render": {
+        "median_us": 54363,
+        "p95_us": 56619
+      },
+      "sprinkler_spray.prepare": {
+        "median_us": 631,
+        "p95_us": 647
+      },
+      "vegetation_water.pass": {
+        "median_us": 1,
+        "p95_us": 1
+      },
+      "graphics.flora_lighting_cache": {
+        "median_us": 352,
+        "p95_us": 383
+      },
+      "graphics.flora": {
+        "median_us": 407,
+        "p95_us": 412
+      }
+    },
+    {
+      "mode": "rotary-water-overlap",
+      "enabled": true,
+      "records": 6,
+      "measured": 4,
+      "frame.render": {
+        "median_us": 66579,
+        "p95_us": 67405
+      },
+      "sprinkler_spray.prepare": {
+        "median_us": 3030,
+        "p95_us": 3367
+      },
+      "vegetation_water.pass": {
+        "median_us": 2659,
+        "p95_us": 2939
+      },
+      "graphics.flora_lighting_cache": {
+        "median_us": 412,
+        "p95_us": 414
+      },
+      "graphics.flora": {
+        "median_us": 348,
+        "p95_us": 348
+      }
+    }
+  ]
+}

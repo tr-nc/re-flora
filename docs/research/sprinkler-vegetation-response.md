@@ -1,9 +1,117 @@
-# Sprinkler → vegetation：局部冲击、叶面积湿与低成本运动
+# Sprinkler → vegetation：实现、证据与研究
 
-日期：2026-10-25。源码基线：`966a03bde4d3fe6fbc3e566173630b3864f1b2b2`。
+日期：2026-10-25。研究基线：`966a03bde4d3fe6fbc3e566173630b3864f1b2b2`。
+实现：`4d5a272a`（Tall）、`377f75cf`（植物水响应）、
+`1d5bee2a`（苹果固定挂点与连续掉果交接）。
 
-状态：**研究与实施前讨论报告，不是已实现功能或性能验收**。
-交互版：[HTML report](sprinkler-vegetation-response.html)。HTML 中的运动是独立的二维示意模型，不是游戏画面，也不验证 Vulkan、喷流覆盖或 terrain 遮挡。
+状态：**功能已实现，Release 已构建；待用户视觉接受与后续性能优化，不宣称性能通过**。
+交互版：[HTML report](sprinkler-vegetation-response.html)。
+报告中的实际游戏截图与独立二维 SVG 运动示意分别标注，示意不是生产模型。
+
+## 0. 本轮实际交付
+
+### 怎么用
+
+在 **Debug → Sprinkler Spray & Motion**：
+
+1. **Sprinklers: type for new placements** 选 **Tall impact (higher, stronger, wider)**，
+   然后放置。只影响新喷头，旧 Compact 保留且可共存；原有 Compact 外观 A/B 独立。
+2. **Plants: spray impact and wet weight (A/B)** 勾选开启。取消立即隐藏水响应，
+   回到原有植物运动；重新启用从干燥状态开始。不关闭土壤浇水，不改风或雾设置。
+3. 草叶被喷中偏转、离开回弹，积湿后下垂再干燥恢复；苹果保持挂点摆长并受局部推力。
+   **叶尖可见滴水按用户要求暂缓**，没有新滴水源或二次灌溉。
+
+没有自动启动可见游戏；隐藏运行不算用户视觉验收。Release 可供实际试用。
+
+### 实际结构与边界
+
+| 关切 | 已实现 | 限制 / 与原建议不同之处 |
+| --- | --- | --- |
+| Tall | 每实例保留 Compact/Tall 类型；加高支架、额外喷口高度 22 模型体素；水平/上抛初速最大 1.05/0.85，对比 Compact 0.65/0.32；发射 3.6 对比 2.0 | 同一弹道、terrain sweep、土壤 contact、光学链；更长弹道并非同成本。实例 32 bytes，选中 Compact 与 Tall 各 16 个缓存姿态 |
+| 受水输入 | 同一 transport 发布独立 exposure 与 momentum，不读取 optical mist intensity；植物不截断下游水流 | 不是守恒附着水质量、SI 力或逐滴物理 |
+| terrain | 原中心线 sweep + 每束共享的有限支持盒裁剪，排除已发布占用；未知/越界/预算保守失败关闭 | 每轴半径最多 8 体素，窄缝/贴墙可能少受水；不新增逐植物 ray |
+| 帧顺序 | 消费上一份排队发布的喷流，正常一渲染帧延迟；发射器集合/terrain revision 变化拒绝旧输入 | 没有大改成同帧早期 transport；这是显式延迟，不是读取未写槽 |
+| 草身份 | 全 XYZ、草种、出生身份；完成的地表发布提供身份快照，重排/生长保留状态，移除重生不串状态 | 每株，不按草模型 voxel；身份快照不是每帧植物物理状态读回 |
+| 树叶/苹果 | 苹果按实际 XYZ 与树身份；树叶按唯一表面坐标，重合面共享；枝条坐标变换后采样 | **树叶不是生物叶片/枝簇聚合**。受水点是代表位置/高度，不做摆动模型每个顶点的接触积分 |
+| 运动 | 有界冲击目标、解析阻尼、指数积湿/干燥、湿重平衡；相向力相消不使湿度相消 | 保留原风，未做完整湿质量空气动力学；未新增湿叶 BRDF；湿重不会自动生成持续抖动 |
+| 渲染与掉果 | native/cached/pixel、草带、阴影读共享姿态；风＋水苹果姿态回投固定摆长；稀疏异步交接对同一姿态求导 | 96 bytes/fruit，原为 64；仅显式诊断使用同步水状态读回，不新增每帧批量读回 |
+| 开销 | 32-byte 状态、48-byte 输入、80-byte 物理 lobe；各已分配 frame slot 双输出、二次幂容量 | 哈希、身份快照等另计。接收点先遍历喷头 bounds 再遍历命中喷头的水束，未做细粒度空间索引或全干休眠 |
+
+关键入口：
+[water.rs](../../src/tracer/vegetation_response/water.rs)、
+[water compute](../../shader/slang/vegetation_water.comp.slang)、
+[solver](../../shader/slang/vegetation_water_solver.slang)、
+[terrain support](../../shader/slang/vegetation_water_geometry.slang)、
+[publication](../../shader/slang/sprinkler_mist_prepare.comp.slang)、
+[fruit handoff](../../src/tracer/fruit_release.rs)。
+使用说明也见 [sprinkler-spray.md](../sprinkler-spray.md)。
+
+### 实际验证，不与理论验收矩阵混淆
+
+- `cargo fmt --check`、`cargo check`、`cargo build --release` 通过；最终隐藏静音
+  smoke 正常退出。新 Tall / water Slang 生产函数测试通过。
+- Tall Slang（size 0.65）：Compact/Tall 峰值 **0.055331/0.285236**，
+  距离 **0.275603/0.603067**，发射量 **2.0/3.6**，均有下降段。
+  隐藏 Tall 首次运行：172 个活跃样本、70 个下降样本、峰值 0.2791、距离 0.5798。
+- 水 solver：30/120 Hz、暂停、恢复/干燥、相向流、重叠有界、有限支持。
+  Rust：完整高度/草种/出生身份、重排/生长/删除/重生、树锚点、哈希碰撞、果实姿态速度。
+- 隐藏 Release：`rotary-water`、`rotary-water-off`、
+  `rotary-water-invisible`、`rotary-water-wall`、`rotary-water-recovery`、
+  `rotary-water-overlap`、`rotary-water-lifecycle`、`rotary-water-release`。
+  覆盖草/叶/苹果受水、关闭、mist=0、1 体素墙后无湿接收点、停水、重叠、A/B 与草重建。
+  不是声称已遍历所有复杂地形/光学组合。
+- lifecycle / release 加 `--resize-lifecycle-test` 与 Vulkan synchronization validation；
+  检查日志未发现 `VUID-`、`SYNC-HAZARD` 或验证错误。23 果交接 **2208 bytes**。
+- 最终苹果挂点修正后：`cargo test fruit_` **20 passed**；
+  Slang 校验固定摆长、干态不动、向下湿载使已偏转果实回低、零摆长安全；
+  稀疏交接校验切向速度。Release 掉果/resize 同步场景重跑通过。
+- **全仓并非全绿**：最终 `1d5bee2a` 再跑 `cargo test` 为 **1701 passed / 9 failed /
+  14 ignored**（202.37s，exit 101）。与初版的 9 个失败完全相同：7 个 raster-tree 测试
+  在 `4d5a272a` 复现，2 个默认值断言与现有保存值 sprinkler size 0.65 / apple size 0.8
+  冲突。最终日志：`target/sprinkler-response-delivery/handoff-full-tests.log`。
+- 四个旧 Slang 套件在 `fe1a40d0` 源码复现相同失败：
+  `sprinkler_contact_contracts` 1、`sprinkler_radial_coverage` 1、
+  `sprinkler_rotary` 552、`sprinkler_spray_continuity` 3452。
+  没有通过重写这些旧断言掩盖问题。
+
+### Release 配对实测：成本未接受
+
+RTX 3060 Ti；无验证层；每场景顺序 A/B，14 秒。数据来自 GPU timestamp 日志采样，
+不是每一帧；去掉起始样本后的样本数列在最后。版本 **377f75cf**，
+早于最终苹果挂点修正 **1d5bee2a**；最终版重建/运行验证了，**未重新 benchmark**。
+
+| 场景 / 接收点 | GPU 整帧关：中位 / p95 ms | GPU 整帧开：中位 / p95 ms | prepare 中位关 → 开 ms | 水 solver 开：中位 / p95 ms | 样本关 / 开 |
+| --- | --- | --- | --- | --- | --- |
+| 单高头稀疏 / 1,609 | 4.231 / 5.271 | 6.055 / 7.065 | 0.649 → 2.388 | 0.010 / 0.152 | 67 / 50 |
+| 单高头密草 / 29,129 | 6.437 / 8.000 | 10.194 / 16.248 | 0.636 → 2.416 | 0.161 / 0.706 | 45 / 21 |
+| 16 高头重叠 / 29,129 | 54.363 / 56.619 | 66.579 / 67.405 | 0.631 → 3.030 | 2.659 / 2.939 | 5 / 4 |
+
+[完整数据与命令](sprinkler-vegetation-response-performance.json)。
+共享近地形支持裁剪使单头准备增加约 **1.75 ms**，密草整帧中位增加约 **3.76 ms**，
+不能只拿 0.161 ms 求解器证明“很便宜”。运动还改变其他渲染工作，整帧增量不全属于水 solver。
+Review 场景包含周期性的显式诊断读回，可扰动计时，并非无诊断的生产性能接受运行。
+重叠样本极少，p95 不稳定；CPU 分位数、峰值显存、重映射尖峰、无喷头休眠与多轮重复
+尚未完成接受性测量。没有把初次配对当作视觉等价或性能接受。
+
+### 图片与复现
+
+[截图 bundle / provenance](sprinkler-response-captures/README.md) 保存原图、版本、
+确切捕获命令、校验和与授权说明。截图捕获于 377f75cf；没有用户可见窗口试用。
+HTML 内嵌同样 PNG，可单文件离线打开；静态图只展示场景/外观，不证明摆动。
+
+```sh
+RUST_LOG=info RE_FLORA_SPRINKLER_REVIEW=rotary-water \
+  cargo run --release -- --flat-terrain --hidden --mute --auto-exit 14
+cargo run --release -- --tail-latest-log 200
+```
+
+本地完整日志：`target/sprinkler-response-delivery/`。用户原有
+`config/gui.toml` 两处修改保持未提交；新增保存控件已随实现提交。
+
+---
+
+**以下 §1–6 保留原研究的来源、基线审计与设计目标，不是当前逐项完成声明。**
+尤其叶簇聚合、细粒度空间索引、无喷头休眠、完整验收矩阵仍不能当成已实现；以 §0 为准。
 
 ## 1. 最新需求与推荐结论
 
@@ -19,7 +127,7 @@
 
 不做：逐滴刚体/流体、逐草 voxel 积水、新的树干弹性系统、叶子截留后再重新灌溉、全场每像素扫描喷头、每帧 GPU→CPU 植物读回。
 
-**仍值得看报告确认的体验项**：原来的 “drippy” 是指湿重下垂（droopy），还是也要看见叶尖滴落的水珠？推荐先下垂与回弹；可见滴水作为同一视觉迭代的可选后续，不默认扩大为二次灌溉。技术方案不要求用户选择 buffer、ID 或求解器。
+**体验范围已确认**：先做湿重下垂（droopy）与回弹；叶尖可见滴水由用户明确暂缓，不做二次灌溉。无需用户选择 buffer、ID 或求解器。
 
 ### 单 ray 的准确含义
 
@@ -159,7 +267,7 @@ V1 的“湿重”明确限于**静态下垂和局部喷击恢复**。已有共�
 - 不在片元 shader 做受力，不为每层草更新一次湿度，不对每个接收者重复读取同一喷头的所有地形轨迹。
 - 土壤迁移/存档仍需要 voxel 水分；每株 wetness 不会把这部分成本消掉。
 
-本报告没有新增功能的 CPU/GPU ms、FPS 或性能通过结论。旧 Sprinkler 的历史 benchmark 不能代替本次反馈路径的增量测量。
+本节是实施前成本推演；新增功能的初次 GPU 实测已补在 §0，尚无性能通过结论。旧 Sprinkler 的历史 benchmark 不能代替本次增量测量。
 
 ## 6. 实施顺序与验收
 
@@ -189,6 +297,10 @@ Release 配对测量应覆盖无喷头、单喷头、重叠多个喷头，稀疏
 
 ## 7. 报告本身的验证与范围
 
+### 原研究版本（fe1a40d0）的记录
+
+以下记录仅描述当时三份研究文件的验证；新功能与更新后的报告见 §0 和本节末尾。
+
 - 本次只新增本 Markdown、HTML 和报告示意模型的测试；不改 Rust、Slang、生成文件或 GUI 默认值。
 - HTML 自包含，不加载远程脚本/字体/图片。场景图是报告代码绘制的原创 SVG 示意，不导入论文图片或第三方资产。各视觉/时间常数是解释性选择，不是实测拟合。
 - `node --test docs/research/sprinkler-vegetation-response.test.mjs`：**8 项通过**，覆盖有界/有限状态、推开/回弹/静止、相向水流、湿重切换、30/60/120 Hz 输入积分、解析更新组合、苹果摆长及本地引用完整性。只验证示意模型与展示契约，不能充当游戏端实现验收。
@@ -196,3 +308,18 @@ Release 配对测量应覆盖无喷头、单喷头、重叠多个喷头，稀疏
 - 桌面与窄屏 axe 检查均为 **0 violations**；SVG 文字/裁剪内容等仍有自动对比度 `incomplete`，不宣称完整 WCAG 合规。初次窄屏检查发现表格滚动区不能键盘聚焦，已添加具名 focusable region 后复验通过。
 - 已在本工作树执行 `cargo build --release`，通过；日志 `target/sprinkler-response-report/release-build.log`。这是未修改游戏行为的基线构建，不是新功能运行证据。
 - 用户原有 `config/gui.toml` 修改必须保持不变。检查基准 SHA-256：`af8f139df37e67e8f4543f8ce065a33babf08432589cc8d224c24743a580b8e2`。
+
+### 实现交付版的报告验证
+
+- Node **10 项通过**：保留原 8 项概念模型/链接检查，新增截图原字节与 provenance
+  SHA-256 一致、性能证据版本/数值/失败边界呈现检查。这仍不是游戏行为测试。
+- agent-browser 独立本地 `file://` 会话，1440×1000、390×844：
+  无页面级横向溢出；两张嵌入 PNG 均加载为 2880×1620；无页面错误、无外部资源请求。
+- 实际操作四个水流情景、湿重开关、播放/暂停（时间确实推进）、重置、键盘时间轴；
+  窄屏性能表可聚焦，右方向键使局部滚动 40px，不推动整个页面横向溢出。
+- 已查看桌面首屏/性能表与窄屏首屏/性能表截图；证据为
+  `target/sprinkler-response-report/delivery-*.png`。
+- 桌面和窄屏 axe 4.12.1 均 **0 violations**，仍有 SVG/裁剪导航的颜色对比
+  `incomplete`（8/10 节点），不宣称完整 WCAG 合规。
+- 用户改动用原补丁 `git apply --reverse --check` 验证仍存在；原备份 SHA-256
+  与上面的基准一致。它不是新增控件后当前完整 GUI 文件的哈希。

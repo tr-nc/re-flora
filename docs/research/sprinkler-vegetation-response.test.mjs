@@ -1,8 +1,9 @@
-// Tests for the report's explanatory model, NOT the game's spray/terrain solver.
+// Tests for the report's explanatory model and delivery evidence, NOT the game's solver.
 // Run: node --test docs/research/sprinkler-vegetation-response.test.mjs
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { test } from 'node:test';
+import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 
 const report = new URL('./sprinkler-vegetation-response.html', import.meta.url);
@@ -111,4 +112,35 @@ test('report references resolve, IDs are unique, and presentation is self-contai
   assert.match(html, /不是游戏截图、生产模型或性能实测/);
   assert.match(html, /植物不互挡/);
   assert.match(html, /terrain 必须阻挡/);
+});
+
+test('actual captures are self-contained, byte-identical to documented originals, and not confused with the demo', () => {
+  const captures = Array.from(html.matchAll(/src="data:image\/png;base64,([^"]+)"/g), m => Buffer.from(m[1], 'base64'));
+  const names = ['tall', 'plants'];
+  assert.equal(captures.length, names.length);
+  const provenance = readFileSync(new URL('./sprinkler-response-captures/README.md', report), 'utf8');
+  names.forEach((name, index) => {
+    const original = readFileSync(new URL(`./sprinkler-response-captures/${name}-original.png`, report));
+    assert.deepEqual(captures[index], original);
+    assert.ok(provenance.includes(createHash('sha256').update(original).digest('hex')));
+  });
+  assert.match(html, /实际 Release 截图/);
+  assert.match(html, /叶尖可见滴水按约定暂缓/);
+  assert.doesNotMatch(html, /游戏行为尚未修改|当前没有增量耗时结论/);
+});
+
+test('measured costs expose version, percentiles, small samples and unfinished acceptance', () => {
+  const data = JSON.parse(readFileSync(new URL('./sprinkler-vegetation-response-performance.json', report), 'utf8'));
+  assert.equal(data.source_commit, '377f75cf');
+  assert.equal(data.results.length, 6);
+  for (const row of data.results) {
+    assert.ok(row.measured > 0 && row.measured <= row.records);
+    assert.ok(row['frame.render'].p95_us >= row['frame.render'].median_us);
+    for (const key of ['median_us', 'p95_us']) {
+      assert.ok(html.includes((row['frame.render'][key] / 1000).toFixed(3)));
+    }
+  }
+  assert.match(html, /p95 不稳定/);
+  assert.match(html, /不宣称性能验收通过/);
+  assert.match(html, /全仓测试不是全绿/);
 });
