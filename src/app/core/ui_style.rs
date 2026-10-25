@@ -33,10 +33,11 @@ pub(crate) const LANTERN_SLOT_INDEX: usize = 16;
 pub(crate) const THIN_POLE_SLOT_INDEX: usize = 17;
 pub(crate) const THICK_POLE_SLOT_INDEX: usize = 18;
 pub(crate) const ROPE_SLOT_INDEX: usize = 19;
+pub(crate) const PLOW_SLOT_INDEX: usize = 20;
 pub(crate) const SPRINKLER_PLACEABLE_SLOT_INDEX: usize = 1;
 
 /// Visible order, independent of the stable internal tool IDs.
-pub(crate) const TOOLBAR_ORDER: [usize; 17] = [
+pub(crate) const TOOLBAR_ORDER: [usize; 18] = [
     GROW_SLOT_INDEX,
     SHOVEL_SLOT_INDEX,
     HOE_SLOT_INDEX,
@@ -54,6 +55,7 @@ pub(crate) const TOOLBAR_ORDER: [usize; 17] = [
     THIN_POLE_SLOT_INDEX,
     THICK_POLE_SLOT_INDEX,
     ROPE_SLOT_INDEX,
+    PLOW_SLOT_INDEX,
 ];
 
 pub(crate) fn toolbar_number(slot: usize) -> String {
@@ -723,6 +725,8 @@ fn draw_tool_text(
     });
     let response = if slot.index == MOWER_SLOT_INDEX && slot.label == "Mower" {
         response.on_hover_text("Mower (slot 12)\nEdit/cursor mode only (after camera transitions finish).\nLMB: spawn at the pointer; hold and drag to guide it.\nRelease: destroy. Every press spawns a fresh mower.\nFixed top speed and turn speed; the chassis follows the slope.\nCuts plants shorter without removing them.")
+    } else if slot.index == PLOW_SLOT_INDEX {
+        response.on_hover_text("Drag to cut a shallow furrow and push the same soil into side banks. Blocked moves leave all soil untouched. Existing cohesive soil does not collapse.")
     } else if slot.index == ROPE_SLOT_INDEX {
         response.on_hover_text("Click one pole, then another to connect them. Keep clicking poles to continue a chain. Click the last pole again to end the chain. Ropes remain ordinary editable terrain if a pole is removed.")
     } else if slot.index == THIN_POLE_SLOT_INDEX || slot.index == THICK_POLE_SLOT_INDEX {

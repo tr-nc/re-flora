@@ -136,7 +136,7 @@ known limitations; partially implemented items remain open.
 | [x] | 07 Poles and rope fences | Varied real-voxel poles, thick/thin option, arbitrary rope chains, valid anchors and persistence |
 | [x] | 08 Sunflower | Registered, selectable, plantable, growth/rendering/persistence; asset provenance if added |
 | [x] | 09 Butterfly brightness | Diagnose albedo vs light; improve colored and perched butterflies without washing out white ones; screenshots |
-| [ ] | 10 Plow | Drag furrows and displaced piles; exact soil conservation through boundaries/blockage/rollback; native validation |
+| [x] | 10 Plow | Drag furrows and displaced piles; exact soil conservation through boundaries/blockage/rollback; native validation |
 | [ ] | 11 Shovel | Press-scoop/hold-carry/release-deposit; reused deposition; soil ownership/cancel/load safety; explicit support/collapse behavior |
 | [ ] | 12 Apples, storage, currency and shop | Aim/collect; persistent inventory and money; purchase seeds/seedlings/saplings; unlimited-resource debug mode |
 | [ ] | 13 Sapling growth | Plant young trees, advance age with time, compatible saves; screenshots of multiple intermediate ages |
@@ -223,6 +223,15 @@ known limitations; partially implemented items remain open.
   tests plus persistence/toolbar checks and Release validation pass. Rope height
   is currently fixed below each cap. Existing ropes remain editable terrain when
   a post is removed—no cloth/collapse simulation or automatic deletion is claimed.
+- Conservative Plow: cut three shallow layers and form side banks through the
+  existing deposition planner, preserving exact Dirt quantity and moisture parcels.
+  A single atomic region upload contains both removal and placement; a blocked or
+  partially fitting plan is discarded before mutation. Native Release moved 2,074
+  parcels while retaining exactly 110,592 soil voxels, including actual save/load.
+  Inspected `target/garden-plow.png`; planner/input/toolbar checks and Release smoke
+  pass. Existing soil stays cohesive; moved soil settles locally. Two 95,744-byte
+  edits took 17.035/20.164 ms including publication—not a 60-FPS acceptance result.
+  See `docs/garden-soil-movement.md` for the support policy and research limitation.
 - Prior full test baseline: nine unrelated failures reproduced on `9e2b7977`
   (seven raster-tree tests and two saved-default expectations). Recheck rather
   than assuming any later failure belongs to that baseline.

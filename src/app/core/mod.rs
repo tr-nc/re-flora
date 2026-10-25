@@ -46,6 +46,7 @@ mod soil_bag_preview;
 mod soil_bag_review;
 mod soil_deposition;
 mod soil_drying_review;
+mod soil_movement;
 mod soil_performance_bench;
 mod sprinkler_air_review;
 mod sprinkler_audio_review;
@@ -2876,6 +2877,7 @@ impl App {
                             ItemPanelSlot {index:ui_style::THIN_POLE_SLOT_INDEX,label:"Thin pole",number:ui_style::toolbar_number(ui_style::THIN_POLE_SLOT_INDEX),enabled:self.rooftop_scene.is_none()},
                             ItemPanelSlot {index:ui_style::THICK_POLE_SLOT_INDEX,label:"Thick pole",number:ui_style::toolbar_number(ui_style::THICK_POLE_SLOT_INDEX),enabled:self.rooftop_scene.is_none()},
                             ItemPanelSlot {index:ui_style::ROPE_SLOT_INDEX,label:"Rope",number:ui_style::toolbar_number(ui_style::ROPE_SLOT_INDEX),enabled:self.rooftop_scene.is_none()},
+                            ItemPanelSlot {index:ui_style::PLOW_SLOT_INDEX,label:"Plow",number:ui_style::toolbar_number(ui_style::PLOW_SLOT_INDEX),enabled:true},
                             ItemPanelSlot {
                                 index: ui_style::LANTERN_SLOT_INDEX,
                                 label: "Lantern",

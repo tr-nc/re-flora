@@ -28,6 +28,7 @@ mod resource;
 mod run_log;
 mod scene_query;
 mod soil_bag;
+mod soil_movement;
 mod sprinkler;
 mod stone_models;
 mod terrain_deposition;

@@ -29,6 +29,7 @@ pub(super) enum PlayerTool {
     ThinPole,
     ThickPole,
     Rope,
+    Plow,
     Pavement,
     Wall,
     Placeable,
@@ -42,6 +43,7 @@ impl PlayerTool {
             super::ui_style::THIN_POLE_SLOT_INDEX => Some(Self::ThinPole),
             super::ui_style::THICK_POLE_SLOT_INDEX => Some(Self::ThickPole),
             super::ui_style::ROPE_SLOT_INDEX => Some(Self::Rope),
+            super::ui_style::PLOW_SLOT_INDEX => Some(Self::Plow),
             super::ui_style::PAVEMENT_SLOT_INDEX => Some(Self::Pavement),
             super::ui_style::WALL_SLOT_INDEX => Some(Self::Wall),
             super::ui_style::MOWER_SLOT_INDEX => Some(Self::Mower),
@@ -65,6 +67,7 @@ impl PlayerTool {
             Self::ThinPole => super::ui_style::THIN_POLE_SLOT_INDEX,
             Self::ThickPole => super::ui_style::THICK_POLE_SLOT_INDEX,
             Self::Rope => super::ui_style::ROPE_SLOT_INDEX,
+            Self::Plow => super::ui_style::PLOW_SLOT_INDEX,
             Self::Pavement => super::ui_style::PAVEMENT_SLOT_INDEX,
             Self::Wall => super::ui_style::WALL_SLOT_INDEX,
             Self::Mower => super::ui_style::MOWER_SLOT_INDEX,
@@ -122,6 +125,7 @@ pub(super) enum ContinuousTerrainToolAction {
     ShovelDig,
     ShovelPlace,
     SoilDeposit,
+    Plow,
     StaffRegenerate,
     StaffRemove,
     HoeTrim,
@@ -136,6 +140,7 @@ impl ContinuousTerrainToolAction {
             Self::ShovelDig
                 | Self::ShovelPlace
                 | Self::SoilDeposit
+                | Self::Plow
                 | Self::HoeTrim
                 | Self::StaffRegenerate
                 | Self::StaffRemove
@@ -152,6 +157,7 @@ struct TerrainStrokeRuntime {
     shovel_dig: TerrainStroke,
     shovel_place: TerrainStroke,
     soil_deposit: TerrainStroke,
+    plow: TerrainStroke,
     staff_regenerate: TerrainStroke,
     staff_remove: TerrainStroke,
     hoe_trim: TerrainStroke,
@@ -168,6 +174,7 @@ impl TerrainStrokeRuntime {
             ContinuousTerrainToolAction::ShovelDig => &self.shovel_dig,
             ContinuousTerrainToolAction::ShovelPlace => &self.shovel_place,
             ContinuousTerrainToolAction::SoilDeposit => &self.soil_deposit,
+            ContinuousTerrainToolAction::Plow => &self.plow,
             ContinuousTerrainToolAction::StaffRegenerate => &self.staff_regenerate,
             ContinuousTerrainToolAction::StaffRemove => &self.staff_remove,
             ContinuousTerrainToolAction::HoeTrim => &self.hoe_trim,
@@ -181,6 +188,7 @@ impl TerrainStrokeRuntime {
             ContinuousTerrainToolAction::ShovelDig => &mut self.shovel_dig,
             ContinuousTerrainToolAction::ShovelPlace => &mut self.shovel_place,
             ContinuousTerrainToolAction::SoilDeposit => &mut self.soil_deposit,
+            ContinuousTerrainToolAction::Plow => &mut self.plow,
             ContinuousTerrainToolAction::StaffRegenerate => &mut self.staff_regenerate,
             ContinuousTerrainToolAction::StaffRemove => &mut self.staff_remove,
             ContinuousTerrainToolAction::HoeTrim => &mut self.hoe_trim,
@@ -224,6 +232,7 @@ impl TerrainStrokeRuntime {
             ContinuousTerrainToolAction::ShovelDig,
             ContinuousTerrainToolAction::ShovelPlace,
             ContinuousTerrainToolAction::SoilDeposit,
+            ContinuousTerrainToolAction::Plow,
             ContinuousTerrainToolAction::HoeTrim,
             ContinuousTerrainToolAction::StaffRegenerate,
             ContinuousTerrainToolAction::StaffRemove,
@@ -521,6 +530,7 @@ impl PlayerToolRuntime {
                     self.soil_flow.reset();
                     for action in [
                         ContinuousTerrainToolAction::SoilDeposit,
+                        ContinuousTerrainToolAction::Plow,
                         ContinuousTerrainToolAction::ShovelDig,
                         ContinuousTerrainToolAction::HoeTrim,
                         ContinuousTerrainToolAction::StaffRegenerate,
@@ -649,6 +659,7 @@ impl PlayerToolRuntime {
                 Some(ContinuousTerrainToolAction::ShovelPlace)
             }
             (PlayerTool::Soil, MouseButton::Left) => Some(ContinuousTerrainToolAction::SoilDeposit),
+            (PlayerTool::Plow, MouseButton::Left) => Some(ContinuousTerrainToolAction::Plow),
             (PlayerTool::Grow, MouseButton::Left)
                 if self.planting.plant_type == PlantType::Flora =>
             {
@@ -867,6 +878,10 @@ mod tests {
             (
                 ui_style::SHOVEL_SLOT_INDEX,
                 PlayerToolPointerAction::Continuous(ContinuousTerrainToolAction::ShovelDig),
+            ),
+            (
+                ui_style::PLOW_SLOT_INDEX,
+                PlayerToolPointerAction::Continuous(ContinuousTerrainToolAction::Plow),
             ),
         ] {
             let mut runtime = PlayerToolRuntime::default();

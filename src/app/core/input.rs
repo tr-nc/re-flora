@@ -755,6 +755,7 @@ impl App {
             ContinuousTerrainToolAction::Water => self.try_watering_brush(now),
             ContinuousTerrainToolAction::Till => self.try_tiller_brush(now),
             ContinuousTerrainToolAction::SoilDeposit => self.try_soil_deposition(now),
+            ContinuousTerrainToolAction::Plow => self.try_plow(now),
         }
     }
 
