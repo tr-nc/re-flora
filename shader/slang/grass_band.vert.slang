@@ -61,7 +61,6 @@ StemBandVertex main(VertexInput input) {
     float3 world=stemBandPoint(a,b,tangentA,tangentB,float3(1,0,0),float3(1,0,0),float2(ra),float2(rb),stemBandCorner(input.vertex));
     output.position=mul(camera_info.view_proj_mat,float4(world,1));
     float3 color=sampleFloraBaseColor(true,species,seed,int3(0,int(band),0),root,pose.color_gradient,info);
-    color=applyGrassGrowthStressTint(color,true,effectiveGrowthPotential(true,competition,environment));
     color=applyGrassMoistureMaterial(color,species,support.moisture_level,
         gui_input.grass_moisture_response != 0u);
     float3 light=flora_lighting_cache.irradiance[floraLightingCacheIndex(floraPushConstants(),localIndex,band)].xyz;

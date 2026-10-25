@@ -106,8 +106,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     // Irradiance-only preparation remains for the non-cached mesh consumer.
     float3 color = sampleFloraBaseColor(true, instanceType, seed, voxelLocalPosition,
         instancePosition, prepared.color_gradient, voxelInfo);
-    color = applyGrassGrowthStressTint(color, true,
-        effectiveGrowthPotential(true, competitionFactor, environmentFactor));
     color = applyGrassMoistureMaterial(color, instanceType, support.moisture_level,
         gui_input.grass_moisture_response != 0u);
     GrassBandPose pose;

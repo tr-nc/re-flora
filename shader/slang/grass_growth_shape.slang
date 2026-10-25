@@ -1,15 +1,14 @@
 module grass_growth_shape;
 
-// Geometry and palette share the same discrete, competition-limited height.
+// Geometry and palette share the current discrete visible height.
 public float grassGrownHeight(uint heightVoxels, float growthFactor)
 {
     return floor(float(heightVoxels) * growthFactor + 0.001);
 }
 
-public float grassColorGradient(int layer, uint heightVoxels, float growthPotential)
+public float grassColorGradient(int layer, float visibleHeight)
 {
-    float matureHeight = grassGrownHeight(heightVoxels, growthPotential);
     // A single visible layer is also the tip. Empty stems are trimmed by geometry.
-    if (matureHeight <= 1.0) return 1.0;
-    return clamp(float(layer) / (matureHeight - 1.0), 0.0, 1.0);
+    if (visibleHeight <= 1.0) return 1.0;
+    return clamp(float(layer) / (visibleHeight - 1.0), 0.0, 1.0);
 }

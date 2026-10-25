@@ -11,7 +11,7 @@ public uint floraSupportMoistureLevel(uint atlasData, bool validSupport)
         ? (atlasData >> 4u) & 3u : 0u;
 }
 
-// Apply to linear albedo AFTER stress tint, BEFORE any lighting. A fixed modest
+// Apply to the configured linear albedo BEFORE any lighting. A fixed modest
 // strength keeps this a material response, independent of growth/competition.
 public float3 applyGrassMoistureMaterial(float3 color, uint species,
                                         uint moistureLevel, bool enabled)

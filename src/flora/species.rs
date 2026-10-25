@@ -417,6 +417,23 @@ mod tests {
     }
 
     #[test]
+    fn grass_palette_uses_visible_height_without_competition_tint() {
+        let pose = include_str!("../../shader/slang/flora_vertex.slang");
+        let compact = pose.split_whitespace().collect::<String>();
+        assert!(compact.contains("grassColorGradient(voxelLocalPosition.y,grownHeight)"),
+            "palette endpoints must use the exact height used for trimming, including partial growth");
+        for shader in [
+            include_str!("../../shader/slang/grass_band.vert.slang"),
+            include_str!("../../shader/slang/flora_lighting_cache.comp.slang"),
+        ] {
+            assert!(
+                !shader.contains("applyGrassGrowthStressTint("),
+                "competition must not replace the configured bottom/tip colors"
+            );
+        }
+    }
+
+    #[test]
     fn grass_material_consumers_reuse_support_and_apply_before_lighting() {
         // Source-wiring guard complements the executable production Slang
         // material contract: both live consumers must use the same helper and
@@ -427,10 +444,9 @@ mod tests {
         ] {
             assert_eq!(shader.matches("floraSupportSample(").count(), 1);
             assert!(!shader.contains("floraEnvironmentGrowthFactor("));
-            let stress = shader.find("applyGrassGrowthStressTint(").unwrap();
             let wet = shader.find("applyGrassMoistureMaterial(").unwrap();
             let lit = shader.find("shadeFloraVertexWithEnvironment(").unwrap();
-            assert!(stress < wet && wet < lit);
+            assert!(wet < lit);
             assert!(shader.contains("support.moisture_level"));
             assert!(shader.contains("gui_input.grass_moisture_response != 0u"));
         }

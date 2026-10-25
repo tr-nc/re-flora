@@ -220,7 +220,7 @@ public PreparedFloraVertex prepareFloraVertex(
         float grownHeight = grassGrownHeight(grassHeightVoxels, growthFactor);
         result.should_trim = float(voxelLocalPosition.y) >= grownHeight;
         result.color_gradient = grassColorGradient(
-            voxelLocalPosition.y, grassHeightVoxels, growthPotential);
+            voxelLocalPosition.y, grownHeight);
     }
     else if (growthFactor <= 0.0)
     {
@@ -406,15 +406,6 @@ public float3 sampleFloraBaseColor(bool isGrass, uint instanceType, uint seed,
     }
 
     return darkHeightColor;
-}
-
-public float3 applyGrassGrowthStressTint(float3 baseColor, bool isGrass,
-                                  float growthFactor)
-{
-    if (!isGrass) return baseColor;
-    float stress = 1.0 - clamp(growthFactor, 0.0, 1.0);
-    return lerp(baseColor, srgbToLinear(float3(0.62, 0.68, 0.275)),
-                stress * 0.55);
 }
 
 public float4 applyFloraDepthOffset(float3 worldPosition, uint3 instancePosition)
