@@ -345,6 +345,8 @@ impl SurfaceBuilder {
 
     /// Replaces, never appends. Resources and competition fields are rebuilt, not serialized.
     pub fn restore_flora_snapshot(&mut self, snapshot: &FloraSnapshot, now_ms: u32) -> Result<()> {
+        // Atlas restore strips appearance, including when root identities match.
+        self.soil_cover.dirty = true;
         self.authored_flora = AuthoredFloraStore::default();
         self.hydration_elapsed = snapshot.hydration_elapsed;
         for chunk in &snapshot.chunks {

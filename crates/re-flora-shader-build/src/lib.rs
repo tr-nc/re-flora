@@ -643,6 +643,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/builder/surface/soil_cover.comp",
+        source_path: "shader/slang/soil_cover.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/builder/surface/update_flora_growth.comp",
         source_path: "shader/slang/update_flora_growth.slang",
         module_path: "shader/slang",

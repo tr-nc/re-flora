@@ -1342,7 +1342,7 @@ impl SurfaceBuilder {
     /// Independent survival stage. Bounds only choose candidates; deletion is
     /// decided from current atlas support and three voxels of contiguous cover.
     pub fn reconcile_grass_terrain(&mut self, changed: UAabb3, now_ms: u32) -> Result<()> {
-        self.soil_cover.dirty = true;
+        self.soil_cover.terrain_changes.push(changed);
         let min = changed.min().saturating_sub(UVec3::new(0, 3, 0));
         let max = changed
             .max()

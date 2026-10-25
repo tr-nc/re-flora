@@ -149,7 +149,8 @@ pub struct FloraInstanceResources {
     pub hydration: Vec<Vec<(u32, f32)>>,
     pub hydration_roots: Vec<(u32, usize, usize)>,
     pub hydration_roots_dirty: bool,
-    pub(super) soil_cover_dirty: bool,
+    pub(super) soil_cover_roots: [std::collections::HashSet<u32>; 2],
+    pub(super) soil_cover_changed_roots: std::collections::HashSet<u32>,
     pub root_water_reserve: std::collections::BTreeMap<u32, f64>,
     species_instance_len: [u32; species::MAX_FLORA_SPECIES],
 }
@@ -224,7 +225,8 @@ impl FloraInstanceResources {
             hydration: vec![Vec::new(); species_count],
             hydration_roots: Vec::new(),
             hydration_roots_dirty: true,
-            soil_cover_dirty: true,
+            soil_cover_roots: Default::default(),
+            soil_cover_changed_roots: Default::default(),
             root_water_reserve: Default::default(),
             chunk_world_offset: chunk_id * voxel_dim_per_chunk,
             resource,
@@ -301,7 +303,16 @@ impl FloraInstanceResources {
     pub fn reconcile_hydration(&mut self, species: usize, instances: &[Instance]) -> Result<()> {
         self.hydration_roots_dirty = true;
         if species < species::MODEL_FLOWER_FIRST_SPECIES as usize {
-            self.soil_cover_dirty = true;
+            let next: std::collections::HashSet<_> = instances
+                .iter()
+                .map(|i| i.packed_local_pos & 0xffffff)
+                .collect();
+            self.soil_cover_changed_roots.extend(
+                self.soil_cover_roots[species]
+                    .symmetric_difference(&next)
+                    .copied(),
+            );
+            self.soil_cover_roots[species] = next;
         }
         let previous: HashMap<_, _> = self.hydration[species].iter().copied().collect();
         self.hydration[species] = instances
