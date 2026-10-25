@@ -125,7 +125,8 @@ const fn model_flower(
         paint_brush: MODEL_FLOWER_PAINT_BRUSH_SETTINGS,
         placement_mode: FloraPlacementMode::Authored,
         grass_growth_influence_radius_voxels: 8,
-        grass_growth_influence_min_level: 6,
+        // Keep at least 60% growth at the root; fade to unrestricted at the radius.
+        grass_growth_influence_min_level: 9,
         moisture_growth_factors: DEFAULT_MOISTURE_GROWTH_FACTORS,
     }
 }

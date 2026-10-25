@@ -2168,6 +2168,32 @@ mod tests {
     }
 
     #[test]
+    fn special_plants_allow_sixty_percent_grass_growth_and_fade_outward() {
+        let dim = UVec3::splat(32);
+        let center = IVec3::splat(16);
+        for index in species::authored_plant_species_indices() {
+            let desc = &species::species()[index as usize];
+            let mut words = vec![u32::MAX; dim.element_product().div_ceil(8) as usize];
+            apply_spherical_grass_growth_influence(
+                &mut words,
+                IVec3::ZERO,
+                dim,
+                center,
+                desc.grass_growth_influence_radius_voxels as i32,
+                desc.grass_growth_influence_min_level,
+            );
+            let level = |x| grass_growth_potential_level(&words, dim, UVec3::new(x, 16, 16));
+            assert_eq!(level(16), 9);
+            assert_eq!(level(20), 12);
+            assert_eq!(level(24), 15);
+            assert_eq!(level(25), 15);
+            for x in 16..24 {
+                assert!(level(x) <= level(x + 1));
+            }
+        }
+    }
+
+    #[test]
     fn grass_competition_factor_is_target_species_aware() {
         let growth_shader = include_str!("../../../shader/slang/grass_growth_potential.slang");
         assert!(growth_shader.contains("return isGrass ? grassGrowthPotential(localBase) : 1.0;"));
