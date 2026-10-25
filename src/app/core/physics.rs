@@ -18,6 +18,7 @@ use std::{
 };
 
 mod fruit_ground_trace;
+mod harvesting;
 mod surface_motion;
 mod walk_recovery;
 use fruit_ground_trace::FruitGroundTrace;
@@ -682,7 +683,7 @@ impl TerrainPhysics {
     }
 
     /// Restore a held crop, never releases based on a saved growth value.
-    /// Loose bodies and harvest state are transient.
+    /// Loose bodies are transient. The caller excludes persistent harvest receipts.
     pub(super) fn restore_saved_tree_fruits(
         &mut self,
         tree_id: u32,

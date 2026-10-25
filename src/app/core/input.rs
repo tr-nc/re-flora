@@ -92,11 +92,12 @@ pub(super) fn gui_consumes_nonkeyboard_event(
 
 impl App {
     fn blocking_panel_open(&self) -> bool {
-        panel_blocks_world(
-            self.config_panel_visible,
-            self.card_display_visible,
-            self.is_orbit_edit_camera_mode(),
-        )
+        self.shop_open
+            || panel_blocks_world(
+                self.config_panel_visible,
+                self.card_display_visible,
+                self.is_orbit_edit_camera_mode(),
+            )
     }
 
     pub(super) fn gui_blocks_world_pointer(&self) -> bool {
@@ -168,7 +169,8 @@ impl App {
             }
         }
         let was_cursor_visible = self.window_state.is_cursor_visible();
-        let cursor_visible = self.config_panel_visible
+        let cursor_visible = self.shop_open
+            || self.config_panel_visible
             || self.card_display_visible
             || self.is_orbit_edit_camera_mode();
 
@@ -1193,6 +1195,17 @@ impl App {
                 if !self.player_tools.stroke_ready(action, now, dab_interval) {
                     return;
                 }
+                if !self.infinite_materials_enabled() {
+                    match self.plant_owned_flora(self.current_flora_paint_selection(), center) {
+                        Ok(true) => self.player_tools.record_stroke_dab(action, now, center),
+                        Ok(false) => self.player_tools.defer_stroke(action, now),
+                        Err(error) => {
+                            self.garden_feedback = Some(error.to_string());
+                            self.player_tools.interrupt_stroke(action);
+                        }
+                    }
+                    return;
+                }
                 if self.current_flora_paint_selection()
                     == species::FloraPaintSelection::ClimbingVine
                 {
@@ -1626,8 +1639,9 @@ impl App {
                 match placeable_kind {
                     PlaceableKind::Tree => {
                         let tree_desc = self.tree_placement_preview_desc.clone();
-                        if let Err(err) = self.plant_growing_tree(tree_desc, center) {
-                            log::error!("Failed to plant tree: {}", err);
+                        if let Err(err) = self.plant_owned_tree(tree_desc, center) {
+                            self.garden_feedback = Some(err.to_string());
+                            log::warn!("Cannot plant tree: {}", err);
                         } else {
                             log::info!("Planted tree at {:?}", center);
                             if let Err(err) = self.advance_tree_placement_preview() {

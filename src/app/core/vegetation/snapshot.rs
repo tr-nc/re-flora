@@ -31,6 +31,12 @@ pub(in crate::app::core) struct PreparedTreeSnapshot {
 }
 
 impl TreeSnapshot {
+    pub(in crate::app::core) fn ids(&self) -> impl Iterator<Item = u32> + '_ {
+        self.trees.iter().map(|t| t.id)
+    }
+    pub(in crate::app::core) fn contains_tree(&self, id: u32) -> bool {
+        self.trees.iter().any(|t| t.id == id)
+    }
     pub(in crate::app::core) fn count(&self) -> usize {
         self.trees.len()
     }

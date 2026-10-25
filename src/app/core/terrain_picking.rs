@@ -176,6 +176,11 @@ impl App {
             PlayerToolPointerAction::ShovelScoop | PlayerToolPointerAction::ShovelDrop => {
                 self.complete_soil_shovel_pick(action)
             }
+            PlayerToolPointerAction::Harvest => {
+                if let Err(error) = self.harvest_pointed_apple() {
+                    self.garden_feedback = Some(error.to_string());
+                }
+            }
             PlayerToolPointerAction::FenceAction => {
                 self.stop_terrain_edit_loop_sound();
                 self.try_garden_fence_action();

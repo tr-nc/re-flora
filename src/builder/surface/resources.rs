@@ -253,6 +253,36 @@ impl FloraInstanceResources {
         self.species_instance_len[species_index] = len;
     }
 
+    /// Append one admitted grass root without reading or rewriting its neighbors.
+    /// Draw count and CPU ownership change only after both hidden-tail uploads succeed.
+    pub(super) fn try_append_grass(&mut self, species: usize, instance: Instance) -> Result<bool> {
+        anyhow::ensure!(species < 2, "finite grass append requires ordinary grass");
+        let root = instance.packed_local_pos & 0xffffff;
+        let count = self.species_len(species);
+        if count >= MAX_FLORA_INSTANCES_PER_SPECIES
+            || self
+                .soil_cover_roots
+                .iter()
+                .any(|roots| roots.contains(&root))
+        {
+            return Ok(false);
+        }
+        let index = u64::from(Self::species_offset(species) + count);
+        let hydration = crate::flora::hydration::DEFAULT_HYDRATION;
+        self.resource.instances_buf.fill_range_with_raw_u8(
+            index * std::mem::size_of::<Instance>() as u64,
+            bytemuck::bytes_of(&instance),
+        )?;
+        self.plant_hydration
+            .fill_range_with_raw_u8(index * 4, bytemuck::bytes_of(&hydration))?;
+        self.hydration[species].push((root, hydration));
+        self.hydration_roots_dirty = true;
+        self.soil_cover_roots[species].insert(root);
+        self.soil_cover_changed_roots.insert(root);
+        self.set_species_len(species, count + 1);
+        Ok(true)
+    }
+
     pub fn write_species_instances(
         &mut self,
         species_index: usize,

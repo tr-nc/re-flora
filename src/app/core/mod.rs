@@ -59,6 +59,7 @@ pub(crate) use lighting_mode_acceptance::{
     ResolvedLightingFrameInputs, ResolvedRasterLightingState,
 };
 mod ambient_ecology;
+mod garden_economy;
 mod garden_fence;
 mod loading;
 mod local_player_footsteps;
@@ -491,6 +492,10 @@ pub struct App {
     mower: mower::MowerRuntime,
     pavement: pavement::PavementRuntime,
     voxel_backpack: VoxelBackpack,
+    garden_economy: garden_economy::GardenEconomy,
+    shop_open: bool,
+    garden_feedback: Option<String>,
+    garden_fallen_review_frames: Option<u32>,
 
     terrain_moisture: TerrainMoistureRuntime,
     growing_flora_chunks: GrowingFloraQueue,
@@ -1633,6 +1638,10 @@ impl App {
                 tools
             },
             voxel_backpack: VoxelBackpack::default(),
+            garden_economy: Default::default(),
+            shop_open: false,
+            garden_feedback: None,
+            garden_fallen_review_frames: None,
             terrain_moisture: TerrainMoistureRuntime::new(world_chunk_dim),
             growing_flora_chunks: GrowingFloraQueue::default(),
             terrain_connectivity: TerrainConnectivityRuntime::default(),
@@ -1933,6 +1942,32 @@ impl App {
         let gui_wanted_keyboard_before_event = self.gui_wants_keyboard_input();
 
         if let WindowEvent::KeyboardInput { event, .. } = &event {
+            // Holding the modal's close key must not repeat into global Quit.
+            if event.repeat && event.physical_key == KeyCode::Escape {
+                return;
+            }
+            if let Some(open) = garden_economy::shop_open_after_key(
+                event.physical_key,
+                event.state == ElementState::Pressed,
+                event.repeat,
+                self.shop_open,
+                self.keyboard_tool_shortcuts_available(),
+            ) {
+                self.shop_open = open;
+                self.cancel_pointer_pick();
+                self.sync_cursor_with_panels();
+                return;
+            }
+            if event.state == ElementState::Pressed && !event.repeat {
+                if event.physical_key == KeyCode::KeyE && self.keyboard_tool_shortcuts_available() {
+                    self.queue_pointer_pick(
+                        player_tools::PlayerToolPointerAction::Harvest,
+                        Instant::now(),
+                        false,
+                    );
+                    return;
+                }
+            }
             match Self::global_keyboard_command(
                 event.physical_key,
                 event.state,
@@ -2470,6 +2505,8 @@ impl App {
                         Err(err) => log::error!("[FLORA_SHOWCASE] review failed: {err:#}"),
                     }
                 }
+                self.review_fallen_apple_collection()
+                    .expect("fallen apple collection review");
                 let vsm_blur_radius_before_gui =
                     self.debug_settings.adjustables.vsm_blur_radius.value;
                 let selected_item_panel_display_slot =
@@ -2515,6 +2552,10 @@ impl App {
                 let mut clicked_plant_variety = None;
                 let mut clicked_plant_type = None;
                 let mut clicked_edit_material = None;
+                let mut shop_action = None;
+                let planting_summary = self
+                    .garden_economy
+                    .stock_summary(selected_variety, infinite_materials);
                 let mut terrain_snapshot_action = None;
                 let mut plant_flora_showcase_requested = false;
                 let mut environment_probe_visualization =
@@ -2890,6 +2931,7 @@ impl App {
                             ItemPanelSlot {index:ui_style::ROPE_SLOT_INDEX,label:"Rope",number:ui_style::toolbar_number(ui_style::ROPE_SLOT_INDEX),enabled:self.rooftop_scene.is_none()},
                             ItemPanelSlot {index:ui_style::PLOW_SLOT_INDEX,label:"Plow",number:ui_style::toolbar_number(ui_style::PLOW_SLOT_INDEX),enabled:true},
                             ItemPanelSlot {index:ui_style::SOIL_SHOVEL_SLOT_INDEX,label:"Shovel",number:ui_style::toolbar_number(ui_style::SOIL_SHOVEL_SLOT_INDEX),enabled:true},
+                            ItemPanelSlot {index:ui_style::HARVEST_SLOT_INDEX,label:"Harvest",number:ui_style::toolbar_number(ui_style::HARVEST_SLOT_INDEX),enabled:true},
                             ItemPanelSlot {
                                 index: ui_style::LANTERN_SLOT_INDEX,
                                 label: "Lantern",
@@ -2913,6 +2955,7 @@ impl App {
                             self.window_state.is_cursor_visible(),
                         );
                         clicked_item_panel_slot = item_panel_response.clicked_slot;
+                        shop_action=garden_economy::draw_garden_shop(ctx,&self.garden_economy,&mut self.shop_open,self.garden_feedback.as_deref(),(self.player_tools.selected_tool()==PlayerTool::Grow).then_some(planting_summary.as_str()),infinite_materials,self.window_state.is_cursor_visible());
 
                         if self.player_tools.selected_tool() == PlayerTool::Grow {
                             let flora_paint_panel_response = draw_plant_panel(
@@ -3066,6 +3109,9 @@ impl App {
                 self.tracer
                     .set_environment_probe_visualization_settings(environment_probe_visualization);
                 self.sync_cursor_with_panels();
+                if let Some(action) = shop_action {
+                    self.apply_shop_action(action);
+                }
                 if let Some(slot_idx) = clicked_item_panel_slot {
                     self.select_item_panel_slot(slot_idx);
                 }

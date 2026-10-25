@@ -138,7 +138,7 @@ known limitations; partially implemented items remain open.
 | [x] | 09 Butterfly brightness | Diagnose albedo vs light; improve colored and perched butterflies without washing out white ones; screenshots |
 | [x] | 10 Plow | Drag furrows and displaced piles; exact soil conservation through boundaries/blockage/rollback; native validation |
 | [x] | 11 Shovel | Press-scoop/hold-carry/release-deposit; reused deposition; soil ownership/cancel/load safety; explicit support/collapse behavior |
-| [ ] | 12 Apples, storage, currency and shop | Aim/collect; persistent inventory and money; purchase seeds/seedlings/saplings; unlimited-resource debug mode |
+| [x] | 12 Apples, storage, currency and shop | Harvest/E, persistent wallet/stock/fruit receipts, real purchases and finite planting, preserved debug supply; native reload and fallen pickup. See `docs/garden-economy.md`. |
 | [x] | 13 Sapling growth | Per-tree staged clocks, compatible old ages, edit/obstruction safety; native save/reload and four age captures. See `docs/garden-saplings.md`. |
 | [ ] | 14 Bees and attached hives | Cached-angle post-processing; hives only on tree/pole anchors; documented husbandry choice and removal/load behavior |
 | [ ] | 15 Aggregate validation | Release ready, clean local commits, full checklist audit, all remaining risks/blockers explicit; no unrequested push |
@@ -241,6 +241,16 @@ known limitations; partially implemented items remain open.
   pass; inspected held/drop screenshots. Carry presentation is a simple brown
   clump/status, not a finished hand/shovel animation. No subjective input approval
   or sustained-drag performance pass is claimed.
+- Economy: Harvest/E collects ripe attached or fallen apples; B opens the real
+  shop. Stable fruit receipts prevent duplicate collection after growth, rebuild
+  or reload. Bought seeds/seedlings/saplings feed finite placement; invalid and
+  duplicate placement does not spend stock. Existing unlimited debugging leaves
+  real stock untouched; shop purchases still spend coins. Native save/restart
+  retained 23 coins, 1 apple, 2 harvest receipts, 1 sapling, 4 sunflower seeds,
+  31 grass seeds, 3 planted flora roots and 2 trees. A separate live kick/release
+  run collected a fallen body. Actual egui button/input tests and native UI capture
+  pass. No recurring crop seasons, all-construction pricing, generic voxel-backpack
+  persistence, dense-garden perf acceptance or manual interaction approval is claimed.
 - Saplings: catalog trees start at age 0.375 and mature over 900 simulated seconds,
   with one staged publication at most per half second and stable per-tree clocks.
   Old saves retain their age without starting automatic growth. Native captures

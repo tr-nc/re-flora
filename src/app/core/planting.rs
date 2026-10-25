@@ -79,6 +79,37 @@ pub(super) fn flora_showcase_column_in_world(
 }
 
 impl App {
+    /// Finite purchases validate the actual atlas contact, not a possibly lagging
+    /// CPU terrain cache. The root must have substrate and an empty cell above it.
+    pub(super) fn resolve_plantable_contact(
+        &mut self,
+        position: Vec3,
+    ) -> anyhow::Result<Option<PlantableSurfaceAnchor>> {
+        let point = position * 256. - Vec3::Y * 0.001;
+        let extent = self.world_chunk_dim * VOXEL_DIM_PER_CHUNK;
+        if !point.is_finite()
+            || point.cmplt(Vec3::ZERO).any()
+            || point.cmpge((extent - UVec3::Y).as_vec3()).any()
+        {
+            return Ok(None);
+        }
+        let base = point.floor().as_uvec3();
+        let cells = self
+            .plain_builder
+            .read_chunk_atlas_region(base, UVec3::new(1, 2, 1))?;
+        if !is_plantable_surface_voxel_type(u32::from(cells[0] & 15)) || cells[1] & 15 != 0 {
+            log::debug!(
+                "[FINITE_PLANT] rejected contact={position:?} root={base:?} substrate={} above={}",
+                cells[0],
+                cells[1]
+            );
+            return Ok(None);
+        }
+        Ok(Some(PlantableSurfaceAnchor {
+            surface_position_ws: (base.as_vec3() + Vec3::new(0.5, 1., 0.5)) / 256.,
+            base_world_vox: base,
+        }))
+    }
     pub(super) fn resolve_plantable_surface_column(
         &self,
         column_world_vox: UVec2,

@@ -2084,11 +2084,24 @@ impl TreePublicationPrimitiveHost for AppTreePublicationHost<'_> {
         tree_id: u32,
         publication: &PreparedTreePublication,
     ) -> Result<()> {
-        self.app.terrain_physics.publish_tree_fruits(
-            tree_id,
-            publication.record.fruit_specs.clone(),
-            &mut self.app.tracer,
-        )
+        let specs = publication
+            .record
+            .fruit_specs
+            .iter()
+            .filter(|s| {
+                !self
+                    .app
+                    .garden_economy
+                    .harvested(super::garden_economy::HarvestKey {
+                        tree: tree_id,
+                        fruit: s.id,
+                    })
+            })
+            .cloned()
+            .collect();
+        self.app
+            .terrain_physics
+            .publish_tree_fruits(tree_id, specs, &mut self.app.tracer)
     }
 
     fn prepare_restored_fruit_cycle(&mut self, cycle: f32) -> Result<()> {
@@ -2105,11 +2118,24 @@ impl TreePublicationPrimitiveHost for AppTreePublicationHost<'_> {
         tree_id: u32,
         publication: &PreparedTreePublication,
     ) -> Result<()> {
-        self.app.terrain_physics.restore_saved_tree_fruits(
-            tree_id,
-            publication.record.fruit_specs.clone(),
-            &mut self.app.tracer,
-        )
+        let specs = publication
+            .record
+            .fruit_specs
+            .iter()
+            .filter(|s| {
+                !self
+                    .app
+                    .garden_economy
+                    .harvested(super::garden_economy::HarvestKey {
+                        tree: tree_id,
+                        fruit: s.id,
+                    })
+            })
+            .cloned()
+            .collect();
+        self.app
+            .terrain_physics
+            .restore_saved_tree_fruits(tree_id, specs, &mut self.app.tracer)
     }
 
     fn publish_attached_fruit(&mut self, tree_id: u32) -> Result<()> {
@@ -2373,6 +2399,7 @@ impl App {
     #[allow(dead_code)]
     pub(super) fn remove_tree(&mut self, tree_id: u32) -> Result<()> {
         let removed = self.transact_garden_trees(|trees, host| trees.remove(tree_id, host))?;
+        self.garden_economy.forget_tree(tree_id);
         match removed {
             Some(record) => {
                 log::debug!(

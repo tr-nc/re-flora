@@ -1,0 +1,13 @@
+# Embedded balance data; rebuild after edits. Existing wallets keep their saved balance.
+starting_coins = 100
+apple_sell_price = 3
+grass_packet_price = 4
+grass_packet_size = 32
+flower_seed_packet_price = 10
+flower_seed_packet_size = 5
+flower_seedling_price = 6
+
+[saplings]
+apple_tree = 30
+pine = 25
+weeping_willow = 35

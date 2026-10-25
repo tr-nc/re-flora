@@ -915,6 +915,37 @@ impl SurfaceBuilder {
             .collect()
     }
 
+    /// The caller validates the two-cell substrate contact before spending a seed.
+    pub(crate) fn try_insert_finite_grass(
+        &mut self,
+        species_index: u32,
+        base: UVec3,
+        growth: u32,
+        spawn_start_ms: u32,
+    ) -> Result<bool> {
+        let chunk = self.chunk_id_for_world_voxel(base);
+        if !self.chunk_bound.in_bound(chunk) {
+            return Ok(false);
+        }
+        let local = base - chunk * self.voxel_dim_per_chunk;
+        if local.cmpge(self.voxel_dim_per_chunk).any() || local.cmpgt(UVec3::splat(255)).any() {
+            return Ok(false);
+        }
+        let index = self.get_chunk_resource_index(chunk)?;
+        self.resources.instances.chunk_flora_instances[index]
+            .1
+            .try_append_grass(
+                species_index as usize,
+                resources::Instance {
+                    packed_local_pos: local.x
+                        | (local.y << 8)
+                        | (local.z << 16)
+                        | (growth.min(255) << 24),
+                    spawn_start_ms,
+                },
+            )
+    }
+
     /// Low-level authored-flora storage primitive. Callers must validate the terrain anchor first.
     pub(crate) fn try_insert_authored_flora_instance_unchecked(
         &mut self,
@@ -938,6 +969,18 @@ impl SurfaceBuilder {
             return false;
         }
 
+        let existing = self.authored_flora.instances_for_chunk(chunk_id);
+        if existing
+            .iter()
+            .any(|i| i.species_index == species_index && i.base_world_vox == base_world_vox)
+            || existing
+                .iter()
+                .filter(|i| i.species_index == species_index)
+                .count()
+                >= resources::MAX_FLORA_INSTANCES_PER_SPECIES as usize
+        {
+            return false;
+        }
         self.authored_flora.next_response_id = self
             .authored_flora
             .next_response_id
@@ -945,12 +988,6 @@ impl SurfaceBuilder {
             .expect("authored flora lifetime id exhausted");
         let response_id = self.authored_flora.next_response_id;
         let chunk_instances = self.authored_flora.instances_for_chunk_mut(chunk_id);
-        if chunk_instances.iter().any(|instance| {
-            instance.species_index == species_index && instance.base_world_vox == base_world_vox
-        }) {
-            return false;
-        }
-
         chunk_instances.push(AuthoredFloraInstance {
             response_id,
             species_index,

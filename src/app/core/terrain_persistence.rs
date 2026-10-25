@@ -21,6 +21,8 @@ pub(super) struct GardenSnapshot {
     fences: garden_fence::FenceSnapshot,
     #[serde(default)]
     carried_soil: crate::soil_movement::CarriedSoil,
+    #[serde(default)]
+    economy: garden_economy::GardenEconomy,
 }
 
 impl GardenSnapshot {
@@ -40,6 +42,13 @@ impl GardenSnapshot {
         self.trees.validate()?;
         self.fences.validate(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)?;
         self.carried_soil.validate()?;
+        self.economy.validate()?;
+        anyhow::ensure!(
+            self.economy
+                .harvest_receipts()
+                .all(|key| self.trees.contains_tree(key.tree)),
+            "harvest receipt belongs to a missing tree"
+        );
         anyhow::ensure!(
             (0.0..=1.0).contains(&self.growth_override),
             "invalid flora growth override"
@@ -394,6 +403,7 @@ impl App {
             growth_override: self.debug_settings.adjustables.flora_growth_override.value,
             fences: self.garden_fence.saved.clone(),
             carried_soil: self.soil_shovel.carry.clone(),
+            economy: self.garden_economy.clone(),
         };
         garden.validate()?;
         let (flora_count, authored_count) = garden.flora.counts();
@@ -527,7 +537,11 @@ impl App {
         trees: PreparedTreeSnapshot,
     ) -> Result<()> {
         let migrated_trees = garden.trees.has_retired_trees();
-        self.restore_tree_snapshot(trees)?;
+        let previous_economy = std::mem::replace(&mut self.garden_economy, garden.economy);
+        if let Err(error) = self.restore_tree_snapshot(trees) {
+            self.garden_economy = previous_economy;
+            return Err(error);
+        }
         self.surface_builder.restore_flora_snapshot(
             &garden.flora,
             self.time_info.time_since_start_duration().as_millis() as u32,
@@ -696,6 +710,10 @@ mod tests {
         let garden = GardenSnapshot::decode(&bytes).unwrap();
         assert_eq!(garden.flora.counts(), (0, 0));
         assert_eq!(garden.trees.count(), 0);
+        assert_eq!(garden.economy, garden_economy::GardenEconomy::default());
+        let mut invalid: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        invalid["economy"] = serde_json::json!({"coins":100,"apples":1,"stock":{},"harvested":[{"tree":99,"fruit":7}]});
+        assert!(GardenSnapshot::decode(&serde_json::to_vec(&invalid).unwrap()).is_err());
         assert_eq!(
             garden.carried_soil.count(),
             0,

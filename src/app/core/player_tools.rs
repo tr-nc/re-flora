@@ -31,6 +31,7 @@ pub(super) enum PlayerTool {
     Rope,
     Plow,
     SoilShovel,
+    Harvest,
     Pavement,
     Wall,
     Placeable,
@@ -46,6 +47,7 @@ impl PlayerTool {
             super::ui_style::ROPE_SLOT_INDEX => Some(Self::Rope),
             super::ui_style::PLOW_SLOT_INDEX => Some(Self::Plow),
             super::ui_style::SOIL_SHOVEL_SLOT_INDEX => Some(Self::SoilShovel),
+            super::ui_style::HARVEST_SLOT_INDEX => Some(Self::Harvest),
             super::ui_style::PAVEMENT_SLOT_INDEX => Some(Self::Pavement),
             super::ui_style::WALL_SLOT_INDEX => Some(Self::Wall),
             super::ui_style::MOWER_SLOT_INDEX => Some(Self::Mower),
@@ -71,6 +73,7 @@ impl PlayerTool {
             Self::Rope => super::ui_style::ROPE_SLOT_INDEX,
             Self::Plow => super::ui_style::PLOW_SLOT_INDEX,
             Self::SoilShovel => super::ui_style::SOIL_SHOVEL_SLOT_INDEX,
+            Self::Harvest => super::ui_style::HARVEST_SLOT_INDEX,
             Self::Pavement => super::ui_style::PAVEMENT_SLOT_INDEX,
             Self::Wall => super::ui_style::WALL_SLOT_INDEX,
             Self::Mower => super::ui_style::MOWER_SLOT_INDEX,
@@ -101,6 +104,7 @@ impl PlayerTool {
                 | Self::ThinPole
                 | Self::ThickPole
                 | Self::Rope
+                | Self::Harvest
                 | Self::Pavement
                 | Self::Wall
         )
@@ -290,6 +294,7 @@ pub(super) enum PlayerToolPointerAction {
     FenceAction,
     ShovelScoop,
     ShovelDrop,
+    Harvest,
 }
 
 /// Select the gesture owner before entering an asynchronous single-pick queue.
@@ -642,6 +647,7 @@ impl PlayerToolRuntime {
             {
                 Some(PlayerToolPointerAction::PlantTree)
             }
+            (PlayerTool::Harvest, MouseButton::Left) => Some(PlayerToolPointerAction::Harvest),
             (PlayerTool::Stone, MouseButton::Left) => Some(PlayerToolPointerAction::StonePlacement),
             (PlayerTool::Lantern, MouseButton::Left) => {
                 Some(PlayerToolPointerAction::LanternPlacement)
@@ -824,6 +830,21 @@ mod tests {
         assert_eq!(runtime.active_continuous_action(), None);
         runtime.set_pointer_button_state(MouseButton::Left, ElementState::Released);
         assert!(!runtime.finish_pointer_release());
+    }
+
+    #[test]
+    fn harvest_is_one_primary_click_and_never_a_held_brush() {
+        let mut runtime = PlayerToolRuntime::default();
+        runtime.select_item_panel_slot(crate::app::core::ui_style::HARVEST_SLOT_INDEX);
+        assert_eq!(runtime.selected_tool(), PlayerTool::Harvest);
+        assert!(!runtime.selected_tool().uses_terrain_edit_radius());
+        runtime.set_pointer_button_state(MouseButton::Left, ElementState::Pressed);
+        assert_eq!(
+            runtime.begin_pointer_action(MouseButton::Left),
+            Some(PlayerToolPointerAction::Harvest)
+        );
+        assert_eq!(runtime.active_continuous_action(), None);
+        assert!(!runtime.has_secondary_pointer_action());
     }
 
     #[test]
