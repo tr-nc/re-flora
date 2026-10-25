@@ -2,7 +2,7 @@ use super::placeables::PlaceableKind;
 use super::player_tools::{ContinuousTerrainToolAction, PlayerTool, PlayerToolSelectionUpdate};
 use super::App;
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
-use crate::app::world_edits::{TerrainBrushEdit, TreeAddOptions, TreePlacement};
+use crate::app::world_edits::TerrainBrushEdit;
 use crate::flora::species;
 use crate::tracer::TerrainEditPreviewShape;
 use glam::{Vec2, Vec3};
@@ -1626,11 +1626,7 @@ impl App {
                 match placeable_kind {
                     PlaceableKind::Tree => {
                         let tree_desc = self.tree_placement_preview_desc.clone();
-                        if let Err(err) = self.add_tree(
-                            tree_desc,
-                            TreePlacement::World(center),
-                            TreeAddOptions::default().with_new_id(),
-                        ) {
+                        if let Err(err) = self.plant_growing_tree(tree_desc, center) {
                             log::error!("Failed to plant tree: {}", err);
                         } else {
                             log::info!("Planted tree at {:?}", center);

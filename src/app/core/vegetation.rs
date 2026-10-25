@@ -1,5 +1,7 @@
 use super::launch_owners;
+mod growth;
 mod snapshot;
+pub(super) use growth::SAPLING_AGE;
 mod species_review;
 pub(super) use species_review::TreeSpeciesReview;
 mod surface;
@@ -245,6 +247,7 @@ impl TerrainSurfaceRemovalService {
 }
 
 struct CompiledTreePlacement {
+    age: f32,
     trunk_voxel_edit: VoxelEdit,
     trunk_geometry: TreeTrunkGeometry,
     rebuild_bound: UAabb3,
@@ -526,18 +529,23 @@ impl TreePlacementService {
         } else {
             1.0
         };
-        let fruit_specs = tree_fruit_specs(
-            &mature_tree_desc,
-            tree_pos * 256.0,
-            &mature_leaf_positions,
-            position_scale,
-        );
+        let fruit_specs = if tree_age >= 0.75 {
+            tree_fruit_specs(
+                &mature_tree_desc,
+                tree_pos * 256.0,
+                &mature_leaf_positions,
+                position_scale,
+            )
+        } else {
+            Vec::new()
+        };
 
         let trunk_geometry = TreeTrunkGeometry {
             bvh_nodes: bvh_nodes.clone(),
             round_cones: round_cones.clone(),
         };
         CompiledTreePlacement {
+            age: tree_age,
             trunk_voxel_edit: VoxelEdit::StampRoundCones {
                 bvh_nodes,
                 round_cones,
@@ -999,6 +1007,8 @@ impl<'a, H: TreePublicationPrimitiveHost> TreePublicationExecutor<'a, H> {
 
 #[derive(Clone, Debug)]
 struct TreeRecord {
+    age: f32,
+    growth_seconds: Option<f32>,
     position: Vec3,
     bound: UAabb3,
     mature_desc: TreeDesc,
@@ -1048,6 +1058,8 @@ impl PreparedTreePublication {
             leaf_anchor_count: compiled.quantized_leaf_positions.len(),
             cluster_elapsed,
             record: TreeRecord {
+                age: compiled.age,
+                growth_seconds: None,
                 position: compiled.tree_pos,
                 bound: compiled.this_bound,
                 mature_desc,
@@ -1125,6 +1137,7 @@ pub(super) struct GardenTrees {
     next_canopy_acoustic_generation: u64,
     tuned_tree_id: u32,
     staged_tuned_mature_desc: Option<TreeDesc>,
+    growth_publication_cooldown: f32,
     previous_bound: UAabb3,
     leaf_emitters: TreeLeafEmitterRuntime,
 }
@@ -1139,6 +1152,7 @@ impl GardenTrees {
             next_canopy_acoustic_generation: 1,
             tuned_tree_id: 0,
             staged_tuned_mature_desc: None,
+            growth_publication_cooldown: 0.,
             previous_bound: UAabb3::default(),
             leaf_emitters: TreeLeafEmitterRuntime::new(leaf_emitter_desc),
         }
@@ -1153,6 +1167,7 @@ impl GardenTrees {
             next_canopy_acoustic_generation: self.next_canopy_acoustic_generation,
             tuned_tree_id: self.tuned_tree_id,
             staged_tuned_mature_desc: None,
+            growth_publication_cooldown: 0.,
             previous_bound: self.previous_bound,
             leaf_emitters: self.leaf_emitters.empty_like(),
         }
@@ -2644,7 +2659,11 @@ impl App {
     }
 
     pub(super) fn update_all_tree_ages_from_gui(&mut self) -> Result<()> {
-        let records = self.trees.take_age_rebuild_sources();
+        let mut records = self.trees.take_age_rebuild_sources();
+        for (_, record) in &mut records {
+            record.age = self.debug_settings.adjustables.tree_age.value;
+            record.growth_seconds = None; // Explicit manual override freezes automatic clocks.
+        }
         self.rebuild_tree_records(records)
     }
 
@@ -2674,7 +2693,6 @@ impl App {
             return Ok(());
         }
 
-        let tree_age = self.debug_settings.adjustables.tree_age.value;
         let total_start = Instant::now();
         let mut publications = Vec::with_capacity(records.len());
         let mut performance = Vec::with_capacity(records.len());
@@ -2686,7 +2704,7 @@ impl App {
                 record.mature_desc.clone(),
                 record.position,
                 UAabb3::default(),
-                tree_age,
+                record.age,
                 canopy_generation,
                 self.debug_settings
                     .adjustables
@@ -2697,11 +2715,10 @@ impl App {
             let trunk_count = compiled.trunk_geometry.round_cones.len();
             rebuild_chunk_ids
                 .extend(self.tree_rebuild_chunk_ids(record.bound, compiled.this_bound));
-            publications.push(PreparedTreePublication::new(
-                tree_id,
-                record.mature_desc,
-                compiled,
-            ));
+            let mut publication =
+                PreparedTreePublication::new(tree_id, record.mature_desc, compiled);
+            publication.record.growth_seconds = record.growth_seconds;
+            publications.push(publication);
             performance.push((compile_elapsed, trunk_count));
         }
 
@@ -2729,9 +2746,8 @@ impl App {
         }
 
         log::info!(
-            "Rebuilt {} trees at global age {:.3} across {} chunks",
+            "Rebuilt {} trees at individual ages across {} chunks",
             receipts.len(),
-            tree_age,
             rebuild_chunk_ids.len(),
         );
         Ok(())
@@ -3047,6 +3063,9 @@ impl App {
             )?;
             let terrain_changed = stats.stats.removed_counts.iter().any(|&count| count > 0)
                 || stats.stats.added_counts.iter().any(|&count| count > 0);
+            if stats.stats.removed_counts[VOXEL_TYPE_CHERRY_WOOD as usize] > 0 {
+                self.pause_tree_growth_after_wood_edit(rebuild_bound);
+            }
             self.clear_surface_occupants_in_brush(
                 edit,
                 SurfaceOccupantClearPath::TerrainRebuild {

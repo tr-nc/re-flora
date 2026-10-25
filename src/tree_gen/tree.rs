@@ -271,7 +271,12 @@ fn generate_leaf_sprays(
     let width_radius = (along_radius * desc.leaf_spray_width_ratio.max(0.05)).max(1.0);
     let thickness_radius = (along_radius * desc.leaf_spray_thickness_ratio.max(0.05)).max(1.0);
     let spray_volume = 4.0 / 3.0 * PI * along_radius * width_radius * thickness_radius;
-    let leaves_per_spray = (spray_volume * desc.leaf_density.max(0.0)).round() as usize;
+    let leaves_per_spray = if desc.leaf_density > 0. {
+        // Positive foliage must survive quantization on tiny young sprays.
+        (spray_volume * desc.leaf_density).round().max(1.) as usize
+    } else {
+        0
+    };
     let mut placements = Vec::with_capacity(anchors.len().saturating_mul(leaves_per_spray));
 
     let mut bindings = Vec::with_capacity(placements.capacity());
@@ -307,6 +312,15 @@ fn generate_leaf_sprays(
             placements.push(LeafPlacement { position, anchor });
             bindings.push(branch_index);
             emitted += 1;
+        }
+        if leaves_per_spray > 0 && emitted == 0 {
+            // Keep the visibility contract even when every bounded random attempt
+            // misses the ellipsoid. Its center is always an admissible sample.
+            placements.push(LeafPlacement {
+                position: spray_center,
+                anchor,
+            });
+            bindings.push(branch_index);
         }
     }
 

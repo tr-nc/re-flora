@@ -14,8 +14,13 @@ impl App {
             .iter()
             .filter(|saved| saved.mature_desc.is_retired())
             .flat_map(|saved| {
-                Tree::new(saved.mature_desc.saved_geometry_desc().at_age(snapshot.age))
-                    .world_trunks(Vec3::from_array(saved.position))
+                Tree::new(
+                    saved
+                        .mature_desc
+                        .saved_geometry_desc()
+                        .at_age(saved.age.unwrap_or(snapshot.age)),
+                )
+                .world_trunks(Vec3::from_array(saved.position))
             })
             .collect();
         let current: Vec<_> = self

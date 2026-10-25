@@ -139,7 +139,7 @@ known limitations; partially implemented items remain open.
 | [x] | 10 Plow | Drag furrows and displaced piles; exact soil conservation through boundaries/blockage/rollback; native validation |
 | [x] | 11 Shovel | Press-scoop/hold-carry/release-deposit; reused deposition; soil ownership/cancel/load safety; explicit support/collapse behavior |
 | [ ] | 12 Apples, storage, currency and shop | Aim/collect; persistent inventory and money; purchase seeds/seedlings/saplings; unlimited-resource debug mode |
-| [ ] | 13 Sapling growth | Plant young trees, advance age with time, compatible saves; screenshots of multiple intermediate ages |
+| [x] | 13 Sapling growth | Per-tree staged clocks, compatible old ages, edit/obstruction safety; native save/reload and four age captures. See `docs/garden-saplings.md`. |
 | [ ] | 14 Bees and attached hives | Cached-angle post-processing; hives only on tree/pole anchors; documented husbandry choice and removal/load behavior |
 | [ ] | 15 Aggregate validation | Release ready, clean local commits, full checklist audit, all remaining risks/blockers explicit; no unrequested push |
 | [ ] | 16 Final HTML report | Local HTML report with completed outcomes, actual screenshots, performance comparisons, validation evidence, feedback/limitations and explicit incomplete items; matches this checklist |
@@ -241,6 +241,16 @@ known limitations; partially implemented items remain open.
   pass; inspected held/drop screenshots. Carry presentation is a simple brown
   clump/status, not a finished hand/shovel animation. No subjective input approval
   or sustained-drag performance pass is claimed.
+- Saplings: catalog trees start at age 0.375 and mature over 900 simulated seconds,
+  with one staged publication at most per half second and stable per-tree clocks.
+  Old saves retain their age without starting automatic growth. Native captures
+  show 9.933 / 18.521 / 33.719 / 39.099-voxel Apple trees at four ages; actual
+  middle-age save/reload and a normal-clock stage transition pass. Wood editing,
+  manual age override and Rock obstruction freeze growth without undoing edits.
+  Vegetation/tree-generation/persistence checks and Release smoke pass. First-pass
+  saplings remain sparse; thin lateral wood can appear fragmented. Single-stage
+  costs including preflight were 13.116 and 18.905 ms, not dense-garden acceptance.
+  No offline catch-up, seasonal simulation or subjective art approval is claimed.
 - Prior full test baseline: nine unrelated failures reproduced on `9e2b7977`
   (seven raster-tree tests and two saved-default expectations). Recheck rather
   than assuming any later failure belongs to that baseline.

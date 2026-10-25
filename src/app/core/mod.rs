@@ -1748,7 +1748,7 @@ impl App {
         let mesh = build_tree_preview_mesh(
             &self
                 .tree_placement_preview_desc
-                .at_age(self.debug_settings.adjustables.tree_age.value),
+                .at_age(vegetation::SAPLING_AGE),
         );
         self.tracer.upload_tree_geometry_preview(&mesh)
     }
@@ -2362,6 +2362,11 @@ impl App {
                 );
                 if world_updates_running && world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
+                    if let Err(error) =
+                        self.advance_tree_growth(world_tick_steps as f32 * world_tick_seconds)
+                    {
+                        log::error!("Tree growth failed: {error:#}");
+                    }
                     let gui = &self.debug_settings.adjustables;
                     if let Err(error) = self.surface_builder.advance_plant_hydration(
                         &mut self.plain_builder,

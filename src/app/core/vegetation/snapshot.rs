@@ -15,6 +15,10 @@ struct SavedTree {
     id: u32,
     position: [f32; 3],
     mature_desc: TreeDesc,
+    #[serde(default)]
+    age: Option<f32>,
+    #[serde(default)]
+    growth_seconds: Option<f32>,
 }
 
 pub(in crate::app::core) struct PreparedTreeSnapshot {
@@ -53,6 +57,7 @@ impl TreeSnapshot {
         let mut ids = HashSet::new();
         let mut total_budget = 0u64;
         for tree in &self.trees {
+            super::growth::validate_growth(tree.age.unwrap_or(self.age), tree.growth_seconds)?;
             anyhow::ensure!(
                 tree.id < u32::MAX && ids.insert(tree.id),
                 "invalid or duplicate tree identity"
@@ -134,11 +139,13 @@ impl TreeSnapshot {
                     original.clone(),
                     Vec3::from_array(saved.position),
                     UAabb3::default(),
-                    self.age,
+                    saved.age.unwrap_or(self.age),
                     generation_start + index as u64,
                     sample_budget,
                 );
-                PreparedTreePublication::new(saved.id, original, compiled)
+                let mut publication = PreparedTreePublication::new(saved.id, original, compiled);
+                publication.record.growth_seconds = saved.growth_seconds;
+                publication
             })
             .collect();
         Ok(PreparedTreeSnapshot {
@@ -342,6 +349,8 @@ impl App {
                 id,
                 position: record.position.to_array(),
                 mature_desc: record.mature_desc.clone(),
+                age: Some(record.age),
+                growth_seconds: record.growth_seconds,
             })
             .collect::<Vec<_>>();
         trees.sort_by_key(|tree| tree.id);
@@ -405,8 +414,35 @@ mod tests {
                 id: 7,
                 position: [0.5, 0.5, 0.5],
                 mature_desc: desc,
+                age: None,
+                growth_seconds: None,
             }],
         }
+    }
+
+    #[test]
+    fn individual_ages_and_growth_clocks_round_trip_without_resetting_legacy_trees() {
+        let legacy = fixture();
+        let old = legacy.prepare(1, 8).unwrap();
+        assert_eq!(old.publications[0].record.age, 0.37);
+        assert!(old.publications[0].record.growth_seconds.is_none());
+        let mut saved = legacy;
+        saved.trees[0].age = Some(0.5);
+        saved.trees[0].growth_seconds = Some(300.);
+        let mut adult = saved.trees[0].clone();
+        adult.id = 8;
+        adult.age = Some(1.);
+        adult.growth_seconds = None;
+        saved.trees.push(adult);
+        let decoded: TreeSnapshot =
+            serde_json::from_slice(&serde_json::to_vec(&saved).unwrap()).unwrap();
+        let restored = decoded.prepare(10, 8).unwrap();
+        assert_eq!(restored.publications[0].record.age, 0.5);
+        assert_eq!(restored.publications[0].record.growth_seconds, Some(300.));
+        assert_eq!(restored.publications[1].record.age, 1.);
+        assert!(restored.publications[1].record.growth_seconds.is_none());
+        saved.trees[0].growth_seconds = Some(-1.);
+        assert!(saved.validate().is_err());
     }
 
     #[test]
@@ -449,6 +485,8 @@ mod tests {
                 id,
                 position: [0.5 + (id - 7) as f32 * 0.5, 0.5, 0.5],
                 mature_desc: desc,
+                age: None,
+                growth_seconds: None,
             });
         }
         for (index, species) in crate::tree_gen::TreeSpecies::PLANTABLE
@@ -461,6 +499,8 @@ mod tests {
                 id: 10 + index as u32,
                 position: [0.5 + index as f32 * 0.5, 0.5, 1.5],
                 mature_desc: desc,
+                age: None,
+                growth_seconds: None,
             });
         }
         let decoded: TreeSnapshot =
@@ -472,7 +512,7 @@ mod tests {
         for (saved, published) in snapshot.trees.iter().zip(prepared.publications.iter()) {
             assert_eq!(saved.mature_desc, published.record.mature_desc);
             assert_eq!(saved.id, published.tree_id);
-            let expected = Tree::new(saved.mature_desc.at_age(snapshot.age));
+            let expected = Tree::new(saved.mature_desc.at_age(saved.age.unwrap_or(snapshot.age)));
             assert_eq!(expected.branches(), published.record.rest_tree.branches());
             if !saved.mature_desc.species.bears_apples() {
                 assert!(published.record.fruit_specs.is_empty());
@@ -490,7 +530,7 @@ mod tests {
                     saved.mature_desc.clone(),
                     Vec3::from_array(saved.position),
                     UAabb3::default(),
-                    snapshot.age,
+                    saved.age.unwrap_or(snapshot.age),
                     1,
                     8
                 )
@@ -570,6 +610,8 @@ mod tests {
                 id: index as u32 + 8,
                 position: [0.75, 0.5, 0.75],
                 mature_desc: desc,
+                age: None,
+                growth_seconds: None,
             });
         }
         let prepared = snapshot.prepare(1, 8).unwrap();

@@ -18,6 +18,19 @@ fn taper(radius: f32, steps: usize, tip_ratio: f32) -> Vec<f32> {
         .collect()
 }
 
+fn growing_leader_radii(desc: &TreeDesc, mut radii: Vec<f32>) -> Vec<f32> {
+    // Garden saplings author a slender cylindrical leader before developing the
+    // mature taper. Keeping this in the architectural recipe preserves the
+    // authored-radius contract of the axis compiler and legacy tree profiles.
+    if desc.growth_age < 1. && desc.trunk_thickness > 0. {
+        let mature_blend = ((desc.growth_age - 0.5) * 2.).clamp(0., 1.);
+        for radius in &mut radii {
+            *radius = 0.85 + (*radius - 0.85) * mature_blend;
+        }
+    }
+    radii
+}
+
 fn reveal(birth: f32, duration: f32, steps: usize) -> Vec<f32> {
     (0..=steps)
         .map(|i| (birth + duration * i as f32 / steps as f32).min(1.))
@@ -38,7 +51,7 @@ pub(super) fn spreading(desc: &TreeDesc, profile: &SpreadingCrown) -> AxisSkelet
             Vec3::Y * height * u + lean * (u * u + 0.18 * (u * PI).sin())
         })
         .collect();
-    let trunk_radii = taper(desc.size * desc.trunk_thickness, 8, 0.06);
+    let trunk_radii = growing_leader_radii(desc, taper(desc.size * desc.trunk_thickness, 8, 0.06));
     let trunk = out.axis(None, &trunk_points, &trunk_radii, &reveal(0., 0.48, 8));
 
     // Unequal scaffold levels, not a stack of identical umbrellas. The trunk remains
@@ -152,6 +165,7 @@ pub(super) fn layered(desc: &TreeDesc, profile: &LayeredCrown) -> AxisSkeleton {
         .iter()
         .map(|&u| desc.size * desc.trunk_thickness * (1. - 0.97 * u).powf(0.85))
         .collect();
+    let radii = growing_leader_radii(desc, radii);
     let ages: Vec<_> = heights.iter().map(|&u| u * 0.50).collect();
     let trunk = out.axis(None, &points, &radii, &ages);
     for station in 3..=11 {
