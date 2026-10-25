@@ -261,7 +261,6 @@ pub(super) fn freeze_render_frame_inputs(
         field: crate::wind_field::WindFieldFrame::default(),
     };
     let environment = EnvironmentFrameInput {
-        vegetation_spray_response: gui.vegetation_spray_response.value,
         sprinkler_size_scale: gui.sprinkler_size_scale.value,
         sprinkler_spray_angle: gui.sprinkler_spray_angle.value,
         sprinkler_rotation_speed: gui.sprinkler_rotation_speed.value,
@@ -799,7 +798,6 @@ mod tests {
                 field: crate::wind_field::WindFieldFrame::default(),
             },
             environment: EnvironmentFrameInput {
-                vegetation_spray_response: settings.adjustables.vegetation_spray_response.value,
                 sprinkler_size_scale,
                 sprinkler_spray_angle,
                 sprinkler_rotation_speed,

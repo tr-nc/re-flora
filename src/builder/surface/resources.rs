@@ -135,10 +135,7 @@ impl TreeLeavesInstance {
 }
 
 pub struct FloraInstanceResources {
-    /// Immutable grass identity snapshots, refreshed only after a completed GPU
-    /// occupancy publication. Water response never reads instance data per frame.
-    pub grass_response_instances: [Arc<[Instance]>; 2],
-    /// Same species-major ordering as the authored draw streams.
+    /// Same species-major ordering as the authored draw streams. No ordinary grass state.
     pub authored_response_instances: Vec<super::AuthoredFloraInstance>,
     #[allow(dead_code)]
     pub chunk_id: UVec3,
@@ -195,28 +192,12 @@ impl FloraInstanceResources {
             .expect("initialize grass growth-potential field");
         Self {
             chunk_id,
-            grass_response_instances: std::array::from_fn(|_| Arc::from([])),
             authored_response_instances: Vec::new(),
             chunk_world_offset: chunk_id * voxel_dim_per_chunk,
             resource,
             grass_growth_potential_levels: Resource::new(grass_growth_potential_levels),
             species_instance_len: [0; species::MAX_FLORA_SPECIES],
         }
-    }
-
-    pub fn publish_grass_response_instances(&mut self) -> Result<()> {
-        for species in 0..2 {
-            let bytes = self.resource.instances_buf.read_back_range(
-                Self::species_offset(species) as u64 * 8,
-                self.species_len(species) as u64 * 8,
-            )?;
-            let instances: Vec<Instance> = bytes
-                .chunks_exact(8)
-                .map(bytemuck::pod_read_unaligned)
-                .collect();
-            self.grass_response_instances[species] = instances.into();
-        }
-        Ok(())
     }
 
     pub fn species_offset(species_index: usize) -> u32 {

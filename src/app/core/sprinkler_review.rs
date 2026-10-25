@@ -131,15 +131,6 @@ impl Review {
             "near",
             "rotary-near",
             "rotary-tall",
-            "rotary-water",
-            "rotary-water-off",
-            "rotary-water-invisible",
-            "rotary-water-wall",
-            "rotary-water-recovery",
-            "rotary-water-overlap",
-            "rotary-water-overlap-off",
-            "rotary-water-lifecycle",
-            "rotary-water-release",
             "rotary-design-current",
             "rotary-design-impact",
             "rotary-design-garden",
@@ -753,27 +744,6 @@ impl App {
                     0.0
                 };
             }
-            if review.mode.starts_with("rotary-water") {
-                base.x = 0.65;
-                base.z = 1.0;
-                let gui = &mut self.debug_settings.adjustables;
-                gui.sprinkler_placement_type.value = 1;
-                gui.vegetation_spray_response.value = !review.mode.ends_with("-off");
-                gui.sprinkler_mist_density.value = if review.mode.ends_with("-invisible") {
-                    0.0
-                } else {
-                    1.0
-                };
-                gui.sprinkler_rotation_speed.value = 60.0;
-                gui.sprinkler_spray_angle.value = 60.0;
-                if review.mode.ends_with("-wall") {
-                    self.stamp_sprinkler_review_box(
-                        base + Vec3::new(0.08, -0.01, -0.8),
-                        base + Vec3::new(0.08 + 1.0 / 256.0, 0.6, 0.8),
-                        crate::builder::VOXEL_TYPE_ROCK,
-                    )?;
-                }
-            }
             if review.mode == "rotary-tall" {
                 let gui = &mut self.debug_settings.adjustables;
                 gui.sprinkler_placement_type.value = 1;
@@ -921,16 +891,6 @@ impl App {
                 gui.sprinkler_wet_patch_size.value = 2.6;
                 self.sprinkler_diagnostic_timing.duty_percent = 100.0;
             }
-            if let Ok(value) = std::env::var("RE_FLORA_VEGETATION_WATER_AB") {
-                ensure!(
-                    value == "0" || value == "1",
-                    "water diagnostic A/B expects 0 or 1"
-                );
-                self.debug_settings
-                    .adjustables
-                    .vegetation_spray_response
-                    .value = value == "1";
-            }
             if review.mode == "rotary-perf" {
                 let (count, overlap, duty) = sprinkler_perf_parameters()?;
                 base.x = 0.75;
@@ -956,29 +916,6 @@ impl App {
                 log::info!("[SPRINKLER_PERF] count={count} overlap={overlap} angle=30 rpm=5 hz=5 duty={duty} intensity=6 droplets=true seed=fixture camera_target={base:?} camera_offset=(0.75,0.55,0.90) saved=false");
             } else {
                 self.apply_sprinkler_placement(base)?;
-            }
-            if review.mode.starts_with("rotary-water") {
-                if review.mode.contains("-overlap") {
-                    for i in 1..16 {
-                        self.apply_sprinkler_placement(base + Vec3::X * (i as f32 * 0.0001))?;
-                    }
-                }
-                for (species, center, radius) in [
-                    (0, base + Vec3::X * 0.3, 0.5),
-                    (1, base - Vec3::X * 0.15, 0.12),
-                ] {
-                    self.player_tools.planting.flora_index = species;
-                    self.apply_surface_flora_regeneration_at(
-                        TerrainBrushEdit {
-                            start: center,
-                            end: center,
-                            radius,
-                        },
-                        1,
-                        true,
-                        0,
-                    )?;
-                }
             }
             if review.mode.starts_with("mist-pop-") || review.mode == "mist-overlap-256" {
                 let count = review.mode.rsplit('-').next().unwrap().parse::<usize>()?;
@@ -1261,79 +1198,6 @@ impl App {
             log::info!("[SPRINKLER_ROTARY_REVIEW] step={} whole_assembly=true internal_poses={} live_samples={} explicit_readback=true",
                 review.frame / 40, crate::sprinkler::ROTARY_FRAMES, live.len());
         }
-        if review.mode == "rotary-water-lifecycle" {
-            match review.frame {
-                240 => {
-                    self.debug_settings
-                        .adjustables
-                        .vegetation_spray_response
-                        .value = false
-                }
-                480 => {
-                    self.debug_settings
-                        .adjustables
-                        .vegetation_spray_response
-                        .value = true
-                }
-                600 => {
-                    let center = base + Vec3::X * 0.3;
-                    let edit = TerrainBrushEdit {
-                        start: center,
-                        end: center,
-                        radius: 0.09,
-                    };
-                    self.apply_surface_flora_removal(edit)?;
-                    self.apply_surface_flora_regeneration_at(edit, 600, true, 6000)?;
-                }
-                _ => (),
-            }
-        }
-        if review.mode == "rotary-water-release" && review.frame == 360 {
-            self.terrain_physics.request_diagnostic_fruit_kicks();
-        }
-        if review.mode.starts_with("rotary-water") && matches!(review.frame, 180 | 360 | 720) {
-            let states = self.tracer.vegetation_water_review()?;
-            let mut wet = [0usize; 3];
-            let mut peak = [0f32; 3];
-            let mut speed = 0f32;
-            let mut behind = 0;
-            for (key, state) in &states {
-                ensure!(
-                    state.iter().all(|v| v.is_finite()),
-                    "nonfinite water response"
-                );
-                let group = if key[3] < 2 {
-                    0
-                } else if key[3] == 8 {
-                    1
-                } else {
-                    2
-                };
-                wet[group] += usize::from(state[3] > 0.001);
-                peak[group] = peak[group].max(state[3]);
-                speed = speed.max(Vec3::from_slice(&state[4..7]).length());
-                behind += usize::from(
-                    key[0] as f32 / 256.0 > base.x + 0.08 + 1.0 / 256.0 && state[3] > 0.00001,
-                );
-            }
-            if !self
-                .debug_settings
-                .adjustables
-                .vegetation_spray_response
-                .value
-            {
-                ensure!(states.is_empty(), "disabled water state is visible");
-            } else if review.frame == 360 {
-                ensure!(wet[0] > 0, "grass did not receive spray");
-            }
-            if review.mode.ends_with("-wall") {
-                ensure!(behind == 0, "plant water leaked through terrain: {behind}");
-            }
-            log::info!("[VEGETATION_WATER][REVIEW] mode={} frame={} receivers={} wet_grass={} wet_leaves={} wet_apples={} peak={peak:?} speed={speed:.4} behind_wall={behind} readback=diagnostic_only",review.mode,review.frame,states.len(),wet[0],wet[1],wet[2]);
-        }
-        if review.mode == "rotary-water-recovery" && review.frame == 360 {
-            self.sprinkler_diagnostic_timing.duty_percent = 0.0;
-        }
         if review.mode == "rotary-tall" && review.frame == 180 {
             let lobes = self.tracer.sprinkler_mist_review_lobes()?;
             let live: Vec<_> = lobes
@@ -1425,7 +1289,6 @@ impl App {
             _ if review.isolates_wetting() || review.isolates_drying() => {
                 Vec3::new(0.001, 0.50, 0.001)
             }
-            _ if review.mode.starts_with("rotary-water") => Vec3::new(0.6, 0.42, 0.7),
             "rotary-tall" => Vec3::new(0.65, 0.28, 0.65),
             "rotary-perf" => Vec3::new(0.75, 0.55, 0.90),
             "rotary-top" => Vec3::new(0.001, 0.10, 0.001),
@@ -1750,9 +1613,7 @@ impl App {
             log::info!("[SPRINKLER_MIST_REVIEW] water_particles={water_particles} watering_brushes={:?} density={} particles_enabled={}",
                 review.watering_brushes, self.debug_settings.adjustables.sprinkler_mist_density.value,
                 self.render_flags.enable_particles);
-            let expected = if review.mode.starts_with("rotary-water-overlap") {
-                16
-            } else if review.mode == "rotary-perf" {
+            let expected = if review.mode == "rotary-perf" {
                 sprinkler_perf_parameters()?.0
             } else if review.mode.starts_with("mist-pop-")
                 || review.mode.starts_with("mist-overlap-")

@@ -1,0 +1,45 @@
+{
+  "hardware": "NVIDIA GeForce RTX 3060 Ti",
+  "units": "microseconds, GPU timestamp scope samples",
+  "scenario": "rotary-tall, single tall sprinkler, sparse scene",
+  "build": "Release, --flat-terrain --hidden --mute --auto-exit 14 --perf",
+  "before": "2594a656 with RE_FLORA_VEGETATION_WATER_AB=1",
+  "after": "water response code removed; Tall runtime matches 4d5a272a",
+  "limits": "One sequential pair; GPU timestamp log samples, not every frame. Not a broad performance acceptance benchmark.",
+  "results": {
+    "before": {
+      "records": 49,
+      "warmup_records_discarded": 5,
+      "frame_render": {
+        "samples": 44,
+        "median_us": 6437,
+        "p95_us": 9207
+      },
+      "sprinkler_prepare": {
+        "samples": 44,
+        "median_us": 2429.5,
+        "p95_us": 2983
+      },
+      "vegetation_water": {
+        "samples": 44,
+        "median_us": 9,
+        "p95_us": 152
+      }
+    },
+    "after": {
+      "records": 70,
+      "warmup_records_discarded": 5,
+      "frame_render": {
+        "samples": 65,
+        "median_us": 4543,
+        "p95_us": 5912
+      },
+      "sprinkler_prepare": {
+        "samples": 65,
+        "median_us": 721,
+        "p95_us": 810
+      },
+      "vegetation_water": null
+    }
+  }
+}

@@ -1,14 +1,27 @@
-# Sprinkler → vegetation：实现、证据与研究
+# Sprinkler → vegetation：已撤回实验的证据与研究
 
 日期：2026-10-25。研究基线：`966a03bde4d3fe6fbc3e566173630b3864f1b2b2`。
-实现：`4d5a272a`（Tall）、`377f75cf`（植物水响应）、
+历史实现：`4d5a272a`（Tall，继续保留）、`377f75cf`（植物水响应，已撤回）、
 `1d5bee2a`（苹果固定挂点与连续掉果交接）。
 
-状态：**功能已实现，Release 已构建；待用户视觉接受与后续性能优化，不宣称性能通过**。
+当前状态：**因性能成本不合适，植物 spray impact／wet weight 开关与动作系统已删除；
+Tall 高款喷头继续保留。不是默认关闭，也没有改开其他植物水效果。**
+
+保留高款的支架、更强喷射、上抛与下降弧线、更远覆盖和 Compact/Tall 放置选择；
+保留原有风、土壤浇水与土壤湿度驱动的草颜色。删除了植物水状态／身份快照、GPU 求解、
+额外地形支持裁剪、渲染绑定和掉果水状态交接。旧配置开关在加载边界退休，不自动改写文件。
+
+**以下旧功能、开关、运行命令与性能数据均为实验归档，不代表当前版本。
+当前使用说明见 [sprinkler-spray.md](../sprinkler-spray.md)。**
+
+移除后单高头稀疏场景的 Release GPU 整帧中位 6.437 → 4.543 ms、
+喷流准备 2.430 → 0.721 ms，植物水响应 pass 已不存在。
+仅一轮顺序配对，各 14 秒、44/65 个保留样本，不是全场景性能接受。
+[数据与命令](sprinkler-response-removal-performance.json)。
 交互版：[HTML report](sprinkler-vegetation-response.html)。
 报告中的实际游戏截图与独立二维 SVG 运动示意分别标注，示意不是生产模型。
 
-## 0. 本轮实际交付
+## 0. 历史实验交付（植物水响应已撤回）
 
 ### 怎么用
 
@@ -38,10 +51,10 @@
 | 开销 | 32-byte 状态、48-byte 输入、80-byte 物理 lobe；各已分配 frame slot 双输出、二次幂容量 | 哈希、身份快照等另计。接收点先遍历喷头 bounds 再遍历命中喷头的水束，未做细粒度空间索引或全干休眠 |
 
 关键入口：
-[water.rs](../../src/tracer/vegetation_response/water.rs)、
-[water compute](../../shader/slang/vegetation_water.comp.slang)、
-[solver](../../shader/slang/vegetation_water_solver.slang)、
-[terrain support](../../shader/slang/vegetation_water_geometry.slang)、
+[water.rs（历史版本）](https://github.com/tr-nc/re-flora/blob/377f75cf/src/tracer/vegetation_response/water.rs)、
+[water compute（历史版本）](https://github.com/tr-nc/re-flora/blob/377f75cf/shader/slang/vegetation_water.comp.slang)、
+[solver（历史版本）](https://github.com/tr-nc/re-flora/blob/377f75cf/shader/slang/vegetation_water_solver.slang)、
+[terrain support（历史版本）](https://github.com/tr-nc/re-flora/blob/377f75cf/shader/slang/vegetation_water_geometry.slang)、
 [publication](../../shader/slang/sprinkler_mist_prepare.comp.slang)、
 [fruit handoff](../../src/tracer/fruit_release.rs)。
 使用说明也见 [sprinkler-spray.md](../sprinkler-spray.md)。

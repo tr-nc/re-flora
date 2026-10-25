@@ -1,6 +1,9 @@
 # Sprinkler implementation captures
 
-Original game captures, not AI image generation or the report's SVG illustration.
+Historical game captures, not AI image generation or the report's SVG illustration.
+The plant spray-impact/wet-weight experiment has since been removed for performance
+cost; Tall sprinklers remain. These files document that earlier experiment, not
+current plant behavior.
 
 ## Source / attribution
 

@@ -203,7 +203,6 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_density");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_design");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_placement_type");
-        Self::add_missing_param(&mut config, "Debug", "vegetation_spray_response");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_size_scale");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_particles");
         // Retire obsolete sprinkler settings at the load boundary; do not rewrite user files.
@@ -216,13 +215,16 @@ impl GuiConfigLoader {
                         | "sprinkler_mist_flow"
                         | "sprinkler_design_variants"
                         | "sprinkler_mist_air"
+                        | "vegetation_spray_response"
                 )
             });
             for param in &mut section.param {
                 if param.enabled_if.as_ref().is_some_and(|condition| {
                     matches!(
                         condition.param.as_str(),
-                        "sprinkler_mist_flow" | "sprinkler_design_variants"
+                        "sprinkler_mist_flow"
+                            | "sprinkler_design_variants"
+                            | "vegetation_spray_response"
                     )
                 }) {
                     param.enabled_if = None;
@@ -1604,6 +1606,75 @@ mod tests {
                 serde_json::to_value(&loaded).unwrap(),
                 serde_json::to_value(GuiConfigLoader::load_from_path(&path)).unwrap()
             );
+        }
+    }
+
+    #[test]
+    fn spray_response_retires_without_changing_tall_sprinklers_or_wind() {
+        use crate::app::gui_config_model::{GuiParamConditionValue, GuiParamEnabledIf};
+        for enabled in [false, true] {
+            for section_name in ["Debug", "Grass Wind Response"] {
+                let mut config: GuiConfigFile =
+                    toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+                let params = &mut config
+                    .section
+                    .iter_mut()
+                    .find(|s| s.name == "Debug")
+                    .unwrap()
+                    .param;
+                let placement = params
+                    .iter_mut()
+                    .find(|p| p.id == "sprinkler_placement_type")
+                    .unwrap();
+                if let super::GuiParamValue::Choice { value, .. } = &mut placement.value {
+                    *value = 1;
+                } else {
+                    panic!("placement type must remain a choice");
+                }
+                let mut obsolete = params
+                    .iter()
+                    .find(|p| p.id == "sprinkler_mist_particles")
+                    .unwrap()
+                    .clone();
+                obsolete.id = "vegetation_spray_response".into();
+                obsolete.value = super::GuiParamValue::Bool { value: enabled };
+                let expected = config.clone();
+                config
+                    .section
+                    .iter_mut()
+                    .find(|s| s.name == section_name)
+                    .unwrap()
+                    .param
+                    .push(obsolete);
+                config
+                    .section
+                    .iter_mut()
+                    .flat_map(|s| &mut s.param)
+                    .find(|p| p.id == "sprinkler_rotation_speed")
+                    .unwrap()
+                    .enabled_if = Some(GuiParamEnabledIf {
+                    param: "vegetation_spray_response".into(),
+                    equals: GuiParamConditionValue::Bool(true),
+                });
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("gui.toml");
+                let original = toml::to_string_pretty(&config).unwrap();
+                std::fs::write(&path, &original).unwrap();
+                let loaded = GuiConfigLoader::load_from_path(&path);
+                assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+                assert_eq!(
+                    serde_json::to_value(&loaded).unwrap(),
+                    serde_json::to_value(&expected).unwrap()
+                );
+                GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+                assert!(!std::fs::read_to_string(&path)
+                    .unwrap()
+                    .contains("vegetation_spray_response"));
+                assert_eq!(
+                    serde_json::to_value(GuiConfigLoader::load_from_path(&path)).unwrap(),
+                    serde_json::to_value(&expected).unwrap()
+                );
+            }
         }
     }
 

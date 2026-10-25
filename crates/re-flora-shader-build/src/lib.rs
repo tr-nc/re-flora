@@ -667,12 +667,6 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
-        logical_path: "shader/foliage/vegetation_water.comp",
-        source_path: "shader/slang/vegetation_water.comp.slang",
-        module_path: "shader/slang",
-        stage: ShaderStage::Compute,
-    },
-    ShaderConfig {
         logical_path: "shader/tracer/sprinkler_air_splat.comp",
         source_path: "shader/slang/sprinkler_air_splat.comp.slang",
         module_path: "shader/slang",

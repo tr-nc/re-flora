@@ -754,15 +754,6 @@ impl SurfaceBuilder {
             assert_eq!(timing_pass_index, timing_passes.len());
         }
 
-        if let Some(index) = flora_chunk_idx {
-            cmdbuf.use_buffer(
-                &self.resources.instances.chunk_flora_instances[index]
-                    .1
-                    .resource
-                    .instances_buf,
-                BufferUse::HostRead,
-            );
-        }
         if let Some(scope) = gpu_scope {
             if let Some(profiler) = self.gpu_job_profiler.as_mut() {
                 profiler.end_scope(&cmdbuf, scope, PipelineStage::COMPUTE_SHADER);
@@ -849,7 +840,6 @@ impl SurfaceBuilder {
             for (species_idx, len) in result.flora_instance_len.iter().enumerate() {
                 chunk_resources_mut.set_species_len(species_idx, *len);
             }
-            chunk_resources_mut.publish_grass_response_instances()?;
             self.sync_authored_flora_chunk_to_gpu(job.chunk_id)?;
         }
         let flora_elapsed = flora_start.elapsed();
@@ -1590,13 +1580,6 @@ impl SurfaceBuilder {
             BufferUse::HostRead,
         );
 
-        cmdbuf.use_buffer(
-            &self.resources.instances.chunk_flora_instances[chunk_idx]
-                .1
-                .resource
-                .instances_buf,
-            BufferUse::HostRead,
-        );
         if pass_timing.is_some() {
             assert_eq!(timing_pass_index, flora_edit_timing_passes.len());
         }
@@ -1628,7 +1611,6 @@ impl SurfaceBuilder {
             chunk_resources_mut.set_species_len(species_idx, *len);
             after_total = after_total.saturating_add(*len);
         }
-        chunk_resources_mut.publish_grass_response_instances()?;
         self.sync_authored_flora_chunk_to_gpu(chunk_id)?;
 
         let appended_total = if mode == OccupancyEditMode::Add {

@@ -10,8 +10,6 @@ import sprinkler_spray_contact;
 import tracer_types;
 import tracer_shadowing;
 import wind_field;
-import vegetation_water_geometry;
-import vegetation_water_types;
 
 [[vk::binding(0,0)]] ConstantBuffer<U_CameraInfo> camera_info;
 [[vk::binding(2,0)]] ConstantBuffer<U_ShadingInfo> shading_info;
@@ -24,7 +22,6 @@ import vegetation_water_types;
 [[vk::binding(3,1)]] RWStructuredBuffer<B_SprinklerWaterContact> water_contacts;
 [[vk::binding(4,1)]] RWStructuredBuffer<B_SprinklerMistBounds> water_bounds;
 [[vk::binding(5,1)]] RWStructuredBuffer<B_SprinklerMistLobe> droplet_lobes;
-[[vk::binding(6,1)]] RWStructuredBuffer<VegetationWaterLobe> vegetation_spray;
 [[vk::push_constant]] ConstantBuffer<PushConstantSprinklerMist> mist_push;
 
 // Small sprinkler populations otherwise expose only two warps per instance.
@@ -68,7 +65,6 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
         uint droplet=index-mist_push.lobes_per_instance;
         B_SprinklerMistLobe lobe=(B_SprinklerMistLobe)0;
         B_SprinklerWaterContact contact=(B_SprinklerWaterContact)0;
-        VegetationWaterLobe plantWater=(VegetationWaterLobe)0;
         B_SprinklerInstance emitter=sprinkler_instances[instance];
         float4 pose=emitter.position_phase;
         float seconds=max(gui_input.world_tick_seconds,1.0/240.0);
@@ -139,8 +135,6 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
                 if(particle)boundsRadius=float3(radii.x*sqrt(2.0));
                 lobe.center_amplitude=float4(position,amplitude);
                 lobe.radii_near_geometry=float4(radii,mistLobeNearTerrain(position,boundsRadius) ? 1.0 : 0.0);
-                if(!particle && gui_input.vegetation_spray_response!=0u)
-                    plantWater=vegetationWaterLobe(position,boundsRadius,velocity,source.emission*airFraction);
                 float3 ambient=sampleDdgiVolumeEnvironment(shading_info,position).irradiance;
                 float visibility=mist_push.shadows_enabled==0u ? 1.0 :
                     sampleDirectSunShadow(pointSunShadowReceiver(position),gui_input,shadow_camera_info).combined;
@@ -152,7 +146,6 @@ void main(uint3 group:SV_GroupID,uint local:SV_GroupIndex)
         else {
             mist_lobes[instance*mist_push.lobes_per_instance+index]=lobe;
             water_contacts[instance*mist_push.lobes_per_instance+index]=contact;
-            vegetation_spray[instance*mist_push.lobes_per_instance+index]=plantWater;
         }
     }
     lowerBounds[local]=lo;upperBounds[local]=hi;

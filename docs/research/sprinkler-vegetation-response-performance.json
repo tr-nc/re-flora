@@ -1,4 +1,5 @@
 {
+  "status": "Historical experiment: plant spray response removed for performance cost; Tall sprinklers retained",
   "source_commit": "377f75cf",
   "hardware": "NVIDIA GeForce RTX 3060 Ti",
   "build": "Release, no Vulkan validation layers",

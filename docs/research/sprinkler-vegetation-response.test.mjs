@@ -129,6 +129,12 @@ test('actual captures are self-contained, byte-identical to documented originals
   assert.doesNotMatch(html, /游戏行为尚未修改|当前没有增量耗时结论/);
 });
 
+test('current status retires plant spray motion while retaining Tall sprinklers', () => {
+  assert.match(html, /植物喷水响应已移除，Tall 高款继续保留/);
+  assert.match(html, /不是仅默认关闭/);
+  assert.match(html, /旧 A\/B 开关、植物水响应 review 命令和性能增量仅作历史记录/);
+});
+
 test('measured costs expose version, percentiles, small samples and unfinished acceptance', () => {
   const data = JSON.parse(readFileSync(new URL('./sprinkler-vegetation-response-performance.json', report), 'utf8'));
   assert.equal(data.source_commit, '377f75cf');

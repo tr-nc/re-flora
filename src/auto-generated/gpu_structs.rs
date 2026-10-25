@@ -1034,7 +1034,6 @@ pub struct GuiInput {
     pub lens_flare_intensity: f32,
     pub lens_flare_sun_pixel_scale: f32,
     pub world_tick_seconds: f32,
-    pub vegetation_spray_response: u32,
     pub sprinkler_size_scale: f32,
     pub sprinkler_spray_angle: f32,
     pub sprinkler_rotation_speed: f32,
@@ -1074,7 +1073,7 @@ pub struct GuiInput {
     pub leaf_shadow_min_transmittance: f32,
     pub leaf_shadow_filter_radius_texels: f32,
     pub leaf_transmission_strength: f32,
-    pub _pad7: [u8; 8],
+    pub _pad7: [u8; 12],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (native Slang source of truth).
