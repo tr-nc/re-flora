@@ -1,7 +1,8 @@
 # Shared tree growth and species rules
 
-This is a behavior-preserving generation refactor, not a new botanical simulation. The public
-interface remains `Tree::new(mature_desc.at_age(age))`; planting, preview, snapshot restore, poses,
+The shared module originated as a behavior-preserving refactor, not a botanical simulation.
+The later requested Test/Garden Tree retirement is an intentional compatibility migration (below).
+The public interface remains `Tree::new(mature_desc.at_age(age))`; planting, preview, snapshot restore, poses,
 collision and rendering do not need species-specific construction paths.
 
 ## Ownership
@@ -28,7 +29,8 @@ saved TreeDesc + individual seed + age
 - **`src/tree_gen/species.rs`** registers each persistent species once. Label, fruit policy,
   authoring defaults and growth rule come from that definition. `uses_axis_model` derives from
   the same resolved rule used by generation, so GUI capability and snapshot-budget checks cannot
-  independently choose another generator. The old Conifer flag resolves its legacy adapter here.
+  independently choose another living generator. The old Conifer flag resolves its legacy adapter
+  here. `RetiredGardenTree` is only a wire marker, resolving to Apple rather than its own profile.
 - **`src/tree_gen/growth/rules.rs`** contains typed architectural recipes: crown height/width,
   scaffold ascent or sag, branch count, rising versus pendant shoots, and tip-only versus along-axis
   foliage. These are internal, code-declared recipes, **not a new external config format or GUI**.
@@ -45,11 +47,14 @@ saved TreeDesc + individual seed + age
   crown. It returns full branch identity even for wood not yet visible. `tree.rs` no longer chooses
   a species, checks legacy-versus-axis topology, or special-cases Apple foliage.
 - **`src/tree_gen/axis/legacy_conifer.rs`** isolates the frozen legacy axis layout. Its arithmetic,
-  RNG draw order and topology remain unchanged; recursive trees retain the existing generator.
+  RNG draw order and topology remain unchanged; recursive Conifer retains the shared generator.
+- **`src/tree_gen/compatibility.rs`** freezes historical missing-field defaults and normalizes retired
+  descriptions to Apple before age scaling. Snapshot migration uses the existing recursive adapter
+  with exact saved fields solely to identify old baked wood; this is not a selectable old morphology.
 
 ## Invariants
 
-1. A fixed authored description and seed reconstruct the same individual, including after save/load.
+1. A fixed current-species description and seed reconstruct the same individual, including after save/load.
    Age scales/reveals that individual rather than resampling its architecture.
 2. Every architectural side axis begins at its parent's endpoint. Segment parents precede children;
    a child is not revealed before its parent. Consecutive samples share radii and axis identity.
@@ -59,8 +64,12 @@ saved TreeDesc + individual seed + age
    preserved (apart from the existing normalization that new species always use axes).
 5. Fruit policy stays authoritative even when an incompatible nonzero apple probability is copied
    into a non-apple description. No new fruit lifecycle was introduced.
-6. Existing serialized identity, description fields, empty axis metadata for recursive trees and
-   Conifer A/B semantics remain compatible. No save migration or silent shape replacement occurs.
+6. Conifer A/B, Pine, Willow and existing Apple authoring remain unchanged. `garden_tree` and missing
+   species decode as retired metadata. Their replacement keeps ID, position, size, seed and global
+   age/fruit phase, but deliberately adopts current Apple authoring and morphology. GUI loading
+   normalizes the tuning description; garden loading replaces baked wood through the normal tree
+   transaction before completing restoration. Both old and replacement allocation budgets are
+   checked. Loading never overwrites the source file; saving writes the current Apple identity.
 
 ## Extending the system
 
@@ -81,12 +90,15 @@ plugin registry or runtime scripting system.
 
 - Growth is still deterministic procedural architecture plus age scaling/reveal. It does not react
   to sunlight competition, pruning history, obstacles or water by deciding where new buds emerge.
-- Legacy generators are intentionally retained behind the same interface, not rewritten to look
-  like the new species. Unifying the interface does not erase their saved appearance.
-- **The ordinary fresh garden still establishes four legacy Garden Trees.** Its opening recipe in
-  `src/garden_layout.rs` is independent of `[tree.desc]`. That saved tuning description and the new
-  planting selection default to Apple Tree; they do not replace the opening trees. Changing the
-  opening layout is a separate player-visible change.
+- Legacy Conifer's two modes and the shared recursive machinery used by other vegetation remain.
+  Test/Garden Tree no longer has an independent species profile or normal generation entry point;
+  only historical decoding and old-wood reconstruction are retained for safe migration.
+- **The ordinary fresh garden now establishes four current Apple Trees at the original anchors.**
+  Its compact size/leaf-spray fitting in `src/garden_layout.rs` remains independent of `[tree.desc]`.
+  This is a subsequent player-visible recipe change, not part of the earlier invariant refactor.
+- Retired trees' hand-edited wood is replaced with Apple geometry. Unretired trees take the normal
+  saved-atlas restoration path; overlapping trees follow existing replacement transaction semantics.
 
 Validation and the same-machine compatibility comparison are recorded in
-[`evidence/tree-growth-rules.md`](evidence/tree-growth-rules.md).
+[`evidence/tree-growth-rules.md`](evidence/tree-growth-rules.md). The later opening and retirement
+checks are in [`evidence/apple-opening-and-test-tree-retirement.md`](evidence/apple-opening-and-test-tree-retirement.md).

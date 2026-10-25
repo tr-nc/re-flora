@@ -8,11 +8,11 @@ preference is rewritten.
 
 | Launch | Terrain and vegetation |
 | --- | --- |
-| Ordinary fresh launch | Version 1 garden, seed `20260519` |
+| Ordinary fresh launch | Version 2 garden, seed `20260519` |
 | `--garden-seed <u32>` | Same composition recipe with independently addressed individual variation |
 | `--legacy-terrain` | Original procedural terrain and startup tuning tree |
 | `--flat-terrain` | Existing flat soil debugging path |
-| `--terrain-load <path>` | Saved bytes, flora, identities, growth and trees win, **even when empty** |
+| `--terrain-load <path>` | Saved layout/identities/growth win, **even when empty**; retired Test Trees migrate in place to Apple |
 | Fixed scenes, connectivity/lighting/canopy/foliage/denoiser fixtures | Existing scene ownership, not the garden recipe |
 | Opt-in `RE_FLORA_*REVIEW*`, `*BENCH*`, `*SMOKE*`, `*VALIDATE*` harnesses | Existing fixture path |
 
@@ -25,7 +25,11 @@ realized ground height. Default snapshot filenames remain operation targets, not
 The garden is generated only once, before startup saving. Runtime terrain publication,
 planting, mowing and loading do not refill it. Save using the ordinary Terrain & Plants
 controls or `--terrain-save <temporary-path>`. The existing snapshot format is unchanged;
-loaded saves contain realized geometry, not an instruction to rerun the recipe.
+loaded saves contain realized geometry, not an instruction to rerun the recipe. Retired
+`garden_tree` / missing-species descriptions are converted separately: their baked wood is replaced
+transactionally by current Apple geometry. This keeps position, ID, size, seed and global age;
+legacy wood edits are replaced along with that morphology. The source file is unchanged until an
+explicit Save. Other species do not migrate.
 
 ## Recipe and limits
 
@@ -35,18 +39,22 @@ flower lobes and sparse outliers. `garden_opening.rs` realizes these via normal 
 Grow occupancy, tree placement, authored flower placement and trim/removal transactions.
 Dirt has a 30-voxel upper layer over rock; there are no protected scene bits.
 
-- Four deterministic trees use existing geometry, bounded fitting of mature wood/canopy,
-  independent shape seeds and baked individual initial size/age variation. They do not
-  inherit the user's tuning-tree descriptor or age. Mature radial envelopes are capped
-  at 46 voxels, with trunk/route/border safety tests.
+- Four deterministic **Apple Trees** use the current shared Apple architecture and fruit lifecycle
+  at the original four anchors, with the original individual seed mapping. Bounded size fitting and
+  compact level-4 leaf sprays keep actual generated wood and leaf positions within a 46-voxel
+  radius; shrinking only wood beneath full-sized leaf clouds was rejected in native review.
+  They do not inherit the user's tuning-tree descriptor or age. Route/border tests and real capsule
+  traversal verify clearance. There is no fruit-disable override or opening-only branch recipe.
+  Version 2 changes trees only; the independent flower hash salt remains at its original value.
 - At most 180 authored flowers, 2,304 candidate attempts, nine-voxel anchor separation,
   valid realized soil columns, stable species keys (`wild-geranium`, `forget-me-not`,
   `oxeye-daisy`) and explicit clustering/outlier hashes. Rejection terminates even when
   every candidate is invalid. Initial growth is 210–255/255, not seed-only growth.
 - Ordinary short grass is established once, with three taller mixed patches. It uses
   the existing occupancy density and per-chunk/per-species allocator limits (40,000),
-  not a new per-frame scattering system. The accepted default snapshot contains
-  **130,010 ordinary grass instances plus 180 flowers**, and four trees. This is not a
+  not a new per-frame scattering system. The original version-1 accepted snapshot contained
+  **130,010 ordinary grass instances plus 180 flowers**, and four trees. Grass totals can change
+  with the trees' republished footprint; the version-2 flower fingerprint remains `c285dfeb`. This is not a
   promise of 180 total vegetation instances; grass has its own existing storage budget.
 - Arrival/route/pocket mowing reserves real plantable room; short trimmed margins soften
   the opening. All later player edits use the same data. No new live soil-water or wet

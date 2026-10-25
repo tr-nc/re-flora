@@ -11,7 +11,9 @@ pub const REVIEW_PRESETS: &[&str] = &[
 pub fn is_review_preset(name: &str) -> bool {
     REVIEW_PRESETS.contains(&name)
 }
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
+// Keep the established flower stream stable when only the tree recipe changes.
+const FLOWER_SEED_SALT: u32 = 1;
 pub const DEFAULT_SEED: u32 = 20260519;
 pub const ARRIVAL: Vec2 = Vec2::new(0.36, 0.73);
 pub const POCKET: Vec2 = Vec2::new(0.62, 0.40);
@@ -31,14 +33,15 @@ pub const FLOWER_KEYS: [&str; 3] = ["wild-geranium", "forget-me-not", "oxeye-dai
 pub const MAX_ATTEMPTS: u32 = 2304;
 
 pub fn tree_descriptor(seed: u32, index: usize) -> crate::tree_gen::TreeDesc {
+    // The current Apple profile, not an opening-only test-tree shape or fruit override.
     let mut desc = crate::tree_gen::TreeDesc {
         size: 17. + index as f32 * 1.4,
+        // Match sprays to this compact planting footprint instead of shrinking only the wood
+        // under full-sized leaf clouds, which hides the Apple scaffold and trunk.
+        leaves_size_level: 4,
         ..Default::default()
     };
     desc.branching.seed = hash(seed ^ index as u32 ^ 0x74726565) as u64;
-    desc.branching.iterations = 5;
-    desc.fruit_spawn_probability = 0.;
-    let mut desc = desc.at_age(0.82 + index as f32 * 0.05);
     // Bounded fitting against actual generated mature wood + canopy, not just anchors.
     for _ in 0..8 {
         if tree_radius_voxels(&desc) <= 46. {
@@ -59,9 +62,9 @@ pub fn tree_radius_voxels(desc: &crate::tree_gen::TreeDesc) -> f32 {
             ]
         })
         .chain(
-            tree.relative_leaf_positions()
+            tree.relative_leaf_placements()
                 .iter()
-                .map(|p| p.xz().length() + 12.),
+                .map(|leaf| leaf.position.xz().length() + 1.),
         )
         .fold(0., f32::max)
 }
@@ -132,7 +135,7 @@ pub fn flowers(seed: u32, dim: UVec2, mut valid: impl FnMut(UVec2) -> bool) -> V
         let species_key = FLOWER_KEYS[color]
             .bytes()
             .fold(0x811c9dc5u32, |h, b| (h ^ b as u32).wrapping_mul(16777619));
-        let key = hash(seed ^ VERSION ^ species_key ^ attempt.wrapping_mul(0x9e3779b9));
+        let key = hash(seed ^ FLOWER_SEED_SALT ^ species_key ^ attempt.wrapping_mul(0x9e3779b9));
         let offset = Vec2::new(unit(key ^ 11), unit(key ^ 23)) * 2. - Vec2::ONE;
         let p = if attempt % 11 == 0 {
             Vec2::splat(0.12) + (offset + Vec2::ONE) * 0.38
@@ -216,10 +219,29 @@ mod tests {
         }
     }
     #[test]
-    fn mature_trees_fit_borders_and_clearings() {
-        for seed in [DEFAULT_SEED, 0, u32::MAX] {
+    fn opening_apples_fit_borders_and_clearings_at_the_original_positions() {
+        assert_eq!(
+            TREE_CENTERS,
+            [
+                Vec2::new(0.23, 0.32),
+                Vec2::new(0.36, 0.22),
+                Vec2::new(0.78, 0.57),
+                Vec2::new(0.80, 0.30),
+            ]
+        );
+        for seed in [DEFAULT_SEED, 0, u32::MAX, 7, 122, 907] {
             for (i, p) in TREE_CENTERS.iter().enumerate() {
                 let desc = tree_descriptor(seed, i);
+                assert_eq!(desc.species, crate::tree_gen::TreeSpecies::AppleTree);
+                assert_eq!(
+                    desc.branching.seed,
+                    hash(seed ^ i as u32 ^ 0x74726565) as u64
+                );
+                assert_eq!(
+                    desc.fruit_spawn_probability,
+                    crate::tree_gen::TreeDesc::default().fruit_spawn_probability
+                );
+                assert!(desc.fruit_spawn_probability > 0.);
                 assert_eq!(
                     serde_json::to_value(&desc).unwrap(),
                     serde_json::to_value(tree_descriptor(seed, i)).unwrap()

@@ -1,4 +1,6 @@
-use super::growth::{self, TREE_DEFAULT_SIZE};
+use super::growth;
+#[cfg(test)]
+use super::growth::TREE_DEFAULT_SIZE;
 use crate::branch_skeleton::{BranchSegment, BranchSegmentRole, BranchingDesc};
 use crate::geom::RoundCone;
 use crate::util::stable_perpendicular_basis;
@@ -18,11 +20,11 @@ fn mature_tree_growth_age() -> f32 {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-#[serde(default)]
+#[serde(default = "TreeDesc::legacy_wire_defaults")]
 pub struct TreeDesc {
     pub species: super::TreeSpecies,
-    /// Legacy Conifer A/B architecture, retained by garden snapshots. New species always use
-    /// their own axes; missing fields must still reconstruct old Garden Trees unchanged.
+    /// Legacy Conifer A/B architecture, retained by garden snapshots. Current species always
+    /// use their own axes. Missing species is a decode-only retired-tree migration marker.
     pub axis_model: bool,
     pub branching: BranchingDesc,
     #[serde(skip, default = "mature_tree_growth_age")]
@@ -53,59 +55,9 @@ pub struct TreeDesc {
     pub subdivision_randomness_progression: f32,
 }
 
-pub fn default_tree_branching_desc() -> BranchingDesc {
-    BranchingDesc {
-        seed: 122,
-        iterations: 7,
-        branch_start_fraction: 1.0 / 6.0,
-        branch_end_fraction: 1.0,
-        initial_length: 48.0,
-        length_dropoff: 0.78,
-        spread: 0.0,
-        randomness: 0.33,
-        vertical_tendency: 0.47,
-        branch_angle_min: 24.0 * PI / 180.0,
-        branch_angle_max: 48.0 * PI / 180.0,
-        branch_probability: 0.82,
-        branch_count_min: 2,
-        branch_count_max: 3,
-        segment_length_variation: 0.12,
-        continue_main_axis: false,
-    }
-}
-
 impl Default for TreeDesc {
     fn default() -> Self {
-        TreeDesc {
-            species: super::TreeSpecies::GardenTree,
-            axis_model: false,
-            branching: default_tree_branching_desc(),
-            growth_age: mature_tree_growth_age(),
-            size: TREE_DEFAULT_SIZE,
-            trunk_thickness: 0.40,
-            thickness_reduction: 0.61,
-            leaves_size_level: 5,
-            leaf_offset: 1,
-            leaf_density: 0.055,
-            leaf_spray_width_ratio: 0.65,
-            leaf_spray_thickness_ratio: 0.35,
-            leaf_spray_tip_offset_ratio: 0.25,
-            fruit_spawn_probability: 0.30,
-            fruit_side_offset_voxels: 0.5,
-            fruit_side_offset_variance_voxels: 1.5,
-            fruit_down_offset_voxels: 4.0,
-            fruit_down_offset_variance_voxels: 2.0,
-            fruit_swing_length_voxels: 2.0,
-            fruit_swing_max_angle_degrees: 50.0,
-            fruit_swing_speed: 2.1,
-            fruit_swing_speed_variation: 0.3,
-            fruit_swing_min_response: 0.18,
-            enable_subdivision: true,
-            subdivision_count_min: 6,
-            subdivision_count_max: 9,
-            subdivision_randomness: 2.6,
-            subdivision_randomness_progression: 3.0,
-        }
+        super::TreeSpecies::AppleTree.mature_desc(&Self::legacy_wire_defaults())
     }
 }
 
@@ -119,20 +71,20 @@ impl TreeDesc {
         let age = age.clamp(0.0, 1.0);
         let smooth_age = age * age * (3.0 - 2.0 * age);
         let lerp = |young: f32, mature: f32| young + (mature - young) * smooth_age;
-        let mut aged = self.clone();
+        let mut aged = self.clone().into_current();
         aged.growth_age = age;
-        aged.size = lerp(self.size * TREE_SAPLING_SIZE_RATIO, self.size);
+        aged.size = lerp(aged.size * TREE_SAPLING_SIZE_RATIO, aged.size);
         aged.trunk_thickness = lerp(
-            self.trunk_thickness * TREE_SAPLING_THICKNESS_RATIO,
-            self.trunk_thickness,
+            aged.trunk_thickness * TREE_SAPLING_THICKNESS_RATIO,
+            aged.trunk_thickness,
         );
         aged.leaf_density = lerp(
-            self.leaf_density * TREE_SAPLING_LEAF_DENSITY_RATIO,
-            self.leaf_density,
+            aged.leaf_density * TREE_SAPLING_LEAF_DENSITY_RATIO,
+            aged.leaf_density,
         );
         aged.leaves_size_level = lerp(
-            TREE_SAPLING_LEAVES_SIZE_LEVEL.min(self.leaves_size_level) as f32,
-            self.leaves_size_level as f32,
+            TREE_SAPLING_LEAVES_SIZE_LEVEL.min(aged.leaves_size_level) as f32,
+            aged.leaves_size_level as f32,
         )
         .round() as u32;
         aged
@@ -166,7 +118,7 @@ pub struct Tree {
 
 impl Tree {
     pub fn new(desc: TreeDesc) -> Self {
-        let built_objects = Self::build(&desc);
+        let built_objects = Self::build(&desc.into_current());
         Tree { built_objects }
     }
 
@@ -572,18 +524,48 @@ mod tests {
     }
 
     #[test]
-    fn species_seed_and_architecture_round_trip_and_old_trees_default_to_garden() {
+    fn species_seed_and_architecture_round_trip_and_old_trees_convert_to_current_apples() {
         let desc = super::super::TreeSpecies::Conifer.mature_desc(&TreeDesc::default());
         let json = serde_json::to_string(&desc).unwrap();
         let restored: TreeDesc = serde_json::from_str(&json).unwrap();
         assert_eq!(restored, desc);
         assert_eq!(Tree::new(restored).branches(), Tree::new(desc).branches());
-        let mut old = serde_json::to_value(TreeDesc::default()).unwrap();
-        old.as_object_mut().unwrap().remove("species");
-        old.as_object_mut().unwrap().remove("axis_model");
+        for species in [None, Some("garden_tree")] {
+            let mut old = serde_json::to_value(TreeDesc::legacy_wire_defaults()).unwrap();
+            old["size"] = 17.25.into();
+            old["branching"]["seed"] = 907.into();
+            if let Some(species) = species {
+                old["species"] = species.into();
+            } else {
+                old.as_object_mut().unwrap().remove("species");
+                old.as_object_mut().unwrap().remove("axis_model");
+            }
+            let retired: TreeDesc = serde_json::from_value(old).unwrap();
+            assert!(retired.is_retired());
+            let expected = super::super::TreeSpecies::AppleTree.mature_desc(&retired);
+            let current = retired.clone().into_current();
+            assert_eq!(current, expected);
+            assert_eq!(current.size, 17.25);
+            assert_eq!(current.branching.seed, 907);
+            assert!(!serde_json::to_string(&current)
+                .unwrap()
+                .contains("garden_tree"));
+            assert_eq!(
+                Tree::new(retired.clone()).branches(),
+                Tree::new(current.clone()).branches()
+            );
+            for age in [0., 0.45, 1.] {
+                assert_eq!(retired.at_age(age), current.at_age(age));
+            }
+        }
+        let missing: TreeDesc = serde_json::from_str("{}").unwrap();
+        assert!(missing.is_retired());
+        assert_eq!(missing.axis_model, false);
+        assert_eq!(missing.trunk_thickness, 0.4);
+        assert!(missing.enable_subdivision);
         assert_eq!(
-            serde_json::from_value::<TreeDesc>(old).unwrap(),
-            TreeDesc::default()
+            TreeDesc::default().species,
+            super::super::TreeSpecies::AppleTree
         );
     }
 
@@ -642,6 +624,8 @@ mod tests {
             let desc = TreeDesc {
                 size: 20.,
                 enable_subdivision: subdivision,
+                species: super::super::TreeSpecies::Conifer,
+                axis_model: false,
                 ..Default::default()
             };
             for age in [0., 0.5, 1.] {
@@ -790,10 +774,12 @@ mod tests {
                 branch_count_max: 2,
                 randomness: 0.0,
                 segment_length_variation: 0.0,
-                ..default_tree_branching_desc()
+                ..TreeDesc::legacy_wire_defaults().branching
             },
             leaf_offset: 0,
             enable_subdivision: false,
+            species: super::super::TreeSpecies::Conifer,
+            axis_model: false,
             ..TreeDesc::default()
         };
 
@@ -810,7 +796,7 @@ mod tests {
                 iterations: 2,
                 branch_count_min: 2,
                 branch_count_max: 2,
-                ..default_tree_branching_desc()
+                ..TreeDesc::legacy_wire_defaults().branching
             },
             leaves_size_level: 3,
             leaf_offset: 0,
@@ -845,7 +831,7 @@ mod tests {
             branching: BranchingDesc {
                 seed: 7,
                 iterations: 3,
-                ..default_tree_branching_desc()
+                ..TreeDesc::legacy_wire_defaults().branching
             },
             leaf_density: 0.005,
             ..TreeDesc::default()
@@ -873,7 +859,7 @@ mod tests {
                 iterations: 1,
                 randomness: 0.0,
                 segment_length_variation: 0.0,
-                ..default_tree_branching_desc()
+                ..TreeDesc::legacy_wire_defaults().branching
             },
             enable_subdivision: false,
             size: TREE_DEFAULT_SIZE,

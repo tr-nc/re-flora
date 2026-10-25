@@ -1037,6 +1037,7 @@ impl TreeRecord {
 
 impl PreparedTreePublication {
     fn new(tree_id: u32, mature_desc: TreeDesc, compiled: CompiledTreePlacement) -> Self {
+        let mature_desc = mature_desc.into_current();
         let cluster_start = Instant::now();
         let leaf_clusters =
             cluster_positions(&compiled.world_leaf_positions, super::LEAF_CLUSTER_DISTANCE);

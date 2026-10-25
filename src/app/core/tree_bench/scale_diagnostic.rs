@@ -113,7 +113,7 @@ impl TreeScaleDiagnostic {
         let species = if self.conifer {
             crate::tree_gen::TreeSpecies::Conifer
         } else {
-            crate::tree_gen::TreeSpecies::GardenTree
+            crate::tree_gen::TreeSpecies::AppleTree
         };
         let mut desc = species.mature_desc(&app.debug_settings.tree.desc);
         if self.conifer {

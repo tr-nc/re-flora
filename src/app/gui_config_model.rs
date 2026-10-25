@@ -43,7 +43,7 @@ pub struct TreeGuiConfig {
     pub render_leaves: bool,
     #[serde(default = "default_true")]
     pub conifer_axis_model: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_current_tree")]
     pub desc: TreeDesc,
 }
 
@@ -55,6 +55,12 @@ impl Default for TreeGuiConfig {
             desc: TreeDesc::default(),
         }
     }
+}
+
+fn deserialize_current_tree<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<TreeDesc, D::Error> {
+    TreeDesc::deserialize(deserializer).map(TreeDesc::into_current)
 }
 
 fn default_true() -> bool {
@@ -280,6 +286,22 @@ mod tests {
         assert!(!parsed_tree.render_leaves);
         assert!(!parsed_tree.conifer_axis_model);
         assert_eq!(parsed_tree.desc, desc);
+    }
+
+    #[test]
+    fn legacy_tuning_tree_loads_as_current_apple_and_saves_without_retired_identity() {
+        for species in ["", "species = \"garden_tree\"\n"] {
+            let source = format!("[desc]\n{species}size = 17.25\n");
+            let parsed: TreeGuiConfig = toml::from_str(&source).unwrap();
+            assert_eq!(parsed.desc.species, crate::tree_gen::TreeSpecies::AppleTree);
+            assert_eq!(parsed.desc.size, 17.25);
+            assert_eq!(parsed.desc.branching.seed, 122);
+            assert_eq!(
+                parsed.desc.trunk_thickness,
+                TreeDesc::default().trunk_thickness
+            );
+            assert!(!toml::to_string(&parsed).unwrap().contains("garden_tree"));
+        }
     }
 
     #[test]

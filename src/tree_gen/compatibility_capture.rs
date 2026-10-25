@@ -39,7 +39,8 @@ fn capture(label: &str, desc: &TreeDesc, age: f32) {
     // Use the same serialized-description -> age -> Tree interface as snapshot restoration.
     let saved = serde_json::to_vec(desc).unwrap();
     let restored: TreeDesc = serde_json::from_slice(&saved).unwrap();
-    let tree = Tree::new(restored.at_age(age));
+    // Retired rows audit reconstruction for clearing saved wood, not a selectable generator.
+    let tree = Tree::new(restored.saved_geometry_desc().at_age(age));
     let mut hash = Fingerprint(0xcbf29ce484222325);
     saved.hash(&mut hash);
     tree.branches().len().hash(&mut hash);
@@ -87,7 +88,7 @@ fn capture(label: &str, desc: &TreeDesc, age: f32) {
 #[test]
 #[ignore = "explicit same-machine before/after generation capture; not a portable float golden"]
 fn capture_tree_generation_compatibility() {
-    for species in TreeSpecies::ALL {
+    for species in std::iter::once(TreeSpecies::RetiredGardenTree).chain(TreeSpecies::ALL) {
         let modes: &[bool] = if species == TreeSpecies::Conifer {
             &[false, true]
         } else {
@@ -96,7 +97,11 @@ fn capture_tree_generation_compatibility() {
         for &axis_model in modes {
             for seed in [7, 122, 907] {
                 for edited in [false, true] {
-                    let mut desc = species.mature_desc(&TreeDesc::default());
+                    let mut desc = if species == TreeSpecies::RetiredGardenTree {
+                        TreeDesc::legacy_wire_defaults()
+                    } else {
+                        species.mature_desc(&TreeDesc::default())
+                    };
                     desc.axis_model = axis_model;
                     desc.branching.seed = seed;
                     if edited {

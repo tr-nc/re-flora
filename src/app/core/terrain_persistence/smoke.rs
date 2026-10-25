@@ -64,7 +64,7 @@ impl App {
                 "stone verify requires --terrain-load"
             );
             let path = self.terrain_persistence.selected_path().to_owned();
-            self.verify_live_garden_file(Path::new(&path))?;
+            let terrain = self.verify_live_garden_file(Path::new(&path))?;
             for (x, expected) in [
                 (0.6, crate::builder::VOXEL_TYPE_ROCK),
                 (1.3, crate::builder::VOXEL_TYPE_ROCK),
@@ -95,7 +95,7 @@ impl App {
                     readback.stats.count_removed(expected)
                 );
             }
-            log::info!("[STONE_PLACEMENT_REVIEW] restart=verified terrain_bytes=exact rock_and_slab=true dig=verified snapshot_file=unchanged");
+            log::info!("[STONE_PLACEMENT_REVIEW] restart=verified terrain_bytes={terrain} rock_and_slab=true dig=verified snapshot_file=unchanged");
             return Ok(());
         }
         if let Some(output) = std::env::var_os("RE_FLORA_TERRAIN_BENCH") {
@@ -122,7 +122,7 @@ impl App {
             );
             let deadline = Instant::now() + std::time::Duration::from_secs(20);
             while !self.terrain_persistence.can_start_operation() {
-                self.advance_water_terrain(false);
+                self.advance_snapshot_smoke_dependents();
                 anyhow::ensure!(
                     Instant::now() < deadline,
                     "garden load water publication did not settle: {:?}",
@@ -136,11 +136,21 @@ impl App {
                     && self.terrain_persistence.allows_world_updates(),
                 "runtime garden load must resume real water and world updates"
             );
-            self.verify_live_garden_file(Path::new(&path))?;
-            log::info!("[GARDEN_SMOKE] runtime replacement pass={} terrain=exact flora=exact trees=exact no_duplicates=true water=Running terrain=Ready world_updates=true", pass + 1);
+            let terrain = self.verify_live_garden_file(Path::new(&path))?;
+            log::info!("[GARDEN_SMOKE] runtime replacement pass={} terrain={terrain} flora=exact trees=exact no_duplicates=true water=Running terrain=Ready world_updates=true", pass + 1);
         }
         log::info!("[GARDEN_SMOKE] passed startup_and_repeated_runtime_load=true");
         Ok(())
+    }
+
+    fn advance_snapshot_smoke_dependents(&mut self) {
+        // This synchronous fixture blocks normal frames. Drive their real dependency order:
+        // migrations can enqueue fresh CPU-cache work after the full snapshot collider import.
+        self.contree_builder
+            .poll_cpu_chunk_cache_jobs(self.tracer.camera_position(), VOXEL_DIM_PER_CHUNK);
+        self.terrain_physics
+            .process_terrain_collider_updates(&self.contree_builder);
+        self.advance_water_terrain(false);
     }
 
     fn benchmark_garden_snapshots(&mut self, output: &Path) -> Result<()> {
@@ -172,7 +182,7 @@ impl App {
             );
             let deadline = Instant::now() + std::time::Duration::from_secs(60);
             while !self.terrain_persistence.can_start_operation() {
-                self.advance_water_terrain(false);
+                self.advance_snapshot_smoke_dependents();
                 anyhow::ensure!(
                     Instant::now() < deadline,
                     "benchmark water publication did not settle"
@@ -180,13 +190,13 @@ impl App {
                 std::thread::yield_now();
             }
             let load_ms = start.elapsed().as_secs_f64() * 1000.;
-            self.verify_live_garden_file(Path::new(&source))?;
-            log::info!("[TERRAIN_BENCH] pass={pass} warmup={} save_ms={save_ms:.2} load_ready_ms={load_ms:.2} terrain=exact flora=exact trees=exact", pass == 0);
+            let terrain = self.verify_live_garden_file(Path::new(&source))?;
+            log::info!("[TERRAIN_BENCH] pass={pass} warmup={} save_ms={save_ms:.2} load_ready_ms={load_ms:.2} terrain={terrain} flora=exact trees=exact", pass == 0);
         }
         Ok(())
     }
 
-    fn verify_live_garden_file(&mut self, path: &Path) -> Result<()> {
+    fn verify_live_garden_file(&mut self, path: &Path) -> Result<&'static str> {
         self.vulkan_ctx.device().wait_idle();
         let mut reader = TerrainSnapshotReader::open(path)?;
         let saved = GardenSnapshot::decode(reader.garden_data())?;
@@ -198,10 +208,14 @@ impl App {
             "restored flora layout/growth/identity differs"
         );
         anyhow::ensure!(
-            saved.trees == self.capture_tree_snapshot(),
+            saved.trees.current_species() == self.capture_tree_snapshot(),
             "restored tree identity/shape/age differs"
         );
         self.verify_restored_tree_rendering(&saved.trees)?;
+        if saved.trees.has_retired_trees() {
+            self.verify_retired_tree_terrain(&saved.trees, &mut reader)?;
+            return Ok("migrated");
+        }
         while let Some(chunk) = reader.read_next_chunk()? {
             let bytes = self.plain_builder.read_chunk_atlas_region(
                 UVec3::from_array(chunk.coordinate) * VOXEL_DIM_PER_CHUNK,
@@ -213,6 +227,6 @@ impl App {
                 chunk.coordinate
             );
         }
-        Ok(())
+        Ok("exact")
     }
 }

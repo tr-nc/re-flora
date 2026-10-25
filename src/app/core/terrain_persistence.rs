@@ -518,6 +518,7 @@ impl App {
         garden: GardenSnapshot,
         trees: PreparedTreeSnapshot,
     ) -> Result<()> {
+        let migrated_trees = garden.trees.has_retired_trees();
         self.restore_tree_snapshot(trees)?;
         self.surface_builder.restore_flora_snapshot(
             &garden.flora,
@@ -534,7 +535,7 @@ impl App {
             self.track_growing_flora_chunk(chunk);
         }
         let (flora_count, authored_count) = garden.flora.counts();
-        log::info!("[GARDEN_PERSISTENCE] restored flora={} authored={} trees={} tree_age={:.3}; no trunk restamp",
+        log::info!("[GARDEN_PERSISTENCE] restored flora={} authored={} trees={} tree_age={:.3} retired_tree_migration={migrated_trees}; current species retain saved wood",
             flora_count, authored_count, garden.trees.count(), self.debug_settings.adjustables.tree_age.value);
         Ok(())
     }

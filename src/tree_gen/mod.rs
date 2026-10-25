@@ -1,4 +1,5 @@
 mod axis;
+mod compatibility;
 #[cfg(test)]
 mod compatibility_capture;
 pub(crate) mod gpu_pose;

@@ -148,7 +148,7 @@ mod tests {
             ]
         );
         let authored = TreeDesc::default();
-        assert_eq!(TreeSpecies::GardenTree.mature_desc(&authored), authored);
+        assert_eq!(TreeSpecies::AppleTree.mature_desc(&authored), authored);
     }
 
     #[test]

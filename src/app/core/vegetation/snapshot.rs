@@ -1,6 +1,8 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
+mod retirement_review;
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub(in crate::app::core) struct TreeSnapshot {
     age: f32,
@@ -19,12 +21,26 @@ pub(in crate::app::core) struct PreparedTreeSnapshot {
     age: f32,
     fruit_cycle: f32,
     publications: Vec<PreparedTreePublication>,
+    /// Read old baked wood first, then replace through the ordinary transactional owner.
+    upgrades: Vec<(u32, TreeDesc)>,
     next_generation: u64,
 }
 
 impl TreeSnapshot {
     pub(in crate::app::core) fn count(&self) -> usize {
         self.trees.len()
+    }
+
+    pub(in crate::app::core) fn has_retired_trees(&self) -> bool {
+        self.trees.iter().any(|tree| tree.mature_desc.is_retired())
+    }
+
+    pub(in crate::app::core) fn current_species(&self) -> Self {
+        let mut current = self.clone();
+        for tree in &mut current.trees {
+            tree.mature_desc = tree.mature_desc.clone().into_current();
+        }
+        current
     }
 
     /// Validate allocation bounds before reconstructing any geometry or touching the garden.
@@ -71,17 +87,27 @@ impl TreeSnapshot {
             );
             let branching =
                 u64::from(branch.branch_count_max + u32::from(branch.continue_main_axis)).max(1);
-            let segment_budget = if desc.species.uses_axis_model(desc.axis_model) {
-                // Bounded authored axes do not inherit the recursive generator's exponential cost.
-                crate::tree_gen::MAX_AXIS_SEGMENTS as u64
-            } else {
-                branching
-                    .checked_pow(branch.iterations)
-                    .context("saved tree complexity overflow")?
-            };
-            let budget = segment_budget
+            let segment_budget =
+                if !desc.is_retired() && desc.species.uses_axis_model(desc.axis_model) {
+                    // Bounded authored axes do not inherit the recursive generator's exponential cost.
+                    crate::tree_gen::MAX_AXIS_SEGMENTS as u64
+                } else {
+                    branching
+                        .checked_pow(branch.iterations)
+                        .context("saved tree complexity overflow")?
+                };
+            let mut budget = segment_budget
                 .checked_mul(u64::from(desc.subdivision_count_max.max(1)))
                 .context("saved tree complexity overflow")?;
+            if desc.is_retired() {
+                let replacement = desc.clone().into_current();
+                budget = budget
+                    .checked_add(
+                        crate::tree_gen::MAX_AXIS_SEGMENTS as u64
+                            * u64::from(replacement.subdivision_count_max.max(1)),
+                    )
+                    .context("migrated tree complexity overflow")?;
+            }
             total_budget = total_budget
                 .checked_add(budget)
                 .context("garden tree complexity overflow")?;
@@ -103,21 +129,28 @@ impl TreeSnapshot {
             .iter()
             .enumerate()
             .map(|(index, saved)| {
+                let original = saved.mature_desc.saved_geometry_desc();
                 let compiled = TreePlacementService::compile(
-                    saved.mature_desc.clone(),
+                    original.clone(),
                     Vec3::from_array(saved.position),
                     UAabb3::default(),
                     self.age,
                     generation_start + index as u64,
                     sample_budget,
                 );
-                PreparedTreePublication::new(saved.id, saved.mature_desc.clone(), compiled)
+                PreparedTreePublication::new(saved.id, original, compiled)
             })
             .collect();
         Ok(PreparedTreeSnapshot {
             age: self.age,
             fruit_cycle: self.fruit_cycle,
             publications,
+            upgrades: self
+                .trees
+                .iter()
+                .filter(|saved| saved.mature_desc.is_retired())
+                .map(|saved| (saved.id, saved.mature_desc.clone().into_current()))
+                .collect(),
             next_generation,
         })
     }
@@ -262,7 +295,7 @@ impl App {
         &self,
         snapshot: &TreeSnapshot,
     ) -> Result<()> {
-        let expected = self.prepare_tree_snapshot(snapshot)?;
+        let expected = self.prepare_tree_snapshot(&snapshot.current_species())?;
         anyhow::ensure!(
             self.surface_builder
                 .resources
@@ -319,17 +352,37 @@ impl App {
         }
     }
 
-    /// The atlas already contains the saved, possibly hand-edited wood. Publish only observers
-    /// and canonical tree ownership, never stamp/clear trunk geometry during restoration.
+    /// Current species restore observers without restamping hand-edited wood. Retired test trees
+    /// are first bound to their saved geometry, then replaced through the same transaction used
+    /// by ordinary tree editing; merely relabeling them would leave invisible old wood behind.
     pub(in crate::app::core) fn restore_tree_snapshot(
         &mut self,
-        snapshot: PreparedTreeSnapshot,
+        mut snapshot: PreparedTreeSnapshot,
     ) -> Result<()> {
         let age = snapshot.age;
         let fruit_cycle = snapshot.fruit_cycle;
+        let upgrades = std::mem::take(&mut snapshot.upgrades);
         self.transact_garden_trees(|trees, host| trees.restore_snapshot(snapshot, host))?;
         self.debug_settings.adjustables.tree_age.value = age;
         self.debug_settings.adjustables.fruit_cycle.value = fruit_cycle;
+        if !upgrades.is_empty() {
+            let count = upgrades.len();
+            let records = upgrades
+                .into_iter()
+                .map(|(id, desc)| {
+                    let mut record = self
+                        .trees
+                        .records
+                        .get(&id)
+                        .context("retired tree missing after snapshot restore")?
+                        .clone();
+                    record.mature_desc = desc;
+                    Ok((id, record))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            self.rebuild_tree_records(records)?;
+            log::info!("[TREE_MIGRATION] retired_test_trees={count} replacement=AppleTree positions_ids_seeds=retained old_wood=replaced source_file=unchanged");
+        }
         if let Some(record) = self.trees.tuned_record() {
             self.debug_settings.tree.desc = record.mature_desc.clone();
         }
@@ -444,6 +497,98 @@ mod tests {
                 .quantized_leaf_render_positions
             );
         }
+    }
+
+    #[test]
+    fn retired_descriptions_prepare_saved_wood_then_an_in_place_apple_upgrade() {
+        for explicit_species in [false, true] {
+            let mut snapshot = fixture();
+            let mut retired = TreeDesc::legacy_wire_defaults();
+            retired.size = 17.25;
+            retired.branching.seed = u64::MAX;
+            retired.branching.iterations = 3;
+            retired.axis_model = true; // Old Garden Trees ignored the Conifer-only toggle.
+            snapshot.trees[0].mature_desc = retired.clone();
+            let mut json = serde_json::to_value(&snapshot).unwrap();
+            if !explicit_species {
+                json["trees"][0]["mature_desc"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("species");
+            }
+            let decoded: TreeSnapshot = serde_json::from_value(json).unwrap();
+            assert!(decoded.has_retired_trees());
+            let prepared = decoded.prepare(10, 8).unwrap();
+            let original = &prepared.publications[0];
+            assert_eq!(original.tree_id, 7);
+            assert_eq!(original.record.position, Vec3::splat(0.5));
+            assert!(original.record.rest_tree.axis_segments().is_empty());
+            assert_eq!(original.record.mature_desc.branching.seed, u64::MAX);
+            let current = decoded.current_species();
+            assert!(!current.has_retired_trees());
+            assert_eq!(current.age, snapshot.age);
+            assert_eq!(current.fruit_cycle, snapshot.fruit_cycle);
+            assert_eq!(current.trees[0].id, snapshot.trees[0].id);
+            assert_eq!(current.trees[0].position, snapshot.trees[0].position);
+            assert_eq!(
+                prepared.upgrades,
+                vec![(7, current.trees[0].mature_desc.clone())]
+            );
+            let apple = &current.trees[0].mature_desc;
+            assert_eq!(apple.species, crate::tree_gen::TreeSpecies::AppleTree);
+            assert_eq!(apple.size, retired.size);
+            assert_eq!(apple.branching.seed, retired.branching.seed);
+            assert!(!Tree::new(apple.at_age(current.age))
+                .axis_segments()
+                .is_empty());
+            assert!(!serde_json::to_string(&current)
+                .unwrap()
+                .contains("garden_tree"));
+        }
+    }
+
+    #[test]
+    fn retirement_leaves_all_other_saved_species_and_authored_fields_unchanged() {
+        let mut snapshot = fixture();
+        snapshot.trees[0].mature_desc = TreeDesc::legacy_wire_defaults();
+        for (index, (species, axes)) in [
+            (crate::tree_gen::TreeSpecies::Conifer, false),
+            (crate::tree_gen::TreeSpecies::Conifer, true),
+            (crate::tree_gen::TreeSpecies::AppleTree, true),
+            (crate::tree_gen::TreeSpecies::Pine, true),
+            (crate::tree_gen::TreeSpecies::WeepingWillow, true),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut desc = species.mature_desc(&TreeDesc::default());
+            desc.axis_model = axes;
+            desc.branching.seed = index as u64 + 900;
+            desc.size = 17.25;
+            desc.trunk_thickness = 0.25;
+            snapshot.trees.push(SavedTree {
+                id: index as u32 + 8,
+                position: [0.75, 0.5, 0.75],
+                mature_desc: desc,
+            });
+        }
+        let prepared = snapshot.prepare(1, 8).unwrap();
+        assert_eq!(prepared.upgrades.len(), 1);
+        assert_eq!(snapshot.current_species().trees[1..], snapshot.trees[1..]);
+        for (saved, original) in snapshot.trees[1..].iter().zip(&prepared.publications[1..]) {
+            assert_eq!(saved.id, original.tree_id);
+            assert_eq!(saved.mature_desc, original.record.mature_desc);
+        }
+    }
+
+    #[test]
+    fn retired_snapshot_bounds_the_old_geometry_as_well_as_the_replacement() {
+        let mut snapshot = fixture();
+        snapshot.trees[0].mature_desc = TreeDesc::legacy_wire_defaults();
+        snapshot.trees[0].mature_desc.branching.iterations = 8;
+        snapshot.trees[0].mature_desc.branching.branch_count_min = 8;
+        snapshot.trees[0].mature_desc.branching.branch_count_max = 8;
+        assert!(snapshot.validate().is_err());
     }
 
     #[test]

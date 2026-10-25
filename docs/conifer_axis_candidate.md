@@ -3,6 +3,9 @@
 > Historical candidate: new planting now offers **Apple Tree / Pine / Weeping Willow**.
 > Legacy Conifer saves and their A/B generator remain supported; the old Conifer is no longer a
 > Grow catalog item. See [current species validation](evidence/garden-tree-species.md).
+> The Garden Tree preservation statements below describe that historical candidate. Test/Garden
+> Tree was subsequently retired and now migrates to Apple; see the
+> [retirement evidence](evidence/apple-opening-and-test-tree-retirement.md).
 
 ## Try-out
 

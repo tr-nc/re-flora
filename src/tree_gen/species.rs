@@ -5,9 +5,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TreeSpecies {
-    #[default]
-    GardenTree,
+    /// Decode-only marker: never a selectable or independently generated architecture.
+    #[serde(rename = "garden_tree")]
+    RetiredGardenTree,
     Conifer,
+    #[default]
     AppleTree,
     Pine,
     WeepingWillow,
@@ -23,7 +25,6 @@ struct SpeciesDefinition {
 }
 
 enum AuthoringDefaults {
-    LegacyGarden,
     LegacyConifer,
     Garden(GardenDefaults),
 }
@@ -39,8 +40,7 @@ struct GardenDefaults {
 
 impl TreeSpecies {
     #[cfg(test)]
-    pub const ALL: [Self; 5] = [
-        Self::GardenTree,
+    pub const ALL: [Self; 4] = [
         Self::Conifer,
         Self::AppleTree,
         Self::Pine,
@@ -52,12 +52,7 @@ impl TreeSpecies {
 
     fn definition(self) -> &'static SpeciesDefinition {
         match self {
-            Self::GardenTree => &SpeciesDefinition {
-                label: "Garden Tree",
-                growth: rules::RECURSIVE,
-                apples: true,
-                authoring: AuthoringDefaults::LegacyGarden,
-            },
+            Self::RetiredGardenTree => Self::AppleTree.definition(),
             Self::Conifer => &SpeciesDefinition {
                 label: "Conifer (legacy)",
                 growth: rules::LEGACY_CONIFER,
@@ -131,13 +126,10 @@ impl TreeSpecies {
     }
 
     pub fn mature_desc(self, authored: &TreeDesc) -> TreeDesc {
+        if self == Self::RetiredGardenTree {
+            return Self::AppleTree.mature_desc(authored);
+        }
         match &self.definition().authoring {
-            AuthoringDefaults::LegacyGarden => {
-                let mut desc = authored.clone();
-                desc.species = self;
-                desc.axis_model = false;
-                desc
-            }
             AuthoringDefaults::LegacyConifer => legacy_conifer_desc(authored),
             AuthoringDefaults::Garden(defaults) => {
                 // A profile is a switching default, never a replacement for saved live authoring.
@@ -163,7 +155,7 @@ impl TreeSpecies {
                     fruit_down_offset_voxels: 14.,
                     fruit_down_offset_variance_voxels: 4.,
                     enable_subdivision: false,
-                    ..TreeDesc::default()
+                    ..TreeDesc::legacy_wire_defaults()
                 };
                 desc.branching.seed = authored.branching.seed;
                 desc
@@ -178,7 +170,7 @@ fn legacy_conifer_desc(authored: &TreeDesc) -> TreeDesc {
         species: TreeSpecies::Conifer,
         axis_model: true,
         size: authored.size,
-        ..TreeDesc::default()
+        ..TreeDesc::legacy_wire_defaults()
     };
     desc.branching.seed = authored.branching.seed;
     desc.trunk_thickness = 0.16;

@@ -1574,7 +1574,7 @@ mod tests {
     fn lateral_wood_stays_excluded_even_when_the_entire_trunk_was_cut() {
         for cut_trunk in [false, true] {
             let (mesh, _, limb) =
-                trunk_and_limb_fixture(crate::tree_gen::TreeSpecies::GardenTree, false, cut_trunk);
+                trunk_and_limb_fixture(crate::tree_gen::TreeSpecies::AppleTree, true, cut_trunk);
             let mut physics = TerrainPhysics::new(0.);
             let brick = StaticVoxelBrickId((limb / STATIC_VOXEL_BRICK_DIM).as_ivec3());
             let occupancy = BrickOccupancy::from_filled_voxels([limb % STATIC_VOXEL_BRICK_DIM]);
