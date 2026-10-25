@@ -2113,6 +2113,7 @@ impl App {
                         }
                         PhysicalKey::Code(KeyCode::KeyN) => Some(ui_style::STONE_SLOT_INDEX),
                         PhysicalKey::Code(KeyCode::KeyV) => Some(ui_style::PAVEMENT_SLOT_INDEX),
+                        PhysicalKey::Code(KeyCode::KeyJ) => Some(ui_style::WALL_SLOT_INDEX),
                         _ => None,
                     };
 
@@ -2121,7 +2122,7 @@ impl App {
                     }
                     if event.physical_key == KeyCode::Tab
                         && !event.repeat
-                        && self.player_tools.selected_tool() == PlayerTool::Pavement
+                        && self.player_tools.selected_tool().is_construction()
                     {
                         self.cycle_pavement_kind();
                     }
@@ -2580,7 +2581,7 @@ impl App {
                     .flatten();
                 let terrain_edit_preview_shape = self.terrain_edit_preview_shape();
                 let terrain_edit_preview_radius =
-                    if self.player_tools.selected_tool() == PlayerTool::Pavement {
+                    if self.player_tools.selected_tool().is_construction() {
                         self.pavement_preview_width() * 0.5
                     } else {
                         self.terrain_tool_preview_radius()
@@ -2860,6 +2861,12 @@ impl App {
                                 enabled: self.rooftop_scene.is_none(),
                             },
                             ItemPanelSlot {
+                                index: ui_style::WALL_SLOT_INDEX,
+                                label: "Wall",
+                                key_hint: "J",
+                                enabled: self.rooftop_scene.is_none(),
+                            },
+                            ItemPanelSlot {
                                 index: ui_style::MOWER_SLOT_INDEX,
                                 label: "Mower",
                                 key_hint: "L",
@@ -2891,7 +2898,7 @@ impl App {
                             clicked_plant_type = flora_paint_panel_response.clicked_type;
                         }
 
-                        if self.player_tools.selected_tool() == PlayerTool::Pavement {
+                        if self.player_tools.selected_tool().is_construction() {
                             egui::Area::new("pavement_tool_hint".into())
                                 .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-16., 16.))
                                 .interactable(false)
@@ -2906,7 +2913,7 @@ impl App {
 
                         // Active authoring controls own this corner; the status-only
                         // backpack must not cover the Grow catalog or Pavement hints.
-                        let voxel_palette_response = if matches!(self.player_tools.selected_tool(), PlayerTool::Grow | PlayerTool::Pavement) {
+                        let voxel_palette_response = if matches!(self.player_tools.selected_tool(), PlayerTool::Grow | PlayerTool::Pavement | PlayerTool::Wall) {
                             Default::default()
                         } else {
                             draw_voxel_palette(ctx, &voxel_palette_entries, infinite_materials && self.window_state.is_cursor_visible())

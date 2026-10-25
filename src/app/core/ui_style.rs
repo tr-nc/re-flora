@@ -28,6 +28,7 @@ pub(crate) const MOWER_SLOT_INDEX: usize = 11;
 pub(crate) const SOIL_DEPOSITION_SLOT_INDEX: usize = 12;
 pub(crate) const STONE_SLOT_INDEX: usize = 13;
 pub(crate) const PAVEMENT_SLOT_INDEX: usize = 14;
+pub(crate) const WALL_SLOT_INDEX: usize = 15;
 pub(crate) const SPRINKLER_PLACEABLE_SLOT_INDEX: usize = 1;
 
 pub(crate) const SOIL_INSPECTOR_TOOL_ACCENT: Color32 = Color32::from_rgb(166, 132, 88);

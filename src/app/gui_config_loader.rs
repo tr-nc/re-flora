@@ -89,6 +89,7 @@ impl GuiConfigLoader {
                             | "stone_preview_lift"
                             | "stone_kind"
                             | "walk_ground_detail"
+                            | "low_wall_enabled"
                     )
                     && !RETIRED_FLORA_COLOR_PARAMS.contains(&param.id.as_str())
             });
@@ -97,7 +98,6 @@ impl GuiConfigLoader {
             .section
             .retain(|section| section.name != "FloraVariation" || !section.param.is_empty());
         for id in [
-            "low_wall_enabled",
             "low_wall_kind",
             "low_wall_width",
             "low_wall_height",
@@ -2185,10 +2185,22 @@ mod tests {
 
     #[test]
     fn low_wall_controls_upgrade_absent_and_prototype_saves_without_changing_values_or_disk() {
-        use super::{GuiParamConditionValue, GuiParamValue};
+        use super::GuiParamValue;
         for legacy_mode in [None, Some(false), Some(true)] {
             let mut config: GuiConfigFile =
                 toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            if let Some(value) = legacy_mode {
+                let mut legacy = config
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .find(|p| p.id == "pavement_retract_stroke")
+                    .unwrap()
+                    .clone();
+                legacy.id = "low_wall_enabled".into();
+                legacy.value = GuiParamValue::Bool { value };
+                config.section[0].param.push(legacy);
+            }
             for section in &mut config.section {
                 if legacy_mode.is_none() {
                     section.param.retain(|p| !p.id.starts_with("low_wall_"));
@@ -2232,7 +2244,6 @@ mod tests {
                 "load must not rewrite saved settings"
             );
             let fields = crate::app::gui_config::GuiAdjustables::from_config(&loaded);
-            assert_eq!(fields.low_wall_enabled.value, legacy_mode.unwrap_or(false));
             assert_eq!(
                 fields.low_wall_kind.value,
                 if legacy_mode.is_some() { 2 } else { 0 }
@@ -2247,8 +2258,7 @@ mod tests {
             );
             assert_eq!(fields.pavement_width.value, 0.24);
             let params: Vec<_> = loaded.section.iter().flat_map(|s| &s.param).collect();
-            let mode = params.iter().find(|p| p.id == "low_wall_enabled").unwrap();
-            assert_eq!(mode.label, "Pavement: build low walls");
+            assert!(params.iter().all(|p| p.id != "low_wall_enabled"));
             for id in [
                 "pavement_kind",
                 "pavement_width",
@@ -2256,17 +2266,12 @@ mod tests {
                 "low_wall_width",
                 "low_wall_height",
             ] {
-                let condition = params
+                assert!(params
                     .iter()
                     .find(|p| p.id == id)
                     .unwrap()
                     .enabled_if
-                    .as_ref()
-                    .unwrap();
-                assert_eq!(condition.param, "low_wall_enabled");
-                assert!(
-                    matches!(&condition.equals, GuiParamConditionValue::Bool(value) if *value == id.starts_with("low_wall_"))
-                );
+                    .is_none());
             }
             GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
             let reloaded = GuiConfigLoader::load_from_path(&path);

@@ -748,7 +748,7 @@ impl App {
 
     fn construction_recipe(&self) -> ConstructionRecipe {
         let s = &self.debug_settings.adjustables;
-        if s.low_wall_enabled.value {
+        if self.player_tools.selected_tool() == PlayerTool::Wall {
             LowWallRecipe::new(
                 LowWallKind::from_choice(s.low_wall_kind.value),
                 s.low_wall_width.value,
@@ -810,7 +810,7 @@ impl App {
     pub(super) fn cycle_pavement_kind(&mut self) {
         self.cancel_pavement_stroke();
         let settings = &mut self.debug_settings.adjustables;
-        let value = if settings.low_wall_enabled.value {
+        let value = if self.player_tools.selected_tool() == PlayerTool::Wall {
             &mut settings.low_wall_kind.value
         } else {
             &mut settings.pavement_kind.value
@@ -824,7 +824,7 @@ impl App {
             return;
         }
         let settings = &mut self.debug_settings.adjustables;
-        let (width, maximum) = if settings.low_wall_enabled.value {
+        let (width, maximum) = if self.player_tools.selected_tool() == PlayerTool::Wall {
             (&mut settings.low_wall_width.value, 0.15)
         } else {
             (&mut settings.pavement_width.value, 0.3)
@@ -952,7 +952,7 @@ impl App {
         if self.pavement.active.is_none() {
             return;
         }
-        if self.player_tools.selected_tool() != PlayerTool::Pavement
+        if !self.player_tools.selected_tool().is_construction()
             || !self.terrain_edit_pointer_available()
             || !self.terrain_persistence.can_start_operation()
         {

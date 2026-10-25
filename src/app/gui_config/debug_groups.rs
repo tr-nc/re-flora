@@ -42,10 +42,10 @@ const GROUPS: &[ControlGroup] = &[
     },
     ControlGroup {
         parent: None,
-        title: "Pavement",
-        description: "V + left-drag builds paving, or low walls when Build low walls is checked. Tab changes the selected surface/material; Shift + wheel adjusts next-stroke width/thickness. Ctrl + wheel adjusts wall height independently. Earth walls are continuous tapered soil; stone and brick walls have real staggered joints. Path spacing is a paving course or wall half-brick, clamped to width. Each gesture freezes its recipe and ground reference. Backdrag and optional inward smoothing apply to slabs/brick paving only, not walls or dirt. Backdrag restores this held paving stroke's voxels and flora; release/cancel retains published terrain. Red targets remain replaceable previews. Existing masonry, unsupported ground and world boundaries stay protected. Terrain Save/Load saves voxels and flora; GUI Save saves preferences. Dig edits everything. No editable path objects, automatic closed joins, inside fill or whole-wall Undo.",
+        title: "Pavement & Walls",
+        description: "Pave (V) builds paving; Wall (J) builds low walls. Left-drag to draw. Tab changes the selected surface/material; Shift + wheel adjusts next-stroke width/thickness. Ctrl + wheel adjusts wall height independently. Earth walls are continuous tapered soil; stone and brick walls have real staggered joints. Path spacing is a paving course or wall half-brick, clamped to width. Each gesture freezes its recipe and ground reference. Backdrag and optional inward smoothing apply to slabs/brick paving only, not walls or dirt. Backdrag restores this held paving stroke's voxels and flora; release/cancel retains published terrain. Red targets remain replaceable previews. Existing masonry, unsupported ground and world boundaries stay protected. Terrain Save/Load saves voxels and flora; GUI Save saves preferences. Dig edits everything. No editable path objects, automatic closed joins, inside fill or whole-wall Undo.",
         initially_open: false,
-        params: &["low_wall_enabled", "pavement_kind", "low_wall_kind", "pavement_width", "low_wall_width", "low_wall_height", "pavement_piece_length", "pavement_seed", "pavement_retract_stroke", "pavement_retract_scale", "pavement_smooth_curves", "pavement_smooth_scale"],
+        params: &["pavement_kind", "low_wall_kind", "pavement_width", "low_wall_width", "low_wall_height", "pavement_piece_length", "pavement_seed", "pavement_retract_stroke", "pavement_retract_scale", "pavement_smooth_curves", "pavement_smooth_scale"],
     },
     ControlGroup {
         parent: None,

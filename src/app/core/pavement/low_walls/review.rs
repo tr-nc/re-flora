@@ -144,14 +144,16 @@ impl App {
         );
         self.review_low_wall_guards()?;
         let original = (
-            self.debug_settings.adjustables.low_wall_enabled.value,
+            self.player_tools.selected_item_panel_display_slot(),
             self.debug_settings.adjustables.low_wall_kind.value,
             self.debug_settings.adjustables.low_wall_width.value,
             self.debug_settings.adjustables.low_wall_height.value,
             self.debug_settings.adjustables.pavement_piece_length.value,
             self.debug_settings.adjustables.pavement_seed.value,
         );
-        self.debug_settings.adjustables.low_wall_enabled.value = false;
+        self.player_tools.clear_selected_tool();
+        self.player_tools
+            .select_item_panel_slot(super::super::super::ui_style::PAVEMENT_SLOT_INDEX);
         ensure!(
             matches!(self.construction_recipe(), ConstructionRecipe::Pavement(_)),
             "wall mode OFF did not keep pavement"
@@ -199,8 +201,13 @@ impl App {
                 let interior_before = self
                     .plain_builder
                     .read_chunk_atlas_region(interior_offset, column_dim)?;
+                if self.player_tools.selected_tool()
+                    != super::super::super::player_tools::PlayerTool::Wall
+                {
+                    self.player_tools
+                        .select_item_panel_slot(super::super::super::ui_style::WALL_SLOT_INDEX);
+                }
                 let s = &mut self.debug_settings.adjustables;
-                s.low_wall_enabled.value = true;
                 s.low_wall_kind.value = column as u32;
                 s.low_wall_width.value = 0.06;
                 s.low_wall_height.value = height;
@@ -491,8 +498,11 @@ impl App {
                 ground_y,
             })?,
         )?;
+        self.player_tools.clear_selected_tool();
+        if let Some(slot) = original.0 {
+            self.player_tools.select_item_panel_slot(slot);
+        }
         let s = &mut self.debug_settings.adjustables;
-        s.low_wall_enabled.value = original.0;
         s.low_wall_kind.value = original.1;
         s.low_wall_width.value = original.2;
         s.low_wall_height.value = original.3;

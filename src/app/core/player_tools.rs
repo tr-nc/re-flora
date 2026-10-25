@@ -26,6 +26,7 @@ pub(super) enum PlayerTool {
     Wind,
     Stone,
     Pavement,
+    Wall,
     Placeable,
 }
 
@@ -34,6 +35,7 @@ impl PlayerTool {
         match slot_idx {
             super::ui_style::STONE_SLOT_INDEX => Some(Self::Stone),
             super::ui_style::PAVEMENT_SLOT_INDEX => Some(Self::Pavement),
+            super::ui_style::WALL_SLOT_INDEX => Some(Self::Wall),
             super::ui_style::MOWER_SLOT_INDEX => Some(Self::Mower),
             GROW_SLOT_INDEX => Some(Self::Grow),
             SHOVEL_SLOT_INDEX => Some(Self::Shovel),
@@ -52,6 +54,7 @@ impl PlayerTool {
             Self::Idle => return None,
             Self::Stone => super::ui_style::STONE_SLOT_INDEX,
             Self::Pavement => super::ui_style::PAVEMENT_SLOT_INDEX,
+            Self::Wall => super::ui_style::WALL_SLOT_INDEX,
             Self::Mower => super::ui_style::MOWER_SLOT_INDEX,
             Self::Grow => GROW_SLOT_INDEX,
             Self::Shovel => SHOVEL_SLOT_INDEX,
@@ -65,10 +68,14 @@ impl PlayerTool {
         })
     }
 
+    pub(super) fn is_construction(self) -> bool {
+        matches!(self, Self::Pavement | Self::Wall)
+    }
+
     pub(super) fn uses_terrain_edit_radius(self) -> bool {
         !matches!(
             self,
-            Self::Idle | Self::Wind | Self::Mower | Self::Stone | Self::Pavement
+            Self::Idle | Self::Wind | Self::Mower | Self::Stone | Self::Pavement | Self::Wall
         )
     }
 }
@@ -515,7 +522,7 @@ impl PlayerToolRuntime {
         &mut self,
         button: MouseButton,
     ) -> Option<PlayerToolPointerInteraction> {
-        if self.selected_tool == PlayerTool::Pavement && button == MouseButton::Left {
+        if self.selected_tool.is_construction() && button == MouseButton::Left {
             self.pointer = ToolPointerState::idle(self.pointer.buttons());
             Some(PlayerToolPointerInteraction::PavementStroke)
         } else {
@@ -786,6 +793,29 @@ mod tests {
         assert!(!runtime.finish_pointer_release());
         runtime.select_item_panel_slot(crate::app::core::ui_style::PAVEMENT_SLOT_INDEX);
         assert_eq!(runtime.selected_tool(), PlayerTool::Idle);
+    }
+
+    #[test]
+    fn wall_is_a_separate_construction_tool_and_switching_clears_the_held_gesture() {
+        use super::super::ui_style::{PAVEMENT_SLOT_INDEX, WALL_SLOT_INDEX};
+        let mut runtime = PlayerToolRuntime::default();
+        for (slot, tool) in [
+            (PAVEMENT_SLOT_INDEX, PlayerTool::Pavement),
+            (WALL_SLOT_INDEX, PlayerTool::Wall),
+            (PAVEMENT_SLOT_INDEX, PlayerTool::Pavement),
+        ] {
+            assert!(runtime.select_item_panel_slot(slot).changed());
+            assert_eq!(runtime.selected_tool(), tool);
+            assert_eq!(runtime.selected_item_panel_display_slot(), Some(slot));
+            assert!(tool.is_construction());
+            assert!(!tool.uses_terrain_edit_radius());
+            assert_eq!(runtime.active_continuous_action(), None);
+            runtime.set_pointer_button_state(MouseButton::Left, ElementState::Pressed);
+            assert_eq!(
+                runtime.begin_pointer_interaction(MouseButton::Left),
+                Some(PlayerToolPointerInteraction::PavementStroke)
+            );
+        }
     }
 
     #[test]

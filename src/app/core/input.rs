@@ -486,15 +486,14 @@ impl App {
         let scroll_lines = scroll_delta_lines(delta);
         if self.modifiers.control_key()
             && self.terrain_edit_pointer_available()
-            && self.player_tools.selected_tool() == PlayerTool::Pavement
-            && self.debug_settings.adjustables.low_wall_enabled.value
+            && self.player_tools.selected_tool() == PlayerTool::Wall
         {
             self.adjust_low_wall_height(scroll_lines);
             return;
         }
         if self.modifiers.shift_key() {
             if self.terrain_edit_pointer_available()
-                && self.player_tools.selected_tool() == PlayerTool::Pavement
+                && self.player_tools.selected_tool().is_construction()
             {
                 self.adjust_pavement_width(scroll_lines);
                 return;
@@ -858,7 +857,7 @@ impl App {
     pub(super) fn terrain_edit_preview_shape(&self) -> TerrainEditPreviewShape {
         if matches!(
             self.player_tools.selected_tool(),
-            PlayerTool::Soil | PlayerTool::Pavement
+            PlayerTool::Soil | PlayerTool::Pavement | PlayerTool::Wall
         ) || self.is_tree_planting_selected()
         {
             TerrainEditPreviewShape::SurfaceCircle
@@ -1332,7 +1331,7 @@ impl App {
 
     pub(super) fn terrain_edit_hover_observation(&mut self) -> TerrainEditHoverObservation {
         use super::terrain_picking::HoverObservation;
-        if self.player_tools.selected_tool() == PlayerTool::Pavement {
+        if self.player_tools.selected_tool().is_construction() {
             return self.pavement_hover().map_or(
                 TerrainEditHoverObservation::Miss,
                 TerrainEditHoverObservation::Hit,

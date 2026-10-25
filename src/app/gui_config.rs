@@ -1334,7 +1334,6 @@ mod search_tests {
         settings.adjustables.pavement_smooth_scale.value = 2.75;
         settings.adjustables.pavement_retract_stroke.value = false;
         settings.adjustables.pavement_retract_scale.value = 3.5;
-        settings.adjustables.low_wall_enabled.value = true;
         settings.adjustables.low_wall_kind.value = 2;
         settings.adjustables.low_wall_width.value = 0.09;
         settings.adjustables.low_wall_height.value = 0.25;
@@ -1350,7 +1349,6 @@ mod search_tests {
         assert_eq!(loaded.pavement_smooth_scale.value, 2.75);
         assert!(!loaded.pavement_retract_stroke.value);
         assert_eq!(loaded.pavement_retract_scale.value, 3.5);
-        assert!(loaded.low_wall_enabled.value);
         assert_eq!(loaded.low_wall_kind.value, 2);
         assert_eq!(loaded.low_wall_width.value, 0.09);
         assert_eq!(loaded.low_wall_height.value, 0.25);
@@ -1372,50 +1370,14 @@ mod search_tests {
     }
 
     #[test]
-    fn low_wall_search_checkbox_edits_the_real_saved_tool_mode() {
-        let mut settings = DebugSettings::load();
-        settings.adjustables.low_wall_enabled.value = false;
-        settings.search.query = "build low walls".into();
-        let context = egui::Context::default();
-        let mut draw = |events| {
-            let output = context.run_ui(
-                egui::RawInput {
-                    events,
-                    ..Default::default()
-                },
-                |ui| {
-                    settings.draw(ui, |_, _| {});
-                },
-            );
-            assert_eq!(settings.search_matches, 1);
-            output
-                .shapes
-                .iter()
-                .find_map(|s| text_rect(&s.shape, "Pavement: build low walls"))
-                .expect("search must show the wall mode checkbox")
-                .center()
-        };
-        draw(vec![]);
-        let point = draw(vec![]);
-        for pressed in [true, false] {
-            draw(vec![
-                egui::Event::PointerMoved(point),
-                egui::Event::PointerButton {
-                    pos: point,
-                    button: egui::PointerButton::Primary,
-                    pressed,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ]);
-        }
-        assert!(settings.adjustables.low_wall_enabled.value);
-        assert!(settings.is_dirty());
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("gui.toml");
-        settings.save_to_path(&path).unwrap();
-        let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
-        assert!(loaded.adjustables.low_wall_enabled.value);
-        assert!(!settings.is_dirty());
+    fn retired_wall_mode_is_not_a_debug_control() {
+        let settings = DebugSettings::load();
+        assert!(settings
+            .config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .all(|p| p.id != "low_wall_enabled"));
     }
 
     #[test]

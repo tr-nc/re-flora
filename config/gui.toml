@@ -140,23 +140,10 @@ min = 0
 max = 4
 
 [[section.param]]
-id = "low_wall_enabled"
-kind = "bool"
-label = "Pavement: build low walls"
-type = "Bool"
-
-[section.param.data]
-value = false
-
-[[section.param]]
 id = "low_wall_kind"
 kind = "choice"
 label = "Low wall material"
 type = "Choice"
-
-[section.param.enabled_if]
-param = "low_wall_enabled"
-equals = true
 
 [section.param.data]
 value = 0
@@ -172,10 +159,6 @@ kind = "float"
 label = "Low wall thickness (world units)"
 type = "Float"
 
-[section.param.enabled_if]
-param = "low_wall_enabled"
-equals = true
-
 [section.param.data]
 value = 0.06
 min = 0.05
@@ -187,10 +170,6 @@ kind = "float"
 label = "Low wall height above ground (world units)"
 type = "Float"
 
-[section.param.enabled_if]
-param = "low_wall_enabled"
-equals = true
-
 [section.param.data]
 value = 0.12
 min = 0.02
@@ -201,10 +180,6 @@ id = "pavement_kind"
 kind = "choice"
 label = "Pavement surface"
 type = "Choice"
-
-[section.param.enabled_if]
-param = "low_wall_enabled"
-equals = false
 
 [section.param.data]
 value = 0
@@ -219,10 +194,6 @@ id = "pavement_width"
 kind = "float"
 label = "Pavement corridor width (world units)"
 type = "Float"
-
-[section.param.enabled_if]
-param = "low_wall_enabled"
-equals = false
 
 [section.param.data]
 value = 0.12

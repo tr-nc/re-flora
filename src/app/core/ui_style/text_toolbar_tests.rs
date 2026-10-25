@@ -12,6 +12,7 @@ fn slots() -> Vec<ItemPanelSlot> {
         "Spray",
         "Stone",
         "Pave",
+        "Wall",
         "Mower",
         "Wind",
     ]
