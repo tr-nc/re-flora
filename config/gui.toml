@@ -70,7 +70,7 @@ leaf_offset = 0
 leaf_density = 0.12
 leaf_spray_width_ratio = 0.95
 leaf_spray_thickness_ratio = 0.85
-leaf_spray_tip_offset_ratio = 0.10
+leaf_spray_tip_offset_ratio = 0.1
 fruit_spawn_probability = 0.45
 fruit_side_offset_voxels = 1.0
 fruit_side_offset_variance_voxels = 2.0
@@ -546,7 +546,7 @@ label = "Apples: size scale (attached and fallen)"
 type = "Float"
 
 [section.param.data]
-value = 1
+value = 0.8
 min = 0.25
 max = 2
 
@@ -683,7 +683,10 @@ type = "Choice"
 
 [section.param.data]
 value = 0
-options = ["Compact", "Tall impact (higher, stronger, wider)"]
+options = [
+    "Compact",
+    "Tall impact (higher, stronger, wider)",
+]
 
 [[section.param]]
 id = "sprinkler_spray_angle"
@@ -2110,7 +2113,7 @@ label = "Flora Bend Height Power"
 type = "Float"
 
 [section.param.data]
-value = 1.55
+value = 1
 min = 0.25
 max = 5
 
@@ -2275,7 +2278,7 @@ label = "Bottom Dark"
 type = "Color"
 
 [section.param.data]
-value = "#005721"
+value = "#428700"
 
 [[section.param]]
 id = "grass_bottom_light_color"
@@ -2284,7 +2287,7 @@ label = "Bottom Light"
 type = "Color"
 
 [section.param.data]
-value = "#00793A"
+value = "#387038"
 
 [[section.param]]
 id = "grass_tip_dark_color"
@@ -2937,7 +2940,7 @@ label = "Dirt Color"
 type = "Color"
 
 [section.param.data]
-value = "#5F5F5F"
+value = "#598430"
 
 [[section.param]]
 id = "voxel_sand_color"
