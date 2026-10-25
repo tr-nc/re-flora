@@ -1113,6 +1113,15 @@ min = 0
 max = 0.1
 
 [[section.param]]
+id = "vegetation_spray_response"
+kind = "bool"
+label = "Plants: spray impact and wet weight (A/B)"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
 id = "flora_inertial_response"
 kind = "bool"
 label = "Attached Vegetation Inertia (C)"

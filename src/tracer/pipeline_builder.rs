@@ -399,6 +399,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let vegetation_water_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/foliage/vegetation_water.comp",
+            "main",
+        )
+        .unwrap();
         let vegetation_response_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/foliage/vegetation_response.comp",
@@ -743,6 +749,7 @@ impl PipelineBuilder {
             player_collider_sm,
             terrain_query_sm,
             wind_volume_sm,
+            vegetation_water_sm,
             vegetation_response_sm,
             flora_frag_sm,
             flora_lighting_cache_sm,
@@ -1066,6 +1073,14 @@ impl PipelineBuilder {
 
         let wind_volume_ppl =
             ComputePipeline::new(device, &shader_modules.wind_volume_sm, pool, &[resources]);
+        let vegetation_water_ppl =
+            ComputePipeline::new_uninitialized(device, &shader_modules.vegetation_water_sm, pool);
+        vegetation_water_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "tree_scene_info",
+                providers: &[resources],
+            })
+            .expect("vegetation water tree attachment descriptors");
         let vegetation_response_ppl = ComputePipeline::new_uninitialized(
             device,
             &shader_modules.vegetation_response_sm,
@@ -1236,6 +1251,7 @@ impl PipelineBuilder {
             player_collider_ppl,
             terrain_query_ppl,
             wind_volume_ppl,
+            vegetation_water_ppl,
             vegetation_response_ppl,
             post_processing_ppl,
         }
@@ -2492,6 +2508,14 @@ impl PipelineTopology {
             },
             "volumetric-air terrain extent descriptors must resolve",
         );
+        retire_compute(
+            &self.compute.vegetation_water_ppl,
+            DescriptorUpdate::SetContaining {
+                anchor: "tree_scene_info",
+                providers: &all_resources,
+            },
+            "vegetation water attachment descriptors must resolve during resize",
+        );
         let tracer_resources: [&dyn ResourceContainer; 3] =
             [resources, active_ddgi_volume, ddgi_voxel_visibility];
         retire_compute(
@@ -3092,6 +3116,7 @@ pub struct ShaderModules {
     pub player_collider_sm: ShaderModule,
     pub terrain_query_sm: ShaderModule,
     pub wind_volume_sm: ShaderModule,
+    pub vegetation_water_sm: ShaderModule,
     pub vegetation_response_sm: ShaderModule,
     pub flora_frag_sm: ShaderModule,
     pub flora_lighting_cache_sm: ShaderModule,
@@ -3203,6 +3228,7 @@ pipeline_collection! {
         player_collider_ppl,
         terrain_query_ppl,
         wind_volume_ppl,
+        vegetation_water_ppl,
         vegetation_response_ppl,
         post_processing_ppl
     ];

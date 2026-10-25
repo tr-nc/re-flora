@@ -11,7 +11,7 @@ use re_flora_vkn::{
 use std::collections::VecDeque;
 
 const LIMIT: usize = 256;
-const BYTES_PER_FRUIT: u64 = 64;
+const BYTES_PER_FRUIT: u64 = 96; // four held wind corners + one compact water state
 const STATE_BYTES: u64 = 112;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct FruitReleaseTicket(u64);
@@ -78,7 +78,12 @@ fn interpolate(q: [[f32; 4]; 4], f: Vec2) -> [f32; 4] {
         low * (1. - f.y) + high * f.y
     })
 }
+#[cfg(test)]
 fn decode(sample: &Sample, q: [f32; 4]) -> Result<FruitReleasePose> {
+    decode_water(sample, q, [0.; 8])
+}
+
+fn decode_water(sample: &Sample, q: [f32; 4], water: [f32; 8]) -> Result<FruitReleasePose> {
     ensure!(
         q.iter().all(|v| v.is_finite()),
         "invalid held-fruit response"
@@ -94,6 +99,10 @@ fn decode(sample: &Sample, q: [f32; 4]) -> Result<FruitReleasePose> {
         rotation: Quat::IDENTITY,
         angular_velocity: Vec3::ZERO,
     };
+    // Same local displacement/velocity used by attached rendering, before the
+    // branch transform. Release remains sparse and frame-fence-owned.
+    pose.offset += Vec3::from_slice(&water[..3]);
+    pose.velocity += Vec3::from_slice(&water[4..7]);
     if let Some((current, previous, dt)) = sample.motion {
         let rest = (sample.request.root.as_vec3() + pose.offset) / 256.;
         let world = current.transform_point(rest);
@@ -128,8 +137,7 @@ impl FruitReleases {
         for (index, sample) in flight.samples.iter().enumerate() {
             let q = if let Some(bytes) = &bytes {
                 let start = index * BYTES_PER_FRUIT as usize;
-                let q: [[f32; 4]; 4] =
-                    bytemuck::pod_read_unaligned(&bytes[start..start + BYTES_PER_FRUIT as usize]);
+                let q: [[f32; 4]; 4] = bytemuck::pod_read_unaligned(&bytes[start..start + 64]);
                 interpolate(q, sample.blend)
             } else {
                 [0.; 4]
@@ -137,7 +145,14 @@ impl FruitReleases {
             self.answers.push((
                 sample.request.ticket,
                 sample.request.generation,
-                decode(sample, q)?,
+                decode_water(
+                    sample,
+                    q,
+                    bytes.as_ref().map_or([0.; 8], |bytes| {
+                        let start = index * BYTES_PER_FRUIT as usize + 64;
+                        bytemuck::pod_read_unaligned(&bytes[start..start + 32])
+                    }),
+                )?,
             ));
         }
         log::info!("[TREE_KICK][FRUIT_HANDOFF] count={} readback_bytes={} frame_fence=true query_wait=false", flight.samples.len(), bytes.as_ref().map_or(0, Vec::len));
@@ -210,9 +225,14 @@ impl Tracer {
         let gui: crate::generated::gpu_structs::GuiInput = bytemuck::pod_read_unaligned(&gui_bytes);
         let response = &self.vegetation_response;
         let source = response.held_fruit_source();
-        let readback = source
-            .as_ref()
-            .map(|_| {
+        let need_readback = source.is_some()
+            || self
+                .fruit_releases
+                .queued
+                .iter()
+                .any(|request| self.vegetation_water.fruit_source(request.root).is_some());
+        let readback = need_readback
+            .then(|| {
                 Buffer::try_new_sized(
                     self.vulkan_ctx.device().clone(),
                     self.allocator.clone(),
@@ -222,6 +242,14 @@ impl Tracer {
                 )
             })
             .transpose()?;
+        if let Some(buffer) = &readback {
+            buffer.record_fill(
+                frame.command_buffer(),
+                0,
+                self.fruit_releases.queued.len() as u64 * BYTES_PER_FRUIT,
+                0,
+            );
+        }
         let mut samples = Vec::new();
         for (index, request) in self.fruit_releases.queued.drain(..).enumerate() {
             let mut blend = Vec2::ZERO;
@@ -237,6 +265,15 @@ impl Tracer {
                         index as u64 * BYTES_PER_FRUIT + corner as u64 * 16,
                     );
                 }
+            }
+            if let Some((buffer, offset)) = self.vegetation_water.fruit_source(request.root) {
+                buffer.record_copy_to_buffer(
+                    frame.command_buffer(),
+                    readback.as_ref().unwrap(),
+                    32,
+                    offset,
+                    index as u64 * BYTES_PER_FRUIT + 64,
+                );
             }
             let motion = self
                 .raster_trees
@@ -298,7 +335,7 @@ mod tests {
             interpolate([[0.; 4], [1.; 4], [2.; 4], [3.; 4]], f),
             [1.5; 4]
         );
-        assert_eq!(BYTES_PER_FRUIT, 64);
+        assert_eq!(BYTES_PER_FRUIT, 96);
         let sample = Sample {
             request: Request {
                 ticket: FruitReleaseTicket(1),
@@ -312,5 +349,9 @@ mod tests {
         };
         assert_eq!(decode(&sample, [0.; 4]).unwrap().offset, Vec3::ZERO);
         assert!(decode(&sample, [f32::NAN; 4]).is_err());
+        let water = [0.2, -0.3, 0.5, 0.8, 1.2, -0.5, 0.1, 0.];
+        let pose = decode_water(&sample, [0.; 4], water).unwrap();
+        assert_eq!(pose.offset, Vec3::new(0.2, -0.3, 0.5));
+        assert_eq!(pose.velocity, Vec3::new(1.2, -0.5, 0.1));
     }
 }

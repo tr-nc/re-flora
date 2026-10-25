@@ -14,6 +14,7 @@ pub(super) mod fruit_handoff;
 mod leaves;
 pub(crate) mod morphology;
 mod validation;
+pub(super) mod water;
 pub(super) use leaves::instance_seed;
 pub(super) use validation::validate_gpu;
 

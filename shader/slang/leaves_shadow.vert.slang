@@ -5,6 +5,7 @@ import flora_types;
 import hash;
 import tracer_types;
 import vegetation_response_sample;
+import vegetation_water_sample;
 
 [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
 [[vk::binding(3, 0)]] ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
@@ -218,11 +219,12 @@ VertexOutput main(VertexInput input)
     if (isTreeLeaf)
     {
         float area = 0.0;
-        float3 response = float3(0.0);
+        float3 response = float3(0.0), waterResponse = float3(0.0);
         for (uint member = 0u; member < leafInstance.response_source_count; ++member)
         {
             uint2 source = leaf_shadow_response_sources.data[leafInstance.response_source_offset + member];
             area += 1.0;
+            waterResponse += sampleLeafWaterByResponseIndex(pc.response_offset + source.x);
             if (attachedVegetationResponseEnabled())
                 response += sampleVegetationResponse(uint3(0u), source.y,
                     FLORA_SPECIES_TREE_LEAF, source.x, pc.response_offset);
@@ -236,6 +238,7 @@ VertexOutput main(VertexInput input)
         }
         liveArea = area / float(max(leafInstance.response_source_count, 1u));
         if (attachedVegetationResponseEnabled()) windOffset = response / area;
+        windOffset += waterResponse / area;
     }
     else if (attachedVegetationResponseEnabled())
     {
@@ -244,6 +247,7 @@ VertexOutput main(VertexInput input)
         windOffset = appleInertialOffset(gui_input, response);
     }
 
+    if(isApple)windOffset += sampleVegetationWater(instancePositionVoxels,FLORA_SPECIES_APPLE).displacement_wetness.xyz;
     float3 anchorPosition =
         (float3(leafVoxelLocalPosition) + windOffset) * SCALING_FACTOR +
         instancePosition;

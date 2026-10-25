@@ -127,6 +127,9 @@ impl LeafResponseLayout {
     pub(super) fn inputs(&self) -> &[ResponseInput] {
         &self.inputs
     }
+    pub(super) fn base(&self) -> usize {
+        self.base
+    }
     pub(super) fn revision(&self) -> u64 {
         self.revision
     }

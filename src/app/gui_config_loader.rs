@@ -203,6 +203,7 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_density");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_design");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_placement_type");
+        Self::add_missing_param(&mut config, "Debug", "vegetation_spray_response");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_size_scale");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_particles");
         // Retire obsolete sprinkler settings at the load boundary; do not rewrite user files.

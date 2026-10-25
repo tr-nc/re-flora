@@ -48,6 +48,7 @@ struct SprinklerFrame {
     droplets: Buffer,
     bounds: Buffer,
     water_contacts: Buffer,
+    vegetation_spray: Buffer,
     water_bounds: Buffer,
     tiles: Buffer,
     tile_capacity: u64,
@@ -62,6 +63,8 @@ pub struct SprinklerRendererResources {
     frames: Vec<SprinklerFrame>,
     slot: usize,
     pub instance_count: u32,
+    revision: u64,
+    pub(super) published_water: Option<super::vegetation_response::water::PublishedSpray>,
 }
 
 fn tile_buffer_bytes(width: u32, height: u32) -> u64 {
@@ -80,12 +83,17 @@ impl SprinklerRendererResources {
             frames: Vec::new(),
             slot: 0,
             instance_count: 0,
+            revision: 0,
+            published_water: None,
         }
     }
 
     pub fn upload(&mut self, instances: &[SprinklerRenderInstance]) -> Result<()> {
         let pending = encode_instances(instances)?;
         self.instance_count = pending.len() as u32;
+        if self.pending != pending {
+            self.revision = self.revision.wrapping_add(1);
+        }
         self.pending = pending;
         Ok(())
     }
@@ -139,6 +147,10 @@ impl SprinklerRendererResources {
                         * SPRINKLER_RENDER_CAPACITY) as u64,
                     MemoryLocation::GpuOnly,
                 )?,
+                vegetation_spray: self.buffer(
+                    80 * SPRINKLER_MIST_LOBES as u64 * SPRINKLER_RENDER_CAPACITY as u64,
+                    MemoryLocation::GpuOnly,
+                )?,
                 water_contacts: self.buffer(
                     (std::mem::size_of::<crate::generated::gpu_structs::SprinklerWaterContact>()
                         * SPRINKLER_MIST_LOBES as usize
@@ -183,6 +195,30 @@ impl SprinklerRendererResources {
             frame.published.clone_from(&self.pending);
         }
         Ok(())
+    }
+
+    pub fn vegetation_spray(&self) -> &Buffer {
+        &self.frames[self.slot].vegetation_spray
+    }
+    pub(super) fn water_input(
+        &self,
+        terrain_revision: Option<u32>,
+    ) -> Option<&super::vegetation_response::water::PublishedSpray> {
+        self.published_water.as_ref().filter(|p| {
+            p.count > 0
+                && p.emitter_revision == self.revision
+                && p.terrain_revision == terrain_revision
+                && terrain_revision.is_some()
+        })
+    }
+    pub(super) fn publish_water_input(&mut self, terrain_revision: Option<u32>) {
+        self.published_water = Some(super::vegetation_response::water::PublishedSpray {
+            lobes: self.vegetation_spray().clone(),
+            bounds: self.mist_bounds().clone(),
+            count: self.instance_count,
+            emitter_revision: self.revision,
+            terrain_revision,
+        });
     }
 
     pub fn instances(&self) -> &Buffer {

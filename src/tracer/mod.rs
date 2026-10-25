@@ -1514,6 +1514,7 @@ pub struct StarlightFrameInput {
 /// Sky and post-processing state that changes independently from terrain and vegetation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EnvironmentFrameInput {
+    pub vegetation_spray_response: bool,
     pub sprinkler_size_scale: f32,
     pub sprinkler_spray_angle: f32,
     pub sprinkler_rotation_speed: f32,
@@ -1669,6 +1670,8 @@ pub struct Tracer {
     flora_lighting_cache: FloraLightingCache,
     grass_band_cache: grass_band_cache::GrassBandCache,
     vegetation_response: VegetationResponse,
+    vegetation_water: vegetation_response::water::WaterResponse,
+    vegetation_water_enabled: bool,
     fruit_releases: fruit_release::FruitReleases,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
     ddgi_runtime: DdgiRuntime,
@@ -2054,6 +2057,8 @@ impl Tracer {
             flora_lighting_cache: FloraLightingCache::default(),
             grass_band_cache: grass_band_cache::GrassBandCache::default(),
             vegetation_response: VegetationResponse::new(chunk_bound),
+            vegetation_water: vegetation_response::water::WaterResponse::default(),
+            vegetation_water_enabled: true,
             fruit_releases: fruit_release::FruitReleases::default(),
             ddgi_voxel_visibility,
             ddgi_runtime,
@@ -3144,6 +3149,7 @@ impl Tracer {
         vegetation.motion.world_tick_seconds =
             crate::game_time::clamp_world_tick_seconds(vegetation.motion.world_tick_seconds);
         self.world_tick_seconds = vegetation.motion.world_tick_seconds;
+        self.vegetation_water_enabled = environment.vegetation_spray_response;
         self.vegetation_response.enabled = vegetation.motion.inertial_response_enabled;
         self.vegetation_response.controls = vegetation.motion.response_controls;
         self.vegetation_response.flutter_curve = vegetation.motion.leaf_flutter_curve;
@@ -3789,6 +3795,30 @@ impl Tracer {
             },
         )?;
 
+        // The last queued transport publication is immutable until consumed.
+        // Changed emitters/terrain invalidate it rather than leak across new walls.
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            "vegetation_water.pass",
+            || {
+                self.vegetation_water.record(
+                    self.vulkan_ctx.device().clone(),
+                    self.allocator.clone(),
+                    &self.pipeline_topology.compute().vegetation_water_ppl,
+                    cmdbuf,
+                    surface_resources,
+                    &self.vegetation_response,
+                    gpu_profiler_frame_slot,
+                    time,
+                    self.vegetation_water_enabled,
+                    self.sprinkler_resources
+                        .water_input(self.ddgi_voxel_visibility.published_revision()),
+                )
+            },
+        )?;
+
         if render_flags.enable_flora {
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),
@@ -4174,6 +4204,8 @@ impl Tracer {
                     )
                 },
             )?;
+            self.sprinkler_resources
+                .publish_water_input(self.ddgi_voxel_visibility.published_revision());
             if self.sprinkler_water_amount > 0.0 {
                 Self::with_gpu_scope(
                     gpu_profiler.as_deref_mut(),
@@ -4852,6 +4884,8 @@ impl Tracer {
                     ),
                     self.vegetation_response.descriptors()[0],
                     self.vegetation_response.descriptors()[1],
+                    self.vegetation_water.descriptors()[0],
+                    self.vegetation_water.descriptors()[1],
                 ];
                 let pipeline = if cached {
                     descriptors.push((
@@ -4937,6 +4971,8 @@ impl Tracer {
                                 ),
                                 self.vegetation_response.descriptors()[0],
                                 self.vegetation_response.descriptors()[1],
+                                self.vegetation_water.descriptors()[0],
+                                self.vegetation_water.descriptors()[1],
                                 (
                                     "flora_lighting_cache",
                                     DescriptorResource::Buffer(&cache_buffer),
@@ -5106,6 +5142,8 @@ impl Tracer {
                         ),
                         self.vegetation_response.descriptors()[0],
                         self.vegetation_response.descriptors()[1],
+                        self.vegetation_water.descriptors()[0],
+                        self.vegetation_water.descriptors()[1],
                     ]
                 };
                 pipeline
@@ -5131,6 +5169,8 @@ impl Tracer {
                     ),
                     self.vegetation_response.descriptors()[0],
                     self.vegetation_response.descriptors()[1],
+                    self.vegetation_water.descriptors()[0],
+                    self.vegetation_water.descriptors()[1],
                 ];
                 let descriptors = if batch.kind() == TreeFoliageKind::Apples {
                     let pixels = Self::with_gpu_scope(
@@ -6118,6 +6158,8 @@ impl Tracer {
                             ),
                             self.vegetation_response.descriptors()[0],
                             self.vegetation_response.descriptors()[1],
+                            self.vegetation_water.descriptors()[0],
+                            self.vegetation_water.descriptors()[1],
                         ],
                     )
                     .unwrap_or_else(|error| {
@@ -6807,6 +6849,10 @@ impl Tracer {
                 cmdbuf,
                 &[
                     (
+                        "vegetation_spray",
+                        DescriptorResource::Buffer(self.sprinkler_resources.vegetation_spray()),
+                    ),
+                    (
                         "sprinkler_instances",
                         DescriptorResource::Buffer(self.sprinkler_resources.instances()),
                     ),
@@ -7129,6 +7175,15 @@ impl Tracer {
             &gui,
             roots,
         )?;
+        let water = self.vegetation_water.read_fruit_poses(
+            &self.vulkan_ctx,
+            self.allocator.clone(),
+            roots,
+        )?;
+        for ((offset, velocity), (q, v)) in handoffs.iter_mut().zip(water) {
+            *offset += q;
+            *velocity += v;
+        }
         if self.raster_trees.gpu_wind_active {
             for (&root, (offset, velocity)) in roots.iter().zip(&mut handoffs) {
                 if let Some(index) = self
@@ -7247,6 +7302,19 @@ impl Tracer {
     }
 
     /// Explicit review only. This synchronous readback is never part of normal mist updates.
+    pub(crate) fn vegetation_water_review(&self) -> Result<Vec<([u32; 4], [f32; 8])>> {
+        let Some((buffer, count)) = self.vegetation_water.diagnostic_source() else {
+            return Ok(Vec::new());
+        };
+        let states: Vec<[f32; 8]> = self.sprinkler_review_buffer_elements(buffer, count)?;
+        Ok(self
+            .vegetation_water
+            .indices
+            .iter()
+            .map(|(&key, &index)| (key, states[index as usize]))
+            .collect())
+    }
+
     pub(crate) fn sprinkler_mist_review_lobes(
         &self,
     ) -> Result<Vec<crate::generated::gpu_structs::SprinklerMistLobe>> {
@@ -7930,6 +7998,8 @@ impl Tracer {
 
     pub fn invalidate_vegetation_response_history(&mut self) {
         self.vegetation_response.invalidate_history();
+        self.vegetation_water.invalidate_history();
+        self.sprinkler_resources.published_water = None;
     }
 
     pub fn remove_tree_leaves(

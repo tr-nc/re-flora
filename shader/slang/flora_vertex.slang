@@ -16,6 +16,8 @@ import sunlight;
 import terrain_edit_preview;
 import tracer_types;
 import vegetation_response_sample;
+import vegetation_water_sample;
+import vegetation_water_types;
 
 public [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
 [[vk::binding(1, 0)]] ConstantBuffer<U_SunInfo> sun_info;
@@ -302,6 +304,10 @@ public PreparedFloraVertex prepareFloraVertex(
         spawnPose.visibility = 1.0;
     }
 
+    uint3 waterRoot = instanceType == FLORA_SPECIES_TREE_LEAF
+        ? uint3(int3(instancePositionVoxels) + voxelLocalPosition) : instancePositionVoxels;
+    WaterResponseState water = sampleVegetationWater(waterRoot, instanceType);
+    if(instanceType == FLORA_SPECIES_TREE_LEAF)leafAngle += water.displacement_wetness.x*0.15;
     uint leafSeed = instanceSeed(uint3(int3(instancePositionVoxels) + voxelLocalPosition));
     result.optical_normal = leafOpticalNormal(leafSeed, leafAngle);
     if (instanceType == FLORA_SPECIES_TREE_LEAF)
@@ -310,6 +316,8 @@ public PreparedFloraVertex prepareFloraVertex(
             ? leafLocalDisplacement(leafSeed, leafAngle, gui_input.leaf_local_displacement_voxels) : float3(0.0);
         windOffset = leafWindOffset(windOffset, localOffset, gui_input.leaf_global_offset_scale);
     }
+    // A single per-plant pose reaches native geometry, cached pixels and bands.
+    windOffset += water.displacement_wetness.xyz * (isSurfaceFlora ? bendWeight : 1.0);
     float3 posedVoxelLocalPosition = float3(voxelLocalPosition);
     result.anchor_position =
         (posedVoxelLocalPosition + windOffset + spawnPose.translation_voxels) *

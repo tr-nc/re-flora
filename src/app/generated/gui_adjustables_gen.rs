@@ -554,6 +554,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "vegetation_spray_response",
+        kind: "bool",
+        label: "Plants: spray impact and wet weight (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "flora_inertial_response",
         kind: "bool",
         label: "Attached Vegetation Inertia (C)",
@@ -1874,6 +1880,7 @@ pub struct GuiAdjustables {
     pub path_tracing_reference: crate::gui_adjustables::BoolParam,
     pub path_tracing_max_bounces: crate::gui_adjustables::UintParam,
     pub world_tick_seconds: crate::gui_adjustables::FloatParam,
+    pub vegetation_spray_response: crate::gui_adjustables::BoolParam,
     pub flora_inertial_response: crate::gui_adjustables::BoolParam,
     pub vegetation_response_speed: crate::gui_adjustables::FloatParam,
     pub vegetation_response_damping: crate::gui_adjustables::FloatParam,
@@ -2180,6 +2187,7 @@ impl GuiAdjustables {
         let mut path_tracing_reference_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut path_tracing_max_bounces_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut world_tick_seconds_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut vegetation_spray_response_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flora_inertial_response_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut vegetation_response_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut vegetation_response_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2943,6 +2951,11 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             world_tick_seconds_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "vegetation_spray_response" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            vegetation_spray_response_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "flora_inertial_response" => {
@@ -4412,6 +4425,7 @@ impl GuiAdjustables {
             path_tracing_reference: path_tracing_reference_field.expect("Missing parameter: path_tracing_reference"),
             path_tracing_max_bounces: path_tracing_max_bounces_field.expect("Missing parameter: path_tracing_max_bounces"),
             world_tick_seconds: world_tick_seconds_field.expect("Missing parameter: world_tick_seconds"),
+            vegetation_spray_response: vegetation_spray_response_field.expect("Missing parameter: vegetation_spray_response"),
             flora_inertial_response: flora_inertial_response_field.expect("Missing parameter: flora_inertial_response"),
             vegetation_response_speed: vegetation_response_speed_field.expect("Missing parameter: vegetation_response_speed"),
             vegetation_response_damping: vegetation_response_damping_field.expect("Missing parameter: vegetation_response_damping"),
@@ -4920,6 +4934,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "grass_moisture_response" => Some(&adjustables.grass_moisture_response),
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
         "path_tracing_reference" => Some(&adjustables.path_tracing_reference),
+        "vegetation_spray_response" => Some(&adjustables.vegetation_spray_response),
         "flora_inertial_response" => Some(&adjustables.flora_inertial_response),
         "tree_leaf_recorded_mix" => Some(&adjustables.tree_leaf_recorded_mix),
         "ordered_dither_global" => Some(&adjustables.ordered_dither_global),
@@ -5260,6 +5275,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "grass_moisture_response" => Some(&mut adjustables.grass_moisture_response),
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
         "path_tracing_reference" => Some(&mut adjustables.path_tracing_reference),
+        "vegetation_spray_response" => Some(&mut adjustables.vegetation_spray_response),
         "flora_inertial_response" => Some(&mut adjustables.flora_inertial_response),
         "tree_leaf_recorded_mix" => Some(&mut adjustables.tree_leaf_recorded_mix),
         "ordered_dither_global" => Some(&mut adjustables.ordered_dither_global),
