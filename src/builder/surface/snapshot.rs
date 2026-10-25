@@ -6,6 +6,18 @@ use std::collections::HashSet;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct FloraSnapshot {
     chunks: Vec<ChunkSnapshot>,
+    #[serde(default)]
+    water: Vec<ChunkWaterSnapshot>,
+    #[serde(default)]
+    hydration_elapsed: f64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+struct ChunkWaterSnapshot {
+    coordinate: [u32; 3],
+    // Species key and root coordinate survive draw-order and registry changes.
+    plants: Vec<(String, u32, f32)>,
+    reserve: Vec<(u32, f64)>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -103,6 +115,12 @@ impl FloraSnapshot {
                 .collect();
             debug_assert!(kept.peek().is_none());
         }
+        // Hydration is keyed by stable species names, just like the instance schema.
+        for water in &mut self.water {
+            water
+                .plants
+                .retain(|(key, _, _)| !RETIRED.contains(&key.as_str()));
+        }
         removed
     }
 
@@ -110,6 +128,59 @@ impl FloraSnapshot {
         anyhow::ensure!(
             self.chunks.len() == chunk_dim.element_product() as usize,
             "garden must contain every flora chunk"
+        );
+        anyhow::ensure!(
+            self.hydration_elapsed.is_finite() && (0.0..0.25).contains(&self.hydration_elapsed),
+            "invalid plant hydration clock"
+        );
+        let mut water_chunks = HashSet::new();
+        for water in &self.water {
+            let chunk = self
+                .chunks
+                .iter()
+                .find(|c| c.coordinate == water.coordinate)
+                .ok_or_else(|| anyhow::anyhow!("hydration chunk missing"))?;
+            anyhow::ensure!(
+                water_chunks.insert(water.coordinate),
+                "duplicate hydration chunk"
+            );
+            let mut roots = HashSet::new();
+            for (key, root, h) in &water.plants {
+                let saved = chunk
+                    .species
+                    .iter()
+                    .find(|s| s.key == *key)
+                    .ok_or_else(|| anyhow::anyhow!("hydration species missing"))?;
+                anyhow::ensure!(
+                    root & !0xffffff == 0
+                        && h.is_finite()
+                        && (0.0..=1.0).contains(h)
+                        && roots.insert((key.as_str(), *root))
+                        && saved.instances.iter().any(|i| i[0] & 0xffffff == *root),
+                    "invalid plant hydration"
+                );
+            }
+            let expected: usize = chunk.species.iter().map(|s| s.instances.len()).sum();
+            anyhow::ensure!(
+                water.plants.len() == expected,
+                "hydration state missing for live plants"
+            );
+            let mut reserves = HashSet::new();
+            for &(root, value) in &water.reserve {
+                let local = UVec3::new(root & 255, (root >> 8) & 255, (root >> 16) & 255);
+                anyhow::ensure!(
+                    root & !0xffffff == 0
+                        && local.cmplt(voxel_dim).all()
+                        && value.is_finite()
+                        && (0.0..=crate::flora::hydration::SOIL_BAND_CAPACITY).contains(&value)
+                        && reserves.insert(root),
+                    "invalid root water reserve"
+                );
+            }
+        }
+        anyhow::ensure!(
+            self.water.is_empty() || self.water.len() == self.chunks.len(),
+            "incomplete hydration snapshot"
         );
         let mut chunks = HashSet::new();
         let mut identities = HashSet::new();
@@ -164,6 +235,12 @@ impl FloraSnapshot {
             })
     }
 
+    pub fn same_water_storage(&self, other: &Self) -> bool {
+        // Legacy files have no plant water section and deliberately initialize full.
+        self.water.is_empty()
+            || (self.water == other.water && self.hydration_elapsed == other.hydration_elapsed)
+    }
+
     pub fn same_layout_and_growth(&self, other: &Self) -> bool {
         self.chunks.len() == other.chunks.len()
             && self.chunks.iter().zip(&other.chunks).all(|(a, b)| {
@@ -186,6 +263,7 @@ impl SurfaceBuilder {
     /// Caller has quiesced GPU writes. Read the live buffer, not stale CPU growth values.
     pub fn capture_flora_snapshot(&self, now_ms: u32) -> Result<FloraSnapshot> {
         let mut chunks = Vec::new();
+        let mut water = Vec::new();
         for (_, resources) in &self.resources.instances.chunk_flora_instances {
             let mut saved_species = Vec::new();
             for (index, desc) in species::FLORA_SPECIES.iter().enumerate() {
@@ -233,23 +311,49 @@ impl SurfaceBuilder {
                 }
                 saved_species.push(saved);
             }
+            water.push(ChunkWaterSnapshot {
+                coordinate: resources.chunk_id.to_array(),
+                plants: resources
+                    .hydration
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(s, plants)| {
+                        plants.iter().map(move |&(root, h)| {
+                            (species::FLORA_SPECIES[s].key.to_owned(), root, h)
+                        })
+                    })
+                    .collect(),
+                reserve: resources
+                    .root_water_reserve
+                    .iter()
+                    .map(|(&root, &value)| (root, value))
+                    .collect(),
+            });
             chunks.push(ChunkSnapshot {
                 coordinate: resources.chunk_id.to_array(),
                 species: saved_species,
             });
         }
         chunks.sort_by_key(|chunk| chunk.coordinate);
-        Ok(FloraSnapshot { chunks })
+        water.sort_by_key(|chunk| chunk.coordinate);
+        Ok(FloraSnapshot {
+            chunks,
+            water,
+            hydration_elapsed: self.hydration_elapsed,
+        })
     }
 
     /// Replaces, never appends. Resources and competition fields are rebuilt, not serialized.
     pub fn restore_flora_snapshot(&mut self, snapshot: &FloraSnapshot, now_ms: u32) -> Result<()> {
         self.authored_flora = AuthoredFloraStore::default();
+        self.hydration_elapsed = snapshot.hydration_elapsed;
         for chunk in &snapshot.chunks {
             let chunk_id = UVec3::from_array(chunk.coordinate);
             let chunk_index = self.get_chunk_resource_index(chunk_id)?;
             let resources = &mut self.resources.instances.chunk_flora_instances[chunk_index].1;
             resources.authored_response_instances.clear();
+            resources.hydration.iter_mut().for_each(Vec::clear);
+            resources.root_water_reserve.clear();
             for (index, saved) in chunk.species.iter().enumerate() {
                 let instances = saved
                     .instances
@@ -283,6 +387,26 @@ impl SurfaceBuilder {
                 }
             }
         }
+        for saved in &snapshot.water {
+            let index = self.get_chunk_resource_index(UVec3::from_array(saved.coordinate))?;
+            let resources = &mut self.resources.instances.chunk_flora_instances[index].1;
+            resources.root_water_reserve = saved.reserve.iter().copied().collect();
+            let plants: HashMap<_, _> = saved
+                .plants
+                .iter()
+                .map(|(key, root, h)| ((key.as_str(), *root), *h))
+                .collect();
+            for (s, values) in resources.hydration.iter_mut().enumerate() {
+                for (root, h) in values {
+                    if let Some(value) = plants.get(&(species::FLORA_SPECIES[s].key, *root)) {
+                        *h = *value;
+                    }
+                }
+            }
+            for s in 0..species::species_count() {
+                resources.upload_hydration(s)?;
+            }
+        }
         for chunk in &snapshot.chunks {
             self.rebuild_grass_growth_potential_for_chunk(UVec3::from_array(chunk.coordinate))?;
         }
@@ -296,6 +420,8 @@ mod tests {
 
     fn fixture() -> FloraSnapshot {
         FloraSnapshot {
+            water: Vec::new(),
+            hydration_elapsed: 0.0,
             chunks: vec![ChunkSnapshot {
                 coordinate: [0, 0, 0],
                 species: species::FLORA_SPECIES
@@ -308,6 +434,32 @@ mod tests {
                     .collect(),
             }],
         }
+    }
+
+    #[test]
+    fn hydration_snapshot_roundtrips_and_rejects_missing_or_invalid_state() {
+        let mut snapshot = fixture();
+        snapshot.chunks[0].species[0].instances.push([0, u32::MAX]);
+        snapshot.water.push(ChunkWaterSnapshot {
+            coordinate: [0, 0, 0],
+            plants: vec![("tall_grass".into(), 0, 0.37)],
+            reserve: vec![(0, 12.5)],
+        });
+        snapshot.hydration_elapsed = 0.125;
+        snapshot.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
+        let bytes = serde_json::to_vec(&snapshot).unwrap();
+        let restored: FloraSnapshot = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(snapshot, restored);
+        snapshot.water[0].plants[0].2 = 1.1;
+        assert!(snapshot.validate(UVec3::ONE, UVec3::splat(8)).is_err());
+        snapshot.water[0].plants.clear();
+        assert!(snapshot.validate(UVec3::ONE, UVec3::splat(8)).is_err());
+        let mut legacy = serde_json::to_value(&restored).unwrap();
+        legacy.as_object_mut().unwrap().remove("water");
+        legacy.as_object_mut().unwrap().remove("hydration_elapsed");
+        let legacy: FloraSnapshot = serde_json::from_value(legacy).unwrap();
+        legacy.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
+        assert!(legacy.water.is_empty());
     }
 
     #[test]

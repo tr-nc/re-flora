@@ -401,15 +401,17 @@ mod tests {
     #[test]
     fn water_status_uses_live_soil_and_shared_geometry_without_touching_trees() {
         let support = include_str!("../../shader/slang/surface_flora_vertex.slang");
-        assert!(support.contains("plantWaterDeficit(targetSpecies, atlasData,"));
+        assert!(!support.contains("water_deficit"));
+        assert!(include_str!("../../shader/slang/plant_hydration.slang")
+            .contains("plant_hydration_values["));
         for shader in [
             include_str!("../../shader/slang/grass_band.vert.slang"),
             include_str!("../../shader/slang/flora_lighting_cache.comp.slang"),
         ] {
-            assert!(shader.contains("support.water_deficit"));
+            assert!(shader.contains("plantHydrationDeficit("));
         }
         let flower = include_str!("../../shader/slang/flower_model.slang");
-        assert!(flower.contains("waterDeficit=plantWaterDeficit(flower_pc.species,soil,true)"));
+        assert!(flower.contains("waterDeficit=plantHydrationDeficit(flower_pc.species,plant,"));
         assert!(flower.contains("plantWiltOffset(waterDeficit,height*frame.scale,1.0,seed,gui_input.plant_wilt_strength)"));
         let grass = include_str!("../../shader/slang/flora_vertex.slang");
         assert!(grass.contains("plantWiltOffset(waterDeficit, liveHeight,"));

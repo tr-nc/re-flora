@@ -58,6 +58,24 @@ impl App {
     }
 
     pub(in crate::app::core) fn verify_garden_snapshot_smoke(&mut self) -> Result<()> {
+        if std::env::var_os("RE_FLORA_PLANT_HYDRATION_REVIEW").is_some() {
+            let old_selection = self.player_tools.planting.flora_index;
+            self.player_tools.planting.flora_index = 0;
+            let xz = Vec2::new(0.3, 0.3);
+            let center = Vec3::new(xz.x, self.query_terrain_height_cpu(xz), xz.y);
+            self.apply_surface_flora_regeneration(
+                TerrainBrushEdit {
+                    start: center,
+                    end: center,
+                    radius: 0.08,
+                },
+                42,
+                true,
+            )?;
+            self.player_tools.planting.flora_index = old_selection;
+            self.surface_builder
+                .verify_hydration_runtime(&mut self.plain_builder)?;
+        }
         if std::env::var("RE_FLORA_STONE_PLACEMENT_REVIEW").as_deref() == Ok("verify") {
             anyhow::ensure!(
                 self.terrain_persistence.startup_load_requested(),
@@ -137,7 +155,7 @@ impl App {
                 "runtime garden load must resume real water and world updates"
             );
             let terrain = self.verify_live_garden_file(Path::new(&path))?;
-            log::info!("[GARDEN_SMOKE] runtime replacement pass={} terrain={terrain} flora=exact trees=exact no_duplicates=true water=Running terrain=Ready world_updates=true", pass + 1);
+            log::info!("[GARDEN_SMOKE] runtime replacement pass={} terrain={terrain} flora=exact plant_water=exact trees=exact no_duplicates=true water=Running terrain=Ready world_updates=true", pass + 1);
         }
         log::info!("[GARDEN_SMOKE] passed startup_and_repeated_runtime_load=true");
         Ok(())
@@ -206,6 +224,10 @@ impl App {
         anyhow::ensure!(
             saved.flora.same_layout_and_growth(&actual),
             "restored flora layout/growth/identity differs"
+        );
+        anyhow::ensure!(
+            saved.flora.same_water_storage(&actual),
+            "restored plant hydration or root water reserve differs"
         );
         anyhow::ensure!(
             saved.trees.current_species() == self.capture_tree_snapshot(),

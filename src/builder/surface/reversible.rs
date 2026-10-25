@@ -7,6 +7,7 @@ pub struct FloraRemovalReceipt {
     chunk: UVec3,
     species: Vec<Vec<Instance>>,
     authored: Vec<AuthoredFloraInstance>,
+    hydration: Vec<Vec<(u32, f32)>>,
 }
 fn identity(i: &Instance) -> u32 {
     i.packed_local_pos & 0xffffff
@@ -123,6 +124,11 @@ impl SurfaceBuilder {
         now_ms: u32,
     ) -> Result<FloraRemovalReceipt> {
         let before = self.read_flora_species(chunk)?;
+        let index = self.get_chunk_resource_index(chunk)?;
+        let hydration = self.resources.instances.chunk_flora_instances[index]
+            .1
+            .hydration
+            .clone();
         let authored = self.authored_flora.instances_for_chunk(chunk).to_vec();
         self.edit_flora_instances_for_brush(chunk, start, end, radius, tick, now_ms)?;
         let after = self.read_flora_species(chunk)?;
@@ -148,6 +154,7 @@ impl SurfaceBuilder {
             chunk,
             species,
             authored,
+            hydration,
         })
     }
     pub fn restore_removed_flora(&mut self, receipt: &FloraRemovalReceipt) -> Result<()> {
@@ -209,6 +216,18 @@ impl SurfaceBuilder {
                 .collect();
             if restore.is_empty() {
                 continue;
+            }
+            let existing: HashSet<_> = live[species].iter().map(identity).collect();
+            for instance in &restore {
+                let root = identity(instance);
+                if !existing.contains(&root) {
+                    if let Some(&(_, h)) = receipt.hydration[species].iter().find(|p| p.0 == root) {
+                        self.resources.instances.chunk_flora_instances[index]
+                            .1
+                            .hydration[species]
+                            .push((root, h));
+                    }
+                }
             }
             merge_instances(&mut live[species], &restore);
             self.resources.instances.chunk_flora_instances[index]

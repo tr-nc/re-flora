@@ -307,6 +307,10 @@ impl Tracer {
                         "flora_instances",
                         DescriptorResource::Buffer(&chunk.resource.instances_buf),
                     ),
+                    (
+                        "plant_hydration_values",
+                        DescriptorResource::Buffer(&chunk.plant_hydration),
+                    ),
                     ("flower_parts", DescriptorResource::Buffer(&parts)),
                     (
                         "flower_visit_requests",

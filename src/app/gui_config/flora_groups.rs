@@ -20,7 +20,12 @@ const GROUND_MOTION: &[&str] = &[
     "grass_vibration_primary_speed",
     "grass_vibration_secondary_speed",
 ];
-const WATER_STATUS: &[&str] = &["plant_wilt_strength"];
+const WATER_STATUS: &[&str] = &[
+    "plant_root_uptake_seconds",
+    "plant_transpiration_seconds",
+    "plant_wilt_start_hydration",
+    "plant_wilt_strength",
+];
 const GRASS_COLORS: &[&str] = &[
     "grass_color_patch_scale",
     "grass_color_light_bias",

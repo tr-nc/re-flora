@@ -1,5 +1,9 @@
 # Reversible water-deficit presentation
 
+> Historical implementation notes. The immediate soil-to-wilt mapping below has
+> been superseded by [root-fed plant water storage](plant-hydration-storage.md).
+> Current grass/flower growth and wilt read persistent plant hydration.
+
 ## Reference and scope
 
 Primary source, retrieved 2026-10-25: Oregon State University Extension,

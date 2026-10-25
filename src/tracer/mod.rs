@@ -1405,6 +1405,7 @@ pub struct FloraAppearanceFrameInput {
     pub grass_tip_light: Vec3,
     pub grass_color_patch_scale: f32,
     pub plant_wilt_strength: f32,
+    pub plant_wilt_start_hydration: f32,
     pub grass_color_light_bias: f32,
     pub grass_color_contrast: f32,
     pub grass_color_seed: u32,
@@ -4062,6 +4063,7 @@ impl Tracer {
         }
         for (_, flora_resources) in &surface_resources.instances.chunk_flora_instances {
             if flora_resources.total_instance_len() > 0 {
+                cmdbuf.use_buffer(&flora_resources.plant_hydration, BufferUse::HostWrite);
                 cmdbuf.use_buffer(
                     &flora_resources.resource.instances_buf,
                     BufferUse::HostWrite,
@@ -4847,6 +4849,10 @@ impl Tracer {
                         DescriptorResource::Buffer(&instances.resource.instances_buf),
                     ),
                     (
+                        "plant_hydration_values",
+                        DescriptorResource::Buffer(&instances.plant_hydration),
+                    ),
+                    (
                         "grass_growth_potential_levels",
                         DescriptorResource::Buffer(&instances.grass_growth_potential_levels),
                     ),
@@ -5028,6 +5034,10 @@ impl Tracer {
                     };
                     let descriptors = [
                         (
+                            "plant_hydration_values",
+                            DescriptorResource::Buffer(&instances.plant_hydration),
+                        ),
+                        (
                             "flora_instances",
                             DescriptorResource::Buffer(&instances.resource.instances_buf),
                         ),
@@ -5096,6 +5106,10 @@ impl Tracer {
                         (
                             "flora_instances",
                             DescriptorResource::Buffer(&instances.resource.instances_buf),
+                        ),
+                        (
+                            "plant_hydration_values",
+                            DescriptorResource::Buffer(&instances.plant_hydration),
                         ),
                         (
                             "grass_growth_potential_levels",

@@ -1,3 +1,4 @@
+import plant_hydration;
 #ifndef RE_FLORA_GLASS_TRANSPORT
 #define RE_FLORA_GLASS_TRANSPORT 0
 #endif
@@ -68,14 +69,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         instanceLocalBase, instanceType);
     FloraSupportSample support = floraSupportSample(
         instanceLocalBase, chunkWorldOffset, instanceType);
-    float environmentFactor = support.growth_factor;
+    float environmentFactor = plantHydrationGrowthFactor(flora_growth_info,instanceType,localInstanceIndex);
     uint voxelInfo = lookupFloraVoxelInfo(instanceType, voxelLocalPosition);
     PreparedFloraVertex prepared = prepareFloraVertex(
         voxelLocalPosition, voxelInfo, instancePosition, instanceType, seed,
         growthProgress, competitionFactor, environmentFactor,
         instance.spawn_start_ms, vegetationResponseEnabled(),
         sampleVegetationResponse(instancePosition, seed, instanceType,
-            localInstanceIndex, floraPc.response_offset), 0.0, support.water_deficit);
+            localInstanceIndex, floraPc.response_offset), 0.0, plantHydrationDeficit(instanceType,localInstanceIndex,gui_input.plant_wilt_start_hydration));
 
     float3 irradiance = prepared.should_trim
         ? float3(0.0)

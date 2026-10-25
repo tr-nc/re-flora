@@ -2438,6 +2438,9 @@ mod tests {
             "grass_color_contrast",
             "grass_color_seed",
             "plant_wilt_strength",
+            "plant_root_uptake_seconds",
+            "plant_transpiration_seconds",
+            "plant_wilt_start_hydration",
         ];
         let defaults: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).unwrap();

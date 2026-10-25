@@ -1,17 +1,14 @@
-// Reversible presentation derived from authoritative root soil, not a second
-// health clock. Pure helpers shared by grass and modeled flowers.
+// Reversible presentation derived from the simulation-owned plant water store.
+// Pure helpers shared by grass and modeled flowers.
 module plant_water_status;
 import flora_types;
 import voxel_types;
 import hash;
 import flora_noise;
 
-public float plantWaterDeficit(uint species,uint atlasData,bool validSupport) {
-    uint material=atlasData&15u;
-    if(!validSupport||species>=FLORA_SPECIES_COUNT||
-       (material!=VOXEL_TYPE_DIRT&&material!=VOXEL_TYPE_SAND))return 0.0;
-    float dry=1.0-float((atlasData>>4u)&3u)/3.0;
-    return dry*dry;
+public float plantStoredWaterDeficit(float hydration,float threshold) {
+    float lack=saturate(1.0-hydration/max(threshold,0.001));
+    return lack*lack;
 }
 
 // Root stays fixed; upper tissue bows sideways and downward. Stable per-root

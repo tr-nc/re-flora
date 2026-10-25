@@ -149,6 +149,7 @@ pub(super) fn freeze_render_frame_inputs(
             grass_tip_light: color_to_vec3(gui.grass_tip_light_color.value),
             grass_color_patch_scale: gui.grass_color_patch_scale.value,
             plant_wilt_strength: gui.plant_wilt_strength.value,
+            plant_wilt_start_hydration: gui.plant_wilt_start_hydration.value,
             grass_color_light_bias: gui.grass_color_light_bias.value,
             grass_color_contrast: gui.grass_color_contrast.value,
             grass_color_seed: gui.grass_color_seed.value,
@@ -526,6 +527,7 @@ mod tests {
         let grass_tip_light = color!(grass_tip_light_color);
         let grass_color_patch_scale = float!(grass_color_patch_scale);
         let plant_wilt_strength = float!(plant_wilt_strength);
+        let plant_wilt_start_hydration = float!(plant_wilt_start_hydration);
         let grass_color_light_bias = float!(grass_color_light_bias);
         let grass_color_contrast = float!(grass_color_contrast);
         let grass_color_seed = uint!(grass_color_seed);
@@ -689,6 +691,7 @@ mod tests {
                     grass_tip_light,
                     grass_color_patch_scale,
                     plant_wilt_strength,
+                    plant_wilt_start_hydration,
                     grass_color_light_bias,
                     grass_color_contrast,
                     grass_color_seed,

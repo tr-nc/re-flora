@@ -40,7 +40,6 @@ public struct FloraSupportSample
 {
     public float growth_factor;
     public uint moisture_level;
-    public float water_deficit;
 };
 
 public FloraSupportSample floraSupportSample(uint3 localBase,
@@ -50,7 +49,6 @@ public FloraSupportSample floraSupportSample(uint3 localBase,
     FloraSupportSample sample;
     sample.growth_factor = 1.0;
     sample.moisture_level = 0u;
-    sample.water_deficit = 0.0;
     if (targetSpecies >= FLORA_SPECIES_COUNT) return sample;
     uint3 atlasPosition = chunkWorldOffset + localBase;
     uint width;
@@ -61,8 +59,6 @@ public FloraSupportSample floraSupportSample(uint3 localBase,
         any(atlasPosition >= uint3(width, height, depth))) return sample;
 
     uint atlasData = chunk_atlas[atlasPosition];
-    sample.water_deficit = plantWaterDeficit(targetSpecies, atlasData,
-        all(localBase < GRASS_GROWTH_POTENTIAL_CHUNK_DIM));
     uint moistureLevel = min((atlasData & 0x30u) >> 4u, 3u);
     // Retain growth semantics even for non-soil supports. Only material wetness
     // validates soil type; growth overrides never replace this raw moisture.

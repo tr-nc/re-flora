@@ -143,6 +143,13 @@ pub struct FloraInstanceResources {
     pub resource: InstanceResource,
     /// One four-bit ordinary-grass growth-potential level per local voxel (15 means unrestricted).
     pub grass_growth_potential_levels: Resource<Buffer>,
+    pub plant_hydration: Resource<Buffer>,
+    /// Species-major live roots and their persistent water store. Reordered by
+    /// root identity on publication, never by mutable draw index.
+    pub hydration: Vec<Vec<(u32, f32)>>,
+    pub hydration_roots: Vec<(u32, usize, usize)>,
+    pub hydration_roots_dirty: bool,
+    pub root_water_reserve: std::collections::BTreeMap<u32, f64>,
     species_instance_len: [u32; species::MAX_FLORA_SPECIES],
 }
 
@@ -151,6 +158,9 @@ impl ResourceContainer for FloraInstanceResources {
         match name {
             "flora_instances" => {
                 ResourceLookup::Unique(DescriptorResource::Buffer(&self.resource.instances_buf))
+            }
+            "plant_hydration_values" => {
+                ResourceLookup::Unique(DescriptorResource::Buffer(&self.plant_hydration))
             }
             "grass_growth_potential_levels" => ResourceLookup::Unique(DescriptorResource::Buffer(
                 &self.grass_growth_potential_levels,
@@ -175,6 +185,22 @@ impl FloraInstanceResources {
             * u64::from(voxel_dim_per_chunk.y)
             * u64::from(voxel_dim_per_chunk.z);
         let grass_growth_potential_word_count = voxel_count.div_ceil(8);
+        let plant_hydration = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            max_instances * 4,
+        );
+        plant_hydration
+            .fill_range_with_raw_u8(
+                0,
+                bytemuck::cast_slice(&vec![
+                    crate::flora::hydration::DEFAULT_HYDRATION;
+                    max_instances as usize
+                ]),
+            )
+            .expect("initialize plant hydration");
         let grass_growth_potential_levels = Buffer::new_sized(
             device,
             allocator,
@@ -193,6 +219,11 @@ impl FloraInstanceResources {
         Self {
             chunk_id,
             authored_response_instances: Vec::new(),
+            plant_hydration: Resource::new(plant_hydration),
+            hydration: vec![Vec::new(); species_count],
+            hydration_roots: Vec::new(),
+            hydration_roots_dirty: true,
+            root_water_reserve: Default::default(),
             chunk_world_offset: chunk_id * voxel_dim_per_chunk,
             resource,
             grass_growth_potential_levels: Resource::new(grass_growth_potential_levels),
@@ -261,6 +292,58 @@ impl FloraInstanceResources {
                 .fill_range_with_raw_u8(byte_start as u64, instance_bytes)?;
         }
         self.set_species_len(species_index, instances.len() as u32);
+        self.reconcile_hydration(species_index, instances)?;
+        Ok(())
+    }
+
+    pub fn reconcile_hydration(&mut self, species: usize, instances: &[Instance]) -> Result<()> {
+        self.hydration_roots_dirty = true;
+        let previous: HashMap<_, _> = self.hydration[species].iter().copied().collect();
+        self.hydration[species] = instances
+            .iter()
+            .map(|i| {
+                let root = i.packed_local_pos & 0xffffff;
+                (
+                    root,
+                    previous
+                        .get(&root)
+                        .copied()
+                        .unwrap_or(crate::flora::hydration::DEFAULT_HYDRATION),
+                )
+            })
+            .collect();
+        self.upload_hydration(species)
+    }
+
+    pub fn upload_hydration(&self, species: usize) -> Result<()> {
+        let values: Vec<_> = self.hydration[species].iter().map(|p| p.1).collect();
+        if !values.is_empty() {
+            self.plant_hydration.fill_range_with_raw_u8(
+                u64::from(Self::species_offset(species)) * 4,
+                bytemuck::cast_slice(&values),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Called after a GPU edit has compacted/rebuilt the ordinary grass stream.
+    pub fn reconcile_grass_hydration(&mut self) -> Result<()> {
+        for species in 0..species::MODEL_FLOWER_FIRST_SPECIES as usize {
+            let count = self.species_len(species) as usize;
+            let instances = if count == 0 {
+                Vec::new()
+            } else {
+                let bytes = self.resource.instances_buf.read_back_range(
+                    u64::from(Self::species_offset(species))
+                        * std::mem::size_of::<Instance>() as u64,
+                    (count * std::mem::size_of::<Instance>()) as u64,
+                )?;
+                bytemuck::try_cast_slice::<u8, Instance>(&bytes)
+                    .map_err(|e| anyhow::anyhow!("plant hydration root publication: {e}"))?
+                    .to_vec()
+            };
+            self.reconcile_hydration(species, &instances)?;
+        }
         Ok(())
     }
 

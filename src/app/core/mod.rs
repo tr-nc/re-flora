@@ -2348,6 +2348,17 @@ impl App {
                 );
                 if world_updates_running && world_tick_steps > 0 {
                     self.update_growing_flora_chunk();
+                    let gui = &self.debug_settings.adjustables;
+                    if let Err(error) = self.surface_builder.advance_plant_hydration(
+                        &mut self.plain_builder,
+                        f64::from(world_tick_steps) * f64::from(world_tick_seconds),
+                        crate::flora::hydration::Settings {
+                            uptake_seconds: f64::from(gui.plant_root_uptake_seconds.value),
+                            transpiration_seconds: f64::from(gui.plant_transpiration_seconds.value),
+                        },
+                    ) {
+                        log::error!("Plant hydration simulation failed: {error:#}");
+                    }
                 }
                 let extent = self.world_chunk_dim * VOXEL_DIM_PER_CHUNK;
                 self.wind_prototype

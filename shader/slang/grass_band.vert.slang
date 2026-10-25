@@ -1,4 +1,5 @@
 import flora_types;
+import plant_hydration;
 import flora_vertex;
 import flora_lighting_cache;
 import surface_flora_vertex;
@@ -25,15 +26,16 @@ StemBandVertex main(VertexInput input) {
     uint3 base=unpackInstanceLocalPosition(instance.packed_local_pos);
     float competition=floraCompetitionGrowthFactor(base,species);
     FloraSupportSample support=floraSupportSample(base,floraChunkWorldOffset(),species);
-    float environment=support.growth_factor;
+    float environment=plantHydrationGrowthFactor(flora_growth_info,species,localIndex);
     bool useResponse=vegetationResponseEnabled();
     float3 response=sampleVegetationResponse(root,seed,species,localIndex,floraPushConstants().response_offset);
+    float waterDeficit=plantHydrationDeficit(species,localIndex,gui_input.plant_wilt_start_hydration);
     uint height=sampleGrassHeight(species,seed);
     if(band>=height)return output;
     uint info=lookupFloraVoxelInfo(species,int3(0,int(band),0));
     PreparedFloraVertex pose=prepareFloraVertex(int3(0,int(band),0),info,root,species,seed,
         unpackInstanceGrowthProgress(instance.packed_local_pos),competition,environment,
-        instance.spawn_start_ms,useResponse,response,0.0,support.water_deficit);
+        instance.spawn_start_ms,useResponse,response,0.0,waterDeficit);
     if(pose.should_trim)return output;
     // Adjacent centres define a continuous path. Halfway boundaries preserve
     // one color band per original voxel layer, including rooted and tip caps.
@@ -43,14 +45,14 @@ StemBandVertex main(VertexInput input) {
         uint previous=lookupFloraVoxelInfo(species,int3(0,int(band-1u),0));
         PreparedFloraVertex p=prepareFloraVertex(int3(0,int(band-1u),0),previous,root,species,seed,
             unpackInstanceGrowthProgress(instance.packed_local_pos),competition,environment,
-            instance.spawn_start_ms,useResponse,response,0.0,support.water_deficit);
+            instance.spawn_start_ms,useResponse,response,0.0,waterDeficit);
         previousCenter=p.voxel_position;
     }
     if(band+1u<height) {
         uint next=lookupFloraVoxelInfo(species,int3(0,int(band+1u),0));
         PreparedFloraVertex p=prepareFloraVertex(int3(0,int(band+1u),0),next,root,species,seed,
             unpackInstanceGrowthProgress(instance.packed_local_pos),competition,environment,
-            instance.spawn_start_ms,useResponse,response,0.0,support.water_deficit);
+            instance.spawn_start_ms,useResponse,response,0.0,waterDeficit);
         nextCenter=p.voxel_position;
         hasNext=!p.should_trim;
     }

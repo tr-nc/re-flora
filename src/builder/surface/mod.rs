@@ -1,4 +1,6 @@
 mod ecology;
+mod hydration;
+mod hydration_review;
 mod resources;
 mod reversible;
 mod snapshot;
@@ -417,6 +419,7 @@ pub struct SurfaceBuilder {
     authored_flora: AuthoredFloraStore,
     external_grass_growth_influences: HashMap<u64, GrassGrowthInfluence>,
     next_descriptor_generation: Cell<u64>,
+    hydration_elapsed: f64,
 
     chunk_bound: UAabb3,
     voxel_dim_per_chunk: UVec3,
@@ -605,6 +608,7 @@ impl SurfaceBuilder {
                 ),
             },
             next_descriptor_generation: Cell::new(1),
+            hydration_elapsed: 0.0,
             chunk_bound,
             voxel_dim_per_chunk,
             flora_species_count,
@@ -852,6 +856,7 @@ impl SurfaceBuilder {
             for (species_idx, len) in result.flora_instance_len.iter().enumerate() {
                 chunk_resources_mut.set_species_len(species_idx, *len);
             }
+            chunk_resources_mut.reconcile_grass_hydration()?;
             self.sync_authored_flora_chunk_to_gpu(job.chunk_id)?;
         }
         let flora_elapsed = flora_start.elapsed();
@@ -1669,6 +1674,7 @@ impl SurfaceBuilder {
             chunk_resources_mut.set_species_len(species_idx, *len);
             after_total = after_total.saturating_add(*len);
         }
+        chunk_resources_mut.reconcile_grass_hydration()?;
         if mode != OccupancyEditMode::ValidateTerrain {
             self.sync_authored_flora_chunk_to_gpu(chunk_id)?;
         }

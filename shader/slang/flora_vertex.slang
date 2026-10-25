@@ -23,7 +23,7 @@ public [[vk::binding(0, 0)]] ConstantBuffer<U_GuiInput> gui_input;
 public [[vk::binding(2, 0)]] ConstantBuffer<U_ShadingInfo> shading_info;
 public [[vk::binding(3, 0)]] ConstantBuffer<U_CameraInfo> camera_info;
 [[vk::binding(4, 0)]] ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
-[[vk::binding(6, 0)]] ConstantBuffer<U_FloraGrowthInfo> flora_growth_info;
+public [[vk::binding(6, 0)]] ConstantBuffer<U_FloraGrowthInfo> flora_growth_info;
 [[vk::binding(7, 0)]] ConstantBuffer<U_WindVolumeInfo> wind_volume_info;
 [[vk::binding(8, 0)]] Sampler3D wind_volume_tex;
 [[vk::binding(12, 0)]] ConstantBuffer<U_TerrainEditPreview> terrain_edit_preview;

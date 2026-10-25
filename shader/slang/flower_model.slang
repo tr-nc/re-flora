@@ -1,4 +1,5 @@
 // A pose/material adapter for authored flowers. Geometry coverage and display
+import plant_hydration;
 // stay in the existing shared model-pixel modules.
 module flower_model;
 import flora_types;
@@ -81,15 +82,8 @@ public FlowerPlantPose flowerPlantPose(uint plant) {
     // Bound rest bend consistently with the authored assembly dimensions.
     float bend=min(whole.stem.x,whole.distribution.y*float(layers-1u)*0.25);
     float3 attachmentDelta=float3(bend-whole.stem.x,height-whole.stem.y,0);
-    float moisture=1.0;
-    float waterDeficit=0.0;
-    uint width,atlasHeight,depth;chunk_atlas.GetDimensions(width,atlasHeight,depth);
-    if(all(base<uint3(width,atlasHeight,depth))) {
-        uint soil=chunk_atlas[base];
-        uint level=(soil>>4u)&3u;
-        waterDeficit=plantWaterDeficit(flower_pc.species,soil,true);
-        moisture=flora_growth_info.moisture_growth_factors[flower_pc.species][level];
-    }
+    float moisture=plantHydrationGrowthFactor(flora_growth_info,flower_pc.species,plant);
+    float waterDeficit=plantHydrationDeficit(flower_pc.species,plant,gui_input.plant_wilt_start_hydration);
     float potential=gui_input.flora_growth_override_enabled!=0u?saturate(gui_input.flora_growth_override):moisture;
     float growth=min(float(unpackInstanceGrowthProgress(instance.packed_local_pos))/255.0,potential);
     float scale=flower_pc.world_scale*growth;
