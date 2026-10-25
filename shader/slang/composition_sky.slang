@@ -80,7 +80,17 @@ public float3 computeSkyWithSunAndStars(float3 viewDirection,
                                       viewDirection);
     float3 starColor = getStarlightColor(rotatedViewDirection, info);
     float starVisibility = smoothstep(starCutoffAltitude, starFadeAltitude, sunAltitude);
-    return lerp(skyWithSun, starColor, starVisibility);
+    float3 nightSky = lerp(skyWithSun, starColor, starVisibility);
+    // Full-moon sticker opposite the sun, using the same authored pixel texture
+    // and projection. Its warm sun palette becomes cool slate / ivory, retaining
+    // the original irregular pixel silhouette and surface detail.
+    float3 moonDirection = -sun.sun_dir;
+    float4 moonTexel = sampleSunSprite(sunSprite, camera.view_mat, viewDirection,
+        moonDirection, sun.sun_size * 0.85);
+    float value = sqrt(saturate(dot(moonTexel.rgb, float3(0.2126,0.7152,0.0722))));
+    float3 moonColor = lerp(float3(0.19,0.25,0.39), float3(0.82,0.88,1.0), value);
+    float moonVisibility = starVisibility * smoothstep(-0.02,0.06,moonDirection.y);
+    return lerp(nightSky, moonColor, moonTexel.a * moonVisibility);
 }
 
 // Scene and refracted-screen queries use this seam. Optional screen-space sky

@@ -459,6 +459,19 @@ impl App {
             self.validate_material_supply()
                 .unwrap_or_else(|err| panic!("[MATERIAL_SUPPLY] validation failed: {err:#}"));
         }
+        if let Ok(mode) = std::env::var("RE_FLORA_NIGHT_REVIEW") {
+            self.set_manual_time_of_day(0.08);
+            if mode == "moon" {
+                let gui = &self.debug_settings.adjustables;
+                let (altitude, azimuth) =
+                    Self::calculate_sun_position(0.08, gui.latitude.value, gui.season.value);
+                let moon = -crate::util::get_sun_dir(altitude.asin().to_degrees(), azimuth * 360.0);
+                let position = self.tracer.camera_position();
+                self.tracer
+                    .set_camera_pose_looking_at(position, position + moon);
+            }
+            log::info!("[NIGHT_REVIEW] time=0.08 mode={mode} saved=false");
+        }
         self.time_info.reset_frame_delta();
         self.render_start_time = Some(Instant::now());
     }
