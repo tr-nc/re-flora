@@ -14,13 +14,6 @@ pub(super) struct ControlGroup {
 const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
-        title: "Moisture Appearance",
-        description: "Grass darkens by up to 25% in linear material color as supporting soil becomes moist. This is root/soil moisture, not water measured on each blade. Manual watering, transfer, drying and restored soil all use the same atlas. Unchecked preserves original grass color; growth and other plants are unchanged. Saved with Save.",
-        initially_open: false,
-        params: &["grass_moisture_response"],
-    },
-    ControlGroup {
-        parent: None,
         title: "Walking Traversal",
         description: "Cross low, narrow ground detail above a nearby supported patch. Height is measured from real surrounding terrain, not accumulated from previous steps. Default 3 voxels; capped at the player's 4-voxel radius. Normal 12-voxel steps, body clearance, jumping and mower movement are unchanged. Changes apply immediately; saved with Save.",
         initially_open: false,

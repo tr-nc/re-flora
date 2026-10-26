@@ -1025,6 +1025,7 @@ mod section_order_tests {
             "Camera View",
             "GUI Appearance",
             "Material Supply",
+            "Moisture Appearance",
         ] {
             assert!(
                 !original.iter().any(|name| name == title),

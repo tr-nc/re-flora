@@ -21,7 +21,6 @@ pub(super) struct GrassStemReview {
     sample_frames: u32,
     pub(super) interactive: bool,
     moisture_review: Option<String>,
-    moisture_response: bool,
     moisture_snapshot: Option<tempfile::TempDir>,
     snapshot_soil_sum: Option<u32>,
 }
@@ -38,9 +37,6 @@ impl GrassStemReview {
                     "moisture review must be dry, manual, sprinkler, lifecycle or support"
                 );
             }
-            let response = environment_uint("RE_FLORA_GRASS_MOISTURE_RESPONSE", 1);
-            assert!(response <= 1, "moisture response must be 0 or 1");
-            review.moisture_response = response != 0;
             if review.moisture_review.as_deref() == Some("lifecycle") {
                 review.moisture_snapshot =
                     Some(tempfile::tempdir().expect("disposable wet snapshot"));
@@ -117,7 +113,6 @@ impl GrassStemReview {
             sample_frames: 300,
             interactive: false,
             moisture_review: None,
-            moisture_response: true,
             moisture_snapshot: None,
             snapshot_soil_sum: None,
         })
@@ -361,13 +356,10 @@ impl GrassStemReview {
                 let dry = app
                     .plain_builder
                     .sample_soil_moisture_sphere(neighbor, 0.04)?;
-                log::info!("[GRASS_MOISTURE_REVIEW] mode={mode} response={} frame={frame} soil={stats:?} neighbor={dry:?} pose_reuse={} pixels={} growth_override=1 drying_speed={} saved=false", self.moisture_response, self.pose_reuse, self.pixelization, app.debug_settings.adjustables.soil_drying_speed.value);
+                log::info!("[GRASS_MOISTURE_REVIEW] mode={mode} response=true frame={frame} soil={stats:?} neighbor={dry:?} pose_reuse={} pixels={} growth_override=1 drying_speed={} saved=false", self.pose_reuse, self.pixelization, app.debug_settings.adjustables.soil_drying_speed.value);
             }
         }
         let gui = &mut app.debug_settings.adjustables;
-        if self.moisture_review.is_some() {
-            gui.grass_moisture_response.value = self.moisture_response;
-        }
         gui.grass_render_mode.value = self.species_mode;
         if !self.interactive {
             gui.grass_band_pose_reuse.value = self.pose_reuse;
