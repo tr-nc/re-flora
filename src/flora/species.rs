@@ -81,6 +81,15 @@ pub struct FloraSpeciesDesc {
 }
 
 impl FloraSpeciesDesc {
+    pub fn is_root_crop(&self) -> bool {
+        self.model_flower
+            .is_some_and(|i| super::models::ROOT_CROP_MODELS[i])
+    }
+
+    pub fn provides_nectar(&self) -> bool {
+        self.model_flower.is_some() && !self.is_root_crop()
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub const fn new(
         key: &'static str,
@@ -307,9 +316,11 @@ mod tests {
     }
 
     #[test]
-    fn carrot_species_is_not_registered() {
-        assert!(!species().iter().any(|species| species.key == "carrot"));
-        assert!(!PLAYER_FLORA_PAINT_SELECTIONS.iter().any(|selection| {
+    fn carrot_is_a_plantable_root_crop_not_a_nectar_flower() {
+        let carrot = species().iter().find(|s| s.key == "carrot").unwrap();
+        assert!(carrot.is_root_crop());
+        assert!(!carrot.provides_nectar());
+        assert!(PLAYER_FLORA_PAINT_SELECTIONS.iter().any(|selection| {
             matches!(
                 selection,
                 FloraPaintSelection::Species(species_idx)

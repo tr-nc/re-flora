@@ -108,6 +108,9 @@ fn plan(
             let species = plant.species_index as usize;
             let slot = slots[species];
             slots[species] += 1;
+            if !species::species()[species].provides_nectar() {
+                continue;
+            }
             let Some(model) = species::species()[species].model_flower else {
                 continue;
             };

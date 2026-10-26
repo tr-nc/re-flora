@@ -486,6 +486,20 @@ mod tests {
     }
 
     #[test]
+    fn pre_carrot_garden_gains_an_empty_slot_without_rewriting_existing_plants() {
+        let mut expected = fixture();
+        expected.chunks[0].species[2]
+            .instances
+            .push([0xff01_0203, 42]);
+        expected.chunks[0].species[2].authored.push([12, 55]);
+        let mut old = expected.clone();
+        assert_eq!(old.chunks[0].species.pop().unwrap().key, "carrot");
+        assert_eq!(old.migrate_species_schema(), 0);
+        old.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
+        assert_eq!(old, expected);
+    }
+
+    #[test]
     fn legacy_snapshot_discards_only_retired_species_and_keeps_other_state() {
         let mut retained = fixture();
         retained.chunks[0].species[0]

@@ -1,6 +1,7 @@
 // The one shared head generator for web and native publication. Species are
-// presets, never independent geometry branches. Game owns stems/placement.
+// presets. Root crops use an explicit morphology family; game owns placement.
 import {parametricFlower,flowerShapeDefaults} from './parametric-flower.mjs';
+import {carrotGeometry} from './carrot-source.mjs';
 export const flowerShapes={
   // Five broad spoons form an open bowl; separated shoulders and rolled lips.
   'wild-geranium':{petalCount:5,petalWidth:.34,petalShoulder:.60,tipSharpness:0,opening:.64,petalCup:.23,petalArch:.04,tipCurl:-.26,poseVariation:.085,centerHeight:.17},
@@ -30,9 +31,10 @@ export const flowerCatalog=[
   entry('coneflower','Coneflower',43,'紫松果菊','Echinacea purpurea',55,['#b36c98','#d18bb4','#b77c3c','#52734a']),
   entry('tulip','Tulip',37,'郁金香','Tulipa',70,['#f3c38e','#e8a075','#755048','#52734a']),
   entry('sunflower','Sunflower',136,'向日葵','Helianthus annuus',70,['#d99922','#ffdc52','#664323','#4f7135']),
+  {...entry('carrot','Carrot',1,'胡萝卜','Daucus carota subsp. sativus',0,['#a84918','#e67c24','#55943f','#337240']),kind:'root_crop'},
 ];
 export function flowerGeometry(id,settings={}){
   const spec=flowerCatalog.find(spec=>spec.id===id);
   if(!spec)throw new Error(`Unknown flower: ${id}`);
-  return parametricFlower({...spec.defaults,...settings});
+  return spec.kind==='root_crop'?carrotGeometry():parametricFlower({...spec.defaults,...settings});
 }

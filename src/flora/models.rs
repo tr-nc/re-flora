@@ -555,7 +555,8 @@ mod tests {
     #[test]
     fn shared_flowers_keep_the_approved_shapes_and_complete_head_ranges() {
         let models = flowers();
-        for model in models {
+        for (index, model) in models.iter().enumerate() {
+            let minimum_y = if ROOT_CROP_MODELS[index] { -0.9 } else { -0.02 };
             let count = model.triangles.len();
             assert!(count > 100 && count < 4000, "{}", model.id);
             assert_eq!(model.heads.len(), 1);
@@ -576,7 +577,7 @@ mod tests {
                 .iter()
                 .flat_map(|t| t.positions)
                 .all(|p| p.is_finite()
-                    && p.y >= -0.02
+                    && p.y >= minimum_y
                     && p.distance(model.whole.center) < model.whole.radius));
             assert_eq!(
                 model.whole.center,

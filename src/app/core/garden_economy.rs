@@ -28,6 +28,7 @@ struct Prices {
     flower_seed_packet_size: u32,
     flower_seedling_price: u32,
     saplings: BTreeMap<String, u32>,
+    produce: BTreeMap<String, u32>,
 }
 static PRICES: LazyLock<Prices> = LazyLock::new(|| {
     let p: Prices = toml::from_str(include_str!("../../../config/garden-shop.toml"))
@@ -95,7 +96,9 @@ static CATALOG: LazyLock<Vec<Product>> = LazyLock::new(|| {
             quantity,
             goods: PlantGoods::Seeds(selection),
         });
-        if !grass {
+        if !grass
+            && !matches!(selection, FloraPaintSelection::Species(i) if species::species()[i as usize].is_root_crop())
+        {
             result.push(Product {
                 id: format!("seedling/{key}"),
                 label: format!("{label} seedling"),
@@ -132,6 +135,8 @@ pub(super) fn product_for(goods: PlantGoods) -> Option<&'static Product> {
 pub(super) struct GardenEconomy {
     pub coins: u32,
     pub apples: u32,
+    #[serde(default)]
+    pub crops: BTreeMap<String, u32>,
     #[serde(deserialize_with = "decode_stock")]
     stock: BTreeMap<String, u32>,
     harvested: BTreeSet<HarvestKey>,
@@ -154,6 +159,7 @@ impl Default for GardenEconomy {
         Self {
             coins: PRICES.starting_coins,
             apples: 0,
+            crops: BTreeMap::new(),
             stock: BTreeMap::new(),
             harvested: BTreeSet::new(),
         }
@@ -172,6 +178,12 @@ impl GardenEconomy {
                     .iter()
                     .all(|(id, n)| product(id).is_some() && *n <= MAX_STOCK),
             "invalid purchased plant stock"
+        );
+        ensure!(
+            self.crops
+                .iter()
+                .all(|(id, n)| PRICES.produce.contains_key(id) && *n <= MAX_STOCK),
+            "invalid crop stock"
         );
         ensure!(
             self.harvested.len() <= MAX_HARVEST_RECEIPTS
@@ -209,6 +221,25 @@ impl GardenEconomy {
         self.coins = coins;
         Ok(proceeds)
     }
+    pub fn crop_price(id: &str) -> Option<u32> {
+        PRICES.produce.get(id).copied()
+    }
+    pub fn sell_crop(&mut self, id: &str, count: u32) -> Result<u32> {
+        let price = Self::crop_price(id).ok_or_else(|| anyhow::anyhow!("Unknown crop"))?;
+        let owned = self.crops.get(id).copied().unwrap_or(0);
+        ensure!(count > 0 && count <= owned, "No crop to sell");
+        let proceeds = count
+            .checked_mul(price)
+            .ok_or_else(|| anyhow::anyhow!("Sale too large"))?;
+        let coins = self
+            .coins
+            .checked_add(proceeds)
+            .filter(|n| *n <= MAX_COINS)
+            .ok_or_else(|| anyhow::anyhow!("Wallet is full"))?;
+        self.coins = coins;
+        self.crops.insert(id.to_owned(), owned - count);
+        Ok(proceeds)
+    }
     pub fn apple_price() -> u32 {
         PRICES.apple_sell_price
     }
@@ -231,7 +262,27 @@ impl GardenEconomy {
         self.harvested.insert(key);
         Ok(true)
     }
-    pub fn collect_plant(&mut self, species: u32, take: impl FnOnce() -> bool) -> Result<bool> {
+    pub fn collect_plant(
+        &mut self,
+        species: u32,
+        growth: u32,
+        take: impl FnOnce() -> bool,
+    ) -> Result<bool> {
+        let definition = species::species()
+            .get(species as usize)
+            .ok_or_else(|| anyhow::anyhow!("Unknown plant"))?;
+        if definition.is_root_crop() {
+            if growth < 255 {
+                return Ok(false);
+            }
+            let count = self.crops.get(definition.key).copied().unwrap_or(0);
+            ensure!(count < MAX_STOCK, "Crop storage is full");
+            if !take() {
+                return Ok(false);
+            }
+            self.crops.insert(definition.key.to_owned(), count + 1);
+            return Ok(true);
+        }
         let p = product_for(PlantGoods::Seedling(FloraPaintSelection::Species(species)))
             .ok_or_else(|| anyhow::anyhow!("This plant cannot be collected"))?;
         let count = self.count(&p.id);
@@ -305,19 +356,59 @@ mod tests {
             product_for(PlantGoods::Seedling(FloraPaintSelection::Species(species))).unwrap();
         let mut bag = GardenEconomy::default();
         assert!(bag
-            .collect_plant(0, || panic!("grass must never be taken"))
+            .collect_plant(0, 255, || panic!("grass must never be taken"))
             .is_err());
         bag.stock.insert(product.id.clone(), MAX_STOCK);
         assert!(bag
-            .collect_plant(species, || panic!("full bag must never remove a plant"))
+            .collect_plant(species, 255, || panic!(
+                "full bag must never remove a plant"
+            ))
             .is_err());
         bag.stock.clear();
-        assert!(!bag.collect_plant(species, || false).unwrap());
+        assert!(!bag.collect_plant(species, 255, || false).unwrap());
         assert_eq!(bag.count(&product.id), 0);
-        assert!(bag.collect_plant(species, || true).unwrap());
+        assert!(bag.collect_plant(species, 255, || true).unwrap());
         assert_eq!(bag.count(&product.id), 1);
         bag.validate().unwrap();
     }
+    #[test]
+    fn carrots_are_seed_grown_mature_produce_not_reusable_seedlings() {
+        let carrot = species::species()
+            .iter()
+            .position(|s| s.key == "carrot")
+            .unwrap() as u32;
+        assert!(product("seeds/carrot").is_some());
+        assert!(product("seedling/carrot").is_none());
+        assert!(!species::species()[carrot as usize].provides_nectar());
+        let mut bag = GardenEconomy::default();
+        assert!(!bag
+            .collect_plant(carrot, 254, || panic!("immature crop removed"))
+            .unwrap());
+        bag.crops.insert("carrot".into(), MAX_STOCK);
+        assert!(bag
+            .collect_plant(carrot, 255, || panic!("full crop bag"))
+            .is_err());
+        bag.crops.clear();
+        assert!(!bag.collect_plant(carrot, 255, || false).unwrap());
+        assert!(bag.collect_plant(carrot, 255, || true).unwrap());
+        assert_eq!(bag.crops.get("carrot"), Some(&1));
+        let saved: GardenEconomy =
+            serde_json::from_str(&serde_json::to_string(&bag).unwrap()).unwrap();
+        assert_eq!(bag, saved);
+        saved.validate().unwrap();
+        let coins = bag.coins;
+        assert_eq!(bag.sell_crop("carrot", 1).unwrap(), 3);
+        assert_eq!(bag.coins, coins + 3);
+        let before = bag.clone();
+        assert!(bag.sell_crop("carrot", 1).is_err());
+        assert!(bag.sell_crop("unknown", 1).is_err());
+        assert_eq!(bag, before);
+        let mut legacy = serde_json::to_value(&bag).unwrap();
+        legacy.as_object_mut().unwrap().remove("crops");
+        let legacy: GardenEconomy = serde_json::from_value(legacy).unwrap();
+        assert!(legacy.crops.is_empty());
+    }
+
     #[test]
     fn retired_willow_stock_becomes_plane_stock_without_losing_goods() {
         let mut value = serde_json::to_value(GardenEconomy::default()).unwrap();

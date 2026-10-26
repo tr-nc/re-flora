@@ -173,7 +173,11 @@ impl App {
         batch: AuthoredFloraPlacementBatch,
     ) -> anyhow::Result<()> {
         self.surface_builder
-            .sync_authored_flora_dirty_chunks(&batch.dirty_chunks, batch.spawn_time_ms)
+            .sync_authored_flora_dirty_chunks(&batch.dirty_chunks, batch.spawn_time_ms)?;
+        for chunk in batch.dirty_chunks {
+            self.track_growing_flora_chunk(chunk);
+        }
+        Ok(())
     }
 }
 

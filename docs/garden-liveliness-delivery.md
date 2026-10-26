@@ -11,7 +11,7 @@ Requested scope (sequential, local commits only):
 - [x] Add a central-aim vacuum tool for nearby harvestable fruit and special
   ground plants; never collect ordinary grass, trees or terrain; reuse inventory
   transactions and persistence, with visible collection feedback.
-- [ ] Add carrots with a stylized taproot/feathery rosette, selection, planting,
+- [x] Add carrots with a stylized taproot/feathery rosette, selection, planting,
   growth, inventory and harvesting; inspect in-game appearance.
 - [ ] Aggregate validation and current Release binary for later manual acceptance.
 
@@ -23,6 +23,39 @@ subjective approval of animated motion. No push, official packaging, external
 publication or unattended persistent garden/config writes are requested.
 
 ## Evidence
+
+### Carrot
+
+- [Research and modeling decisions](research/london-plane-and-carrot.md#carrot)
+  use NC State Extension and RHS. Original tapered root + divided basal rosette
+  recipe, published through the shared pixel-model bank. First-year carrot,
+  not a flower/nectar host. Seven leaves, two greens, restrained orange root
+  shoulder; most of the root remains underground.
+- Grow → Flora → Carrot, finite seed purchases, canonical growth, Harvest or
+  Vacuum, saved produce stock and Shop sale. Immature crops are protected;
+  full inventory checks happen before world removal; repeated collection cannot
+  duplicate a harvested root. Root crops cannot be bought/recycled as seedlings.
+- Fixed the growth owner needed by seed-grown authored plants: the ordinary
+  chunk queue now advances their CPU-owned age and republishes it, including
+  grass-free chunks. Reload/other publications retain age rather than resetting
+  it to the planting value. Existing model flowers also benefit.
+- Inspected two actual Release images, thickened initially disappearing stalks
+  and joined the crown for the current pixel budget. Final image:
+  `target/liveliness-carrots-full.png`. This is stylized; growth is uniform
+  scaling, not physiological emergence or a real agricultural calendar.
+- Checks: fmt/check, three carrot policy/migration tests, thirteen model tests,
+  fifteen Node publication/geometry/studio tests, Release build. Native fixture
+  verifies finite stock debit, 0→128→255 age, real scheduled growth, partial-age
+  reload, immature protection, vacuum + manual Harvest, exact-once produce,
+  inventory/layout reload and sale. `target/liveliness-carrots-scheduled-console.log`
+  contains `CARROT_REVIEW passed`, `scheduled_growth=true` and shutdown
+  `failures=0`, with no ERROR/panic/VUID.
+- Full Rust run: 1707 passed, 13 ignored, the same eight baseline failures
+  documented below; no new failing test. Log: `target/liveliness-carrot-all-tests.log`.
+- Reproduce: `RE_FLORA_CARROT_REVIEW=1 RUST_LOG=re_flora=info cargo run
+  --release -- --hidden --mute --auto-exit 6`. Generated `flowers.json` and
+  shader-derived `gpu_structs.rs` are included; neither was hand-edited.
+  Asset provenance is in `assets/models/README.md`.
 
 ### Vacuum
 

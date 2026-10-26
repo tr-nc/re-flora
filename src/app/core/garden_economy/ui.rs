@@ -24,6 +24,7 @@ pub(in crate::app::core) fn shop_open_after_key(
 pub(in crate::app::core) enum ShopAction {
     Buy(String),
     SellApples(u32),
+    SellCrop(String, u32),
 }
 
 pub(in crate::app::core) fn draw_garden_shop(
@@ -87,6 +88,16 @@ pub(in crate::app::core) fn draw_garden_shop(
                     action = Some(ShopAction::SellApples(economy.apples));
                 }
             });
+            for (key, count) in &economy.crops {
+                if *count == 0 { continue; }
+                let label = species::species().iter().find(|s| s.key == key).map_or(key.as_str(), |s| s.display_name);
+                ui.horizontal(|ui| {
+                    ui.label(format!("{label} ×{count}"));
+                    if ui.button(format!("Sell all · {} coins each", GardenEconomy::crop_price(key).unwrap_or(0))).clicked() {
+                        action = Some(ShopAction::SellCrop(key.clone(), *count));
+                    }
+                });
+            }
             if infinite {
                 ui.label("Debug: unlimited planting. Purchases still spend real coins.");
             }

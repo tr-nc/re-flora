@@ -58,6 +58,36 @@ growth and user scale controls still apply; this is not a uniform height guarant
 The original `garden-sunflower.png` in the offline delivery report predates this
 adjustment. See [height research and validation](../../docs/research/sunflower-player-height.md).
 
+## Carrot root crop
+
+- Original source: [`carrot-source.mjs`](carrot-source.mjs), authored in this
+  repository. No external download, source asset ID, photo, texture, AI image/3D
+  provider, generation prompt or model service was used. It is code-authored
+  geometry, not a generated image. Existing repository licensing applies;
+  no additional third-party rights are asserted.
+- [`flower-source.mjs`](flower-source.mjs) owns its stable `carrot` ID,
+  `root_crop` role, one-layer root neck and four-color palette:
+  `#a84918 / #e67c24 / #55943f / #337240`.
+- [`flowers.json`](flowers.json) is the runtime derivative, **not a second
+  source**: indexed triangles, attachment metadata, UVs and a generated opaque
+  128×128 RGB8 palette atlas in the existing shared plant bank. The new crop is appended;
+  existing stable species keep their order. Reproduce the full bundle with
+  `node ../../scripts/publish-flower-models.mjs` from this directory, then
+  `cargo check` from the repository root. The publisher rounds geometry to nine
+  decimals and embeds a CRC32 of all authoring/publisher sources; the build
+  verifies it. No original binary was supplied or omitted.
+- Geometry: seven 12-vertex root rings plus caps, three broken root-scar bands,
+  eight-triangle green crown, seven golden-angle pinnate leaves with secondary
+  divisions. All coordinates, tessellation, colors and UVs are in the linked
+  sources. Y is up, soil is near Y=0; most of the taproot lies below it.
+  Petioles/leaflets are intentionally thickened for the native pixel budget.
+  Game placement, growth scale, light and pixelization remain runtime-owned.
+- Native captures are validation references under `target/`, not source art.
+  The head-only web flower studio deliberately excludes this whole root crop;
+  it must not display a parametric flower under the carrot name.
+- Botanical references and modeling limits:
+  [London plane and carrot research](../../docs/research/london-plane-and-carrot.md).
+
 ## Procedural firefly model (2026-10-26)
 
 Fireflies have original Rust-authored ellipsoid geometry in
@@ -99,7 +129,7 @@ proposal, not the current placement behavior.
 
 ## Publish the flower bank
 
-The seven published flowers are data presets in `flower-source.mjs` (Corn Poppy and Bellflower remain retired).
+The seven published flowers are data presets in `flower-source.mjs` (Corn Poppy and Bellflower remain retired). The same native bank additionally contains one explicitly typed carrot root crop; its separate morphology/provenance is described above.
 Both the native publisher and web studio call the one `parametric-flower.mjs` generator; it also
 publishes the head's `socket_normal` for the analytic stem's closed attachment-plane cut. Source
 hits and world-direction texel display points must remain on the inward side, rather than relying

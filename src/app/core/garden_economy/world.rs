@@ -25,8 +25,12 @@ impl App {
             .terrain_physics
             .pick_ripe_apple(ray, occluder, &self.tracer)?
         else {
-            self.garden_feedback = Some("Aim at a ripe apple within reach".into());
-            return Ok(false);
+            let collected = self.harvest_ground_plant(ray)?;
+            if !collected {
+                self.garden_feedback =
+                    Some("Aim at a ripe apple, mature carrot or special plant within reach".into());
+            }
+            return Ok(collected);
         };
         let key = pick.key;
         let physics = &mut self.terrain_physics;
@@ -62,6 +66,10 @@ impl App {
                 .garden_economy
                 .buy(&id)
                 .map(|_| format!("Bought {}", product(&id).unwrap().label)),
+            ShopAction::SellCrop(id, n) => self
+                .garden_economy
+                .sell_crop(&id, n)
+                .map(|coins| format!("Sold {n} {id} for {coins} coins")),
             ShopAction::SellApples(n) => self.garden_economy.sell_apples(n).map(|coins| {
                 format!(
                     "Sold {n} apple{} for {coins} coins",

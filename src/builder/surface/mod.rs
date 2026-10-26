@@ -1815,7 +1815,7 @@ impl SurfaceBuilder {
         }
 
         if max_len == 0 {
-            return Ok(false);
+            return self.advance_authored_growth(chunk_id, tick_delta);
         }
 
         update_instances_to_occupancy_info(
@@ -1882,11 +1882,35 @@ impl SurfaceBuilder {
             );
         }
 
-        Ok(get_occupancy_to_instances_result(
+        let grass_growing = get_occupancy_to_instances_result(
             &self.resources.occupancy_to_instances_result,
             self.flora_species_count,
         )
-        .has_growing_flora)
+        .has_growing_flora;
+        Ok(self.advance_authored_growth(chunk_id, tick_delta)? || grass_growing)
+    }
+
+    fn advance_authored_growth(&mut self, chunk_id: UVec3, ticks: u32) -> Result<bool> {
+        let Some(plants) = self.authored_flora.instances_by_chunk.get_mut(&chunk_id) else {
+            return Ok(false);
+        };
+        if ticks == 0 || plants.iter().all(|p| p.growth_progress == 255) {
+            return Ok(plants.iter().any(|p| p.growth_progress < 255));
+        }
+        // CPU identities own age as well as existence. Do not let a later upload
+        // (collection, hydration, save/reload) restore a stale seed-stage age.
+        let previous = plants.clone();
+        for plant in plants.iter_mut() {
+            plant.growth_progress = plant.growth_progress.saturating_add(ticks).min(255);
+        }
+        let growing = plants.iter().any(|p| p.growth_progress < 255);
+        if let Err(error) = self.sync_authored_flora_chunk_to_gpu(chunk_id) {
+            self.authored_flora
+                .instances_by_chunk
+                .insert(chunk_id, previous);
+            return Err(error);
+        }
+        Ok(growing)
     }
 
     fn get_chunk_resource_index(&self, chunk_id: UVec3) -> Result<usize> {

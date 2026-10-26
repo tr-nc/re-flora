@@ -11,3 +11,6 @@ flower_seedling_price = 6
 apple_tree = 30
 pine = 25
 london_plane = 35
+
+[produce]
+carrot = 3

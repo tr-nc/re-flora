@@ -28,7 +28,7 @@ test('all native and web presets use the same head generator and identical share
   for(const spec of flowerCatalog){
     assert.deepEqual(flowerGeometry(spec.id),parametricFlower(spec.defaults));valid(flowerGeometry(spec.id));
   }
-  for(const spec of nativeCatalog){
+  for(const spec of nativeCatalog.filter(s=>s.kind!=='root_crop')){
     assert.deepEqual(flowerGeometry(spec.id),nativeGeometry(spec.id));
     assert.deepEqual(flowerCatalog.find(s=>s.id===spec.id).defaults,spec.defaults);
   }

@@ -100,10 +100,23 @@ Release to stop. Grass, trees, terrain and unripe apples are never collected;
 solid surfaces block suction. In orbit mode the aim remains the screen center,
 not the mouse cursor.
 
-Apples go to the garden inventory; collected flowers return as seedlings shown
+Apples and mature carrots go to the garden inventory; collected flowers return as seedlings shown
 in **Shop (B)** and can be replanted with Grow. Colored voxel trails fly toward
 the center as feedback; inventory ownership commits before this cosmetic flight,
 so switching tools or opening a menu does not lose items.
+
+## Carrots
+
+Choose **Grow → Type: Flora → Carrot**. In finite-material play, buy a carrot seed
+packet in **Shop (B)**, plant on soil and keep the ground watered while it grows.
+Carrots show feathery green tops and an orange shoulder; the tapered root is
+mostly underground. The game's accelerated growth is not a real-world calendar.
+
+Use **Harvest** on a mature carrot, or **Vacuum** for several nearby mature
+carrots. Young carrots remain planted. Harvested carrots appear as produce in
+Shop and can be sold there; they are not reusable flower seedlings. Crop stock
+and planted growth are included in the garden save. Infinite-material debug
+planting places mature plants immediately.
 
 ## Controls
 
@@ -153,7 +166,7 @@ remain visible; the text toolbar is always borderless.
 
 ### Trees
 
-**1 / Grow → Type: Tree** offers **Apple Tree**, **Pine** and **Weeping Willow**. Click terrain
+**1 / Grow → Type: Tree** offers **Apple Tree**, **Pine** and **London Plane** (法国梧桐). Click terrain
 to plant one tree; **Tab** cycles varieties. Each placement receives its own repeatable seed.
 The new planting selection, tuning-tree configuration and **four fresh-garden opening trees** now
 use Apple Tree. The opening keeps its original planting positions and fits compact trees without
@@ -161,11 +174,13 @@ blocking the route. The old Test/Garden Tree morphology has been retired: loadin
 (including old saves with no species field) converts them to current apples, keeping position,
 ID, size, individual seed and global age. Their old baked wood is replaced, not left behind.
 Loading does not overwrite the save file; use **Save** to persist the conversion. Conifer, Pine,
-Willow and existing Apple descriptions retain their authoring. All architectures pass through the
+legacy Willow and existing Apple descriptions retain their authoring. Willow is no longer
+plantable; existing willow trees remain loadable, and unplanted willow saplings become
+London Plane saplings. All architectures pass through the
 [shared growth module and species rules](tree-growth.md).
 
 New Apple Trees and the fresh opening now use a compact mature garden scale, roughly 1.5–1.8
-player-body heights (seed variation applies). Pine and Willow retain their larger native planting
+player-body heights (seed variation applies). Pine and London Plane use their larger native planting
 scales. Existing saved Apple trees keep their authored sizes; loading a garden is not a resize
 operation. See [scale measurements and review](evidence/apple-tree-player-scale.md).
 

@@ -9,6 +9,7 @@ use crate::{
 use anyhow::Result;
 use glam::{Vec2, Vec3, Vec4};
 
+mod carrot_review;
 mod review;
 const REACH: f32 = 1.25;
 const HALF_ANGLE_TANGENT: f32 = 0.22;
@@ -50,6 +51,7 @@ pub(super) struct Vacuum {
     cooldown: f32,
     motes: Vec<Mote>,
     review: u32,
+    carrot_review: u32,
 }
 impl Vacuum {
     pub fn begin(&mut self) {
@@ -61,6 +63,8 @@ impl App {
     pub(super) fn update_vacuum(&mut self, dt: f32) -> Result<()> {
         self.review_vacuum()
             .expect("native vacuum acceptance fixture");
+        self.review_carrots()
+            .expect("native carrot acceptance fixture");
         let front = self.tracer.camera_front().normalize_or(Vec3::NEG_Z);
         let target = self.tracer.camera_position() + front * 0.025;
         let side = front.cross(Vec3::Y).normalize_or(Vec3::X);
@@ -121,23 +125,55 @@ impl App {
             .map(|(key, p)| (Item::Apple(key), p))
             .collect();
         for plant in self.surface_builder.authored_plants() {
-            // Ground plants are collected as reusable seedlings. Grass never enters
-            // this owner registry, and collect_plant also enforces the catalog policy.
-            let p = (plant.base_world_vox.as_vec3() + Vec3::splat(0.5)) / 256. + Vec3::Y * 0.008;
+            // Flowers become seedlings; mature root crops become produce. Grass never
+            // enters this owner registry. Inventory also enforces maturity/capacity.
+            if crate::flora::species::species()[plant.species_index as usize].is_root_crop()
+                && plant.growth_progress < 255
+            {
+                continue;
+            }
+            let p = plant_collection_point(plant);
             if beam.contains(p, 0.) {
                 candidates.push((Item::Plant(plant), p));
             }
         }
+        self.collect_garden_candidates(beam.origin, candidates, BATCH)
+    }
+
+    pub(super) fn harvest_ground_plant(&mut self, ray: TerrainRayQuery) -> Result<bool> {
+        let Some(direction) = ray.direction.try_normalize() else {
+            return Ok(false);
+        };
+        let candidates = self
+            .surface_builder
+            .authored_plants()
+            .filter_map(|plant| {
+                let p = plant_collection_point(plant);
+                let delta = p - ray.origin;
+                let along = delta.dot(direction);
+                (along > 0. && along < REACH && (delta - direction * along).length() < 0.014)
+                    .then_some((Item::Plant(plant), p))
+            })
+            .collect();
+        Ok(self.collect_garden_candidates(ray.origin, candidates, 1)? > 0)
+    }
+
+    fn collect_garden_candidates(
+        &mut self,
+        origin: Vec3,
+        mut candidates: Vec<(Item, Vec3)>,
+        limit: usize,
+    ) -> Result<usize> {
         candidates.sort_by(|a, b| {
-            a.1.distance_squared(beam.origin)
-                .total_cmp(&b.1.distance_squared(beam.origin))
+            a.1.distance_squared(origin)
+                .total_cmp(&b.1.distance_squared(origin))
         });
         candidates.truncate(64);
         let rays: Vec<_> = candidates
             .iter()
             .map(|(_, p)| TerrainRayQuery {
-                origin: beam.origin,
-                direction: (*p - beam.origin).normalize_or_zero(),
+                origin,
+                direction: (*p - origin).normalize_or_zero(),
             })
             .collect();
         // One native scene query batch, including posed wood, terrain and fixed models.
@@ -151,23 +187,21 @@ impl App {
         let mut count = 0;
         let mut failure = None;
         for ((item, position), hit) in candidates.into_iter().zip(hits) {
-            if count == BATCH {
+            if count == limit {
                 break;
             }
-            if hit.is_valid
-                && hit.position.distance(beam.origin) + 0.002 < position.distance(beam.origin)
-            {
+            if hit.is_valid && hit.position.distance(origin) + 0.002 < position.distance(origin) {
                 continue;
             }
             let result = match item {
                 Item::Apple(key) => self
                     .garden_economy
                     .collect(key, || self.terrain_physics.take_harvest_apple(key)),
-                Item::Plant(plant) => {
-                    self.garden_economy.collect_plant(plant.species_index, || {
-                        self.surface_builder.take_authored_plant(plant)
-                    })
-                }
+                Item::Plant(plant) => self.garden_economy.collect_plant(
+                    plant.species_index,
+                    plant.growth_progress,
+                    || self.surface_builder.take_authored_plant(plant),
+                ),
             };
             match result {
                 Ok(true) => {}
@@ -184,7 +218,12 @@ impl App {
                 }
                 Item::Plant(plant) => {
                     plants.push(plant);
-                    Vec4::new(0.28, 0.7, 0.12, 1.)
+                    if crate::flora::species::species()[plant.species_index as usize].is_root_crop()
+                    {
+                        Vec4::new(0.9, 0.35, 0.04, 1.)
+                    } else {
+                        Vec4::new(0.28, 0.7, 0.12, 1.)
+                    }
                 }
             };
             for i in 0..3 {
@@ -268,6 +307,10 @@ impl App {
             color,
         );
     }
+}
+
+fn plant_collection_point(plant: crate::builder::AuthoredFloraInstance) -> Vec3 {
+    (plant.base_world_vox.as_vec3() + Vec3::splat(0.5)) / 256. + Vec3::Y * 0.008
 }
 
 #[cfg(test)]

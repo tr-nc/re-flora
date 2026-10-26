@@ -9,7 +9,7 @@ import {completeFlowerHead} from '../assets/models/flower-head.mjs';
 import {maskValue,resolvePalette} from '../assets/models/palette-mask.mjs';
 
 export async function publishedFlowers(){
-  const sources=await Promise.all(['../assets/models/flower-source.mjs','../assets/models/flower-head.mjs','../assets/models/parametric-flower.mjs','../assets/models/palette-mask.mjs','./publish-flower-models.mjs'].map(file=>readFile(new URL(file,import.meta.url))));
+  const sources=await Promise.all(['../assets/models/flower-source.mjs','../assets/models/flower-head.mjs','../assets/models/parametric-flower.mjs','../assets/models/carrot-source.mjs','../assets/models/palette-mask.mjs','./publish-flower-models.mjs'].map(file=>readFile(new URL(file,import.meta.url))));
   const flowers=flowerCatalog.map(spec=>{
     const recipe=completeFlowerHead(flowerGeometry(spec.id));
     const colors=['paletteA','paletteB','paletteC','paletteD'].map(key=>spec.defaults[key]);
@@ -18,7 +18,7 @@ export async function publishedFlowers(){
     // Exact same resolved sRGB8 texture as the web DataTexture. Native uploads
     // linear texels and bilinearly filters them after sampling cached head UVs.
     const rgb=[];for(let i=0;i<rgba.length;i+=4)rgb.push(...rgba.slice(i,i+3));
-    return {id:spec.id,display_name:spec.displayName,stem_layers:spec.stemLayers,cache_family:spec.cacheFamily,palette,
+    return {id:spec.id,kind:spec.kind??'flower',display_name:spec.displayName,stem_layers:spec.stemLayers,cache_family:spec.cacheFamily,palette,
       color_texture:{width:mask.width,height:mask.height,rgb},socket_normal:recipe.socketNormal,heads:recipe.heads,parts:recipe.parts};
   });
   // Canonical authoring precision avoids cross-platform libm last-bit noise

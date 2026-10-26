@@ -1556,6 +1556,7 @@ fn validate_shared_flower_assets() {
         "assets/models/flower-source.mjs",
         "assets/models/flower-head.mjs",
         "assets/models/parametric-flower.mjs",
+        "assets/models/carrot-source.mjs",
         "assets/models/palette-mask.mjs",
         "scripts/publish-flower-models.mjs",
     ] {
@@ -1591,6 +1592,16 @@ fn validate_shared_flower_assets() {
             "invalid or duplicate flower entry: {id}"
         );
         code.push_str(&format!("    ({id:?}, {name:?}, {layers}),\n"));
+    }
+    code.push_str("];\n");
+    code.push_str("pub const ROOT_CROP_MODELS: [bool; MODEL_COUNT] = [\n");
+    for flower in flowers {
+        let kind = flower["kind"].as_str().unwrap_or("flower");
+        assert!(
+            matches!(kind, "flower" | "root_crop"),
+            "unknown plant morphology"
+        );
+        code.push_str(&format!("    {},\n", kind == "root_crop"));
     }
     code.push_str("];\n");
     fs::write(

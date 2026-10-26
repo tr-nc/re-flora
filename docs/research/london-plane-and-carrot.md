@@ -46,4 +46,51 @@ claim that a paper validates the game's numerical branching constants.
 
 ## Carrot
 
-Research and implementation notes follow in the carrot step.
+### Primary references
+
+1. [NC State Extension: Daucus carota subsp. sativus](https://plants.ces.ncsu.edu/plants/daucus-carota-subsp-sativus/).
+   Cultivated carrots have feathery green leaves and a thick, fleshy storage
+   taproot. They are biennial, but harvested as a first-year vegetable. Direct
+   sowing avoids damaged roots; maturity is roughly 70–120 days, cultivar and
+   environment dependent. The shoulder can rise above soil at harvest.
+2. [RHS: How to grow carrots](https://www.rhs.org.uk/vegetables/carrots/grow-your-own).
+   Confirms direct sowing, thinning to 5–7.5 cm, and harvesting full-size roots
+   around 12–16 weeks. Young roots can also be eaten. Stony/heavy soil can deform
+   roots; containers need sufficient depth. These are gardening observations,
+   not justification for numerical game growth constants.
+
+The University of Minnesota page was also attempted, but HTTP 403 prevented
+reading it; no claim here relies on that unavailable page.
+
+### Modeling and play translation
+
+- Orange tapered storage root with a rounded shoulder; most of the root is
+  below the planting plane. Seven spreading, divided leaves form a basal
+  rosette. Broken transverse root scars and two green tones supply restrained
+  detail without imported imagery. The first-year model has no flower/umbel.
+- Original deterministic low-poly recipe: `assets/models/carrot-source.mjs`.
+  It uses the existing published mesh/palette and pixel-surface pipeline, not
+  a separate sprite renderer or terrain-voxel plant. The catalog distinguishes
+  `root_crop` from `flower`; nonflower crops do not offer nectar landing sites.
+- First in-game capture showed disconnected, disappearing leaf stalks at the
+  normal 20px cache budget. A second iteration thickens petioles/leaflets and
+  joins the crown so the pixel silhouette remains readable. Inspect
+  `target/liveliness-carrots-full.png`; this is an actual game frame, not a web
+  preview. Fine botanical leaflet structure is intentionally simplified.
+- Grow → Flora → Carrot. Finite play buys seeds, not transplant seedlings.
+  Growth follows the existing accelerated flora tick and hydration presentation,
+  not real agricultural days. CPU-owned authored growth now advances as well as
+  grass, including chunks without grass, and is preserved across publication
+  and reload. This also allows existing seed-grown model flowers to advance.
+- Harvest or Vacuum transfers a mature root exactly once into saved crop stock;
+  immature carrots stay planted. Shop sells carrots for the configured price.
+  This mature-only rule is a gameplay simplification (real baby carrots are
+  edible), not a biological claim. Harvested carrots are produce, not magically
+  reusable seedlings.
+- No nutrient physiology, cultivar selection, root forking, second-year
+  flowering, seed reproduction or carrot-specific disease model is claimed.
+  Soil edits use the existing plant/terrain rules; this is not a new root physics
+  simulation. Growth is a shared uniform scale, not developmental leaf emergence.
+- No external photo, texture, mesh or AI image/3D-generation service was used.
+  Reproducible generation and provenance are in
+  [the asset bundle](../../assets/models/README.md#carrot-root-crop).
