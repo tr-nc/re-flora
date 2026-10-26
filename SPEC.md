@@ -141,7 +141,7 @@ known limitations; partially implemented items remain open.
 | [x] | 12 Apples, storage, currency and shop | Harvest/E, persistent wallet/stock/fruit receipts, real purchases and finite planting, preserved debug supply; native reload and fallen pickup. See `docs/garden-economy.md`. |
 | [x] | 13 Sapling growth | Per-tree staged clocks, compatible old ages, edit/obstruction safety; native save/reload and four age captures. See `docs/garden-saplings.md`. |
 | [x] | 14 Bees and attached hives | Original cached bee/house models; bounded flower visits and night return; real tree/post attachments, edit/burial/removal/reload validation. Solitary-bee house choice documented in `docs/garden-bees.md`. |
-| [ ] | 15 Aggregate validation | Release ready, clean local commits, full checklist audit, all remaining risks/blockers explicit; no unrequested push |
+| [x] | 15 Aggregate validation | Release/check/format/native regression matrix completed; main tests 1759 passed, same 9 baseline failures, 14 ignored; integration 1 passed/4 ignored. Not an all-green certification. See `docs/reports/garden-expansion-validation.md`; no push. |
 | [ ] | 16 Final HTML report | Local HTML report with completed outcomes, actual screenshots, performance comparisons, validation evidence, feedback/limitations and explicit incomplete items; matches this checklist |
 
 ### Delivery log
@@ -275,6 +275,14 @@ known limitations; partially implemented items remain open.
   Existing FPS label migration regression fixed separately in `89d267e3` using the
   declarative schema; both previously failing migration tests and all 52 butterfly
   checks pass. See `docs/garden-bees.md` and its primary-source research note.
+- Aggregate acceptance at runtime code `6c5fe738`: full main suite 1759 passed,
+  9 failed, 14 ignored; all nine failure names match the prior baseline. Separate
+  library tests 4 passed; explicitly invoked integration targets 1 passed/4 ignored.
+  Build/check/format and final-binary old-save reloads for economy, fences, plow,
+  carried shovel soil, saplings and lanterns pass, as do bee reload, firefly dawn,
+  blue-flower illumination, grass native acceptance and six-stage recorded audio.
+  No final native ERROR/panic/VUID; GUI defaults unchanged. This is not all-green
+  release certification, dense-garden performance acceptance or subjective approval.
 - Prior full test baseline: nine unrelated failures reproduced on `9e2b7977`
   (seven raster-tree tests and two saved-default expectations). Recheck rather
   than assuming any later failure belongs to that baseline.
