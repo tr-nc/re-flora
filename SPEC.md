@@ -1,6 +1,6 @@
 # Garden expansion — specification, checklist and delivery log
 
-Status: active. Local development only; no push or official packaging requested.
+Status: implementation and automated review delivery complete, with the acceptance limits below. Local-only; no new push or official packaging. Offline report: `docs/reports/garden-expansion/index.html`.
 
 ## Problem Statement
 
@@ -142,7 +142,7 @@ known limitations; partially implemented items remain open.
 | [x] | 13 Sapling growth | Per-tree staged clocks, compatible old ages, edit/obstruction safety; native save/reload and four age captures. See `docs/garden-saplings.md`. |
 | [x] | 14 Bees and attached hives | Original cached bee/house models; bounded flower visits and night return; real tree/post attachments, edit/burial/removal/reload validation. Solitary-bee house choice documented in `docs/garden-bees.md`. |
 | [x] | 15 Aggregate validation | Release/check/format/native regression matrix completed; main tests 1759 passed, same 9 baseline failures, 14 ignored; integration 1 passed/4 ignored. Not an all-green certification. See `docs/reports/garden-expansion-validation.md`; no push. |
-| [ ] | 16 Final HTML report | Local HTML report with completed outcomes, actual screenshots, performance comparisons, validation evidence, feedback/limitations and explicit incomplete items; matches this checklist |
+| [x] | 16 Final HTML report | `docs/reports/garden-expansion/index.html`: 25 bundled original screenshots (~29 MiB), provenance/hashes, native excerpts, reproducible metrics, commands and explicit incomplete acceptance. Local links/copy integrity and desktop/mobile browser checks pass. |
 
 ### Delivery log
 
@@ -286,6 +286,18 @@ known limitations; partially implemented items remain open.
   blue-flower illumination, grass native acceptance and six-stage recorded audio.
   No final native ERROR/panic/VUID; GUI defaults unchanged. This is not all-green
   release certification, dense-garden performance acceptance or subjective approval.
+- Offline report delivered in `docs/reports/garden-expansion/`: HTML has no script,
+  CDN, font-download or image-network dependency. Twenty-five original PNGs and
+  self-contained provenance/manifest accompany durable native evidence and raw
+  selected performance samples. Integrity checks pass after copying the folder.
+  Browser checks at 1280x900 and 390x844 decoded all images, found no horizontal
+  page overflow or external resources, and exercised anchors, details, original
+  image links and table keyboard scrolling. Selected WCAG 2A/AA checks report no
+  violations/incomplete checks after contrast/focus fixes. HTTP(S) routes were
+  blocked; a CLI offline toggle did not change navigator state, so hardware
+  disconnection is not claimed. Manual usability and simultaneous full-resolution
+  decoding of all screenshots are not certified. The report preserves all nine
+  test-baseline failures, cost outliers, omitted features and player-feedback needs.
 - Prior full test baseline: nine unrelated failures reproduced on `9e2b7977`
   (seven raster-tree tests and two saved-default expectations). Recheck rather
   than assuming any later failure belongs to that baseline.

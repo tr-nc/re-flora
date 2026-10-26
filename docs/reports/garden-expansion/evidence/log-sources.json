@@ -1,0 +1,254 @@
+[
+  {
+    "source_transcript": "garden-aggregate-tests.log",
+    "sha256": "9e22517dcf8baab24ad01c8b310f29954f3d12eee1695eb1d66b60eb634d6e0e",
+    "bytes": 190469,
+    "selected_lines": 93
+  },
+  {
+    "source_transcript": "re-flora-soil-baseline-tests.log",
+    "sha256": "212ce6ead7b29e766cf0b4c2b8fb3c69cfac21f3495de0651aa6752b4d1f08b3",
+    "bytes": 8545,
+    "selected_lines": 58
+  },
+  {
+    "source_transcript": "garden-aggregate-integration-tests.log",
+    "sha256": "8aedf25e23eb9fff6df41e6c02c91bb934f16facb90a9038e5b7a00f63c7e4c1",
+    "bytes": 1448,
+    "selected_lines": 15
+  },
+  {
+    "source_transcript": "garden-aggregate-check.log",
+    "sha256": "f3b40ecce1aca57e7499432c3a5d8f91537171c32752dd44f064895f91a4affa",
+    "bytes": 557,
+    "selected_lines": 6
+  },
+  {
+    "source_transcript": "garden-aggregate-build.log",
+    "sha256": "46c780ac82ecc9ba2b6aa187768438b285fbe9e295c9a9bb8596a49027bead98",
+    "bytes": 405,
+    "selected_lines": 4
+  },
+  {
+    "source_transcript": "garden-aggregate-grass.log",
+    "sha256": "6346d763b52c8c39b96f0cdbae48294413604d109eb0eb5df7bc83097dda046c",
+    "bytes": 51520,
+    "selected_lines": 4
+  },
+  {
+    "source_transcript": "garden-aggregate-audio-assets.log",
+    "sha256": "95aaa4f68c66f2542283030b6afc37f29ac16f1091156d9a442872ffbe988fcc",
+    "bytes": 135,
+    "selected_lines": 2
+  },
+  {
+    "source_transcript": "garden-aggregate-audio.log",
+    "sha256": "31dbb98bc803e13e9aa0eb8503a58e9b1a8e12e48e972dc225b04cc3467e44b7",
+    "bytes": 12251832,
+    "selected_lines": 8
+  },
+  {
+    "source_transcript": "garden-aggregate-economy.log",
+    "sha256": "61e520feefd89e720526794eabc4c33a72b6e26bdf6af230fc678664ed6e936b",
+    "bytes": 46864,
+    "selected_lines": 3
+  },
+  {
+    "source_transcript": "garden-aggregate-fence.log",
+    "sha256": "4ec847d2a0aa2a5ba31d49b4a1873ad86db5934ed55a33bf4327c64caa418f68",
+    "bytes": 45465,
+    "selected_lines": 3
+  },
+  {
+    "source_transcript": "garden-aggregate-plow.log",
+    "sha256": "2b592eb9ebbed750eb6335379027190d33c8cf7a2f757db312269dc11537a35d",
+    "bytes": 45538,
+    "selected_lines": 3
+  },
+  {
+    "source_transcript": "garden-aggregate-shovel.log",
+    "sha256": "5f94f9dfe82c4cb883f476d7cf332dac78fc5832e64059a91b2d7e3deb2b6e57",
+    "bytes": 47714,
+    "selected_lines": 3
+  },
+  {
+    "source_transcript": "garden-aggregate-sapling.log",
+    "sha256": "692c354012f266936fe1456c1c37c1ab0eb4db887757974e72c71508285ca2ef",
+    "bytes": 46032,
+    "selected_lines": 3
+  },
+  {
+    "source_transcript": "garden-aggregate-lantern.log",
+    "sha256": "84f47ed95bb1d93e28542301c2253680b2f1f53dae9c46e530ca965f33193cad",
+    "bytes": 45456,
+    "selected_lines": 3
+  },
+  {
+    "source_transcript": "garden-aggregate-bees.log",
+    "sha256": "f05f1851520b2da170ce1ef6420834903b36b55ea90af6e60ae83db47c5f4198",
+    "bytes": 46273,
+    "selected_lines": 4
+  },
+  {
+    "source_transcript": "garden-aggregate-fireflies.log",
+    "sha256": "4e651d28a8e66b2313ce236ae5931a1994d5e10c0cb795ae8078a1de8db0ea10",
+    "bytes": 52180,
+    "selected_lines": 6
+  },
+  {
+    "source_transcript": "garden-aggregate-blue.log",
+    "sha256": "81cdfdc8d32f935edc29fc1e51134841c165536e3c8d86ad28c54c47ef090846",
+    "bytes": 51704,
+    "selected_lines": 4
+  },
+  {
+    "source_transcript": "garden-aggregate-smoke.log",
+    "sha256": "8cf3980af6ea827042fc99939de8e418c3389885e251c7296ab2226802a0cfe7",
+    "bytes": 60637,
+    "selected_lines": 1
+  },
+  {
+    "source_transcript": "soil-perf-before.log",
+    "sha256": "8576545ccc0a75e9d122e902962de254e1a4d9d01894d92a2f7edd7d46b09afb",
+    "bytes": 56017,
+    "selected_lines": 2
+  },
+  {
+    "source_transcript": "soil-perf-after.log",
+    "sha256": "dac0dba850557683aa14e3111b7e08a3e1c0ecd1a63a1a0f7724a21e0b275928",
+    "bytes": 59066,
+    "selected_lines": 4
+  },
+  {
+    "source_transcript": "garden-butterfly-visits.log",
+    "sha256": "f325f815a52bcce0a782515b7d7f4a144d9b706b269666fb7c127b15aa372c60",
+    "bytes": 62342,
+    "selected_lines": 38
+  },
+  {
+    "source_transcript": "garden-plow-run-final.log",
+    "sha256": "21c51962db61f3ea1b5f09e545f3da57309bf1e3be174d0be49c4d0d2ba3b616",
+    "bytes": 55618,
+    "selected_lines": 3
+  },
+  {
+    "source_transcript": "garden-shovel-partial.log",
+    "sha256": "0842d3c4b02482bdaa4f4a75d134b0b6efa3d782da3773d11681488cb2d58562",
+    "bytes": 56792,
+    "selected_lines": 2
+  },
+  {
+    "source_transcript": "garden-shovel-moisture.log",
+    "sha256": "c946f536a8723aa061459f98c2c104259b7461c4fa8739de92ec92c262b3d34c",
+    "bytes": 54885,
+    "selected_lines": 3
+  },
+  {
+    "source_transcript": "garden-growth-0.5-final.log",
+    "sha256": "0e3c6aec8ad91345008bbace1b0faf12fe81dad70fd51984693ecb3e46e6b8ba",
+    "bytes": 57875,
+    "selected_lines": 3
+  },
+  {
+    "source_transcript": "garden-growth-1-final.log",
+    "sha256": "96aba341075cb2e3e90b2da842f7ce3373404c7be7e1aae095c8494bbdb8049c",
+    "bytes": 57344,
+    "selected_lines": 2
+  },
+  {
+    "source_transcript": "garden-economy-trade-final.log",
+    "sha256": "2e7afad642d52e12fcbad0618a3f0bd94db82c80f058eb70d15401900634e73d",
+    "bytes": 67853,
+    "selected_lines": 3
+  },
+  {
+    "source_transcript": "garden-economy-fallen-final.log",
+    "sha256": "6af7d7f761540b111d7646a9342c3c6fb5f51f4d0ad826b38df9c32333ae4a43",
+    "bytes": 71041,
+    "selected_lines": 2
+  },
+  {
+    "source_transcript": "garden-bees-garden-final.log",
+    "sha256": "2deb717f8b9082b55f71fac0dac8ac4bd8c3641b2fed8379eafa659a87f8a0f7",
+    "bytes": 60274,
+    "selected_lines": 4
+  },
+  {
+    "source_transcript": "garden-bees-load-final.log",
+    "sha256": "97571e50cef50b74471b2dfc408d53edb8dd297b558848070bd7d0e3eb4c4d94",
+    "bytes": 46264,
+    "selected_lines": 4
+  },
+  {
+    "source_transcript": "garden-bees-edit-final.log",
+    "sha256": "a60e16e3519bde70500b028463f9c98dfd752b4226124af5e2bdd4621410d807",
+    "bytes": 62611,
+    "selected_lines": 4
+  },
+  {
+    "source_transcript": "garden-bees-cap-final.log",
+    "sha256": "0eaeff6b6a44a7526c3b3b07917229c8484bef7cbaee9a8ac5434f0aecd7c21c",
+    "bytes": 60787,
+    "selected_lines": 4
+  },
+  {
+    "source_transcript": "garden-bees-tree-delete-final.log",
+    "sha256": "06219fab72042526de4529b53d1dda3a1495aabe4e9e2e0760aec41447fd9132",
+    "bytes": 61122,
+    "selected_lines": 4
+  },
+  {
+    "source_transcript": "garden-bees-bury-final.log",
+    "sha256": "584fcb7f30b6441170bc1245701ccdbf879a1e7b4311704f68f079953c47e036",
+    "bytes": 61075,
+    "selected_lines": 4
+  },
+  {
+    "source_transcript": "garden-bees-cycle-final.log",
+    "sha256": "d9b2f1ee375fad1ffa7ade5bfd8503ada233056cf4be95f2276aa8d3d524c438",
+    "bytes": 60256,
+    "selected_lines": 9
+  },
+  {
+    "source_transcript": "garden-bees-flowers-removed-final.log",
+    "sha256": "1f392179c494514c9a3fcba28353e4d4c9245058babcae18b090cc45c719b727",
+    "bytes": 58979,
+    "selected_lines": 3
+  },
+  {
+    "source_transcript": "garden-bees-particles-off-final.log",
+    "sha256": "e4f81c459cad20dd8decad994f63c894bd49923b4912c0f136a0e1c1c1b21fb6",
+    "bytes": 58587,
+    "selected_lines": 3
+  },
+  {
+    "source_transcript": "garden-bees-native-final.log",
+    "sha256": "926d7fd2e1338e032545bd6f931338b088819a799cde1a4ea85bb44f07f7da98",
+    "bytes": 60674,
+    "selected_lines": 3
+  },
+  {
+    "source_transcript": "garden-bees-tree-view-final.log",
+    "sha256": "29e76c965fa42dec48bae92a519760994fa3f0b3960602da8b5eabdb815e98ff",
+    "bytes": 60259,
+    "selected_lines": 3
+  },
+  {
+    "source_transcript": "garden-insect-schema-tests.log",
+    "sha256": "e8c32188a64c6d0eba8ab500d2bbdea92df8d795195e363675387403e6a8fd88",
+    "bytes": 6876,
+    "selected_lines": 5
+  },
+  {
+    "source_transcript": "garden-final-glow-off.log",
+    "sha256": "164aa19c93e07002c9645476c5e367c8d937a7a6ed6fe7dabab9e5f58a11483e",
+    "bytes": 1687718,
+    "selected_lines": 6
+  },
+  {
+    "source_transcript": "garden-final-glow-on.log",
+    "sha256": "bbbad51e86810097f2efa7ae190ca820d534b1624e625a40669c004062804c6a",
+    "bytes": 1660412,
+    "selected_lines": 7
+  }
+]

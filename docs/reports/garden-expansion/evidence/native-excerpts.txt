@@ -1,0 +1,478 @@
+Garden expansion validation excerpts
+Runtime code: 6c5fe738; aggregate record with all-frame sampling clarification; 2026-10-26.
+
+These are selected lines, NOT complete transcripts. Source transcript hashes identify original stdout/stderr captures; they are not needed to read this bundle. Failing/ignored tests are retained explicitly. Extremely long assertion lines are labeled if truncated.
+
+=== garden-aggregate-tests.log ===
+Source SHA-256: 9e22517dcf8baab24ad01c8b310f29954f3d12eee1695eb1d66b60eb634d6e0e
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test app::core::climbing_plants::tests::climbing_scene_yields_to_active_leaf_review_not_to_screenshot_names ... ok
+test app::core::cpu_stem_review::tests::accepts_both_cpu_path_shapes_and_rejects_unbounded_population ... ok
+test app::core::climbing_plants::tick::tests::review_keeps_one_birth_then_two_pose_steps_and_does_not_spend_play_time ... ok
+test app::core::denoiser_bench::tests::leaf_review_camera_capture_advances_simulation_on_the_reported_clock ... ok
+test app::core::flower_model_review::stems::tests::review_keeps_combined_appearance_with_each_camera_path ... ok
+test app::core::grass_stem_review::tests::fixed_planting_clock_does_not_depend_on_real_runtime ... ok
+test app::core::grass_stem_review::tests::moisture_review_freezes_pose_but_not_the_original_fixture ... ok
+test app::core::grass_stem_review::tests::pixel_lifecycle_changes_the_effective_settings ... ok
+test app::core::grass_stem_review::tests::review_accepts_mesh_cases_and_rejects_retired_voxel_cases ... ok
+test app::core::model_view_review::tests::fixture_exercises_live_counts_and_keeps_fixed_comparisons_fixed ... ok
+test app::core::pavement::tests::current_rejected_preview_still_inherits_the_same_start_not_a_pointer_local_patch ... ok
+test app::core::pavement::tests::low_wall_pending_preview_has_all_layers_and_rejected_targets_remain_replaceable ... ok
+test app::core::placeables::tests::sprinkler_preview_and_all_consumers_share_voxel_top_centers ... ok
+test app::core::soil_bag_preview::tests::pending_hover_suspends_grains_without_inventing_a_source_or_resetting_accepted_flow ... ok
+test app::core::soil_bag_preview::tests::soil_bag_confirmed_misses_permission_loss_and_timeouts_end_the_presentation_lease ... ok
+test app::core::soil_bag_preview::tests::soil_bag_grain_contacts_expire_without_creating_any_material ... ok
+test app::core::soil_bag_preview::tests::soil_bag_is_hidden_on_hover_and_only_visible_during_successful_release ... ok
+test app::core::soil_bag_preview::tests::soil_bag_pending_gpu_work_keeps_only_the_world_instance_not_an_edit_hit ... ok
+test app::core::soil_bag_preview::tests::soil_bag_resolved_soil_ray_renews_the_anchor_while_hover_waits_and_release_stops_grains ... ok
+test app::core::sprinkler_review::perf_tests::perf_matrix_accepts_only_bounded_explicit_workloads ... ok
+test app::core::soil_bag_preview::tests::soil_bag_grains_are_bounded_ballistic_fx_and_only_emit_after_successful_writes ... ok
+test app::core::wind_prototype::tests::drag_length_and_multiplier_match_the_one_second_preview ... ok
+test app::core::wind_prototype::tests::released_preview_starts_at_the_clicked_height ... ok
+test app::gui_config::tests::sprinkler_sampling_upgrades_old_saves_and_round_trips_independently ... FAILED
+test app::gui_config_loader::tests::older_saves_gain_default_apple_size_without_rewriting_the_file ... FAILED
+test app::gui_config_loader::tests::retired_stone_preview_controls_are_ignored_without_changing_placement ... ok
+test app::path_band::intent::tests::current_preview_is_continuous_but_short_riser_samples_are_not_fixed ... ok
+test builder::contree::tests::unfinished_rebuild_is_not_ready_even_with_an_old_cache ... ok
+test lighting::registry::tests::source_publication_rejects_provider_errors_and_stale_prepared_state_without_mutation ... ok
+test terrain_persistence::tests::checksum_matches_standard_crc32_vector ... ok
+test tracer::apple_preview::tests::larger_apples_expand_culling_while_smaller_apples_keep_the_motion_margin ... ok
+test tracer::apple_preview::tests::preview_mesh_has_three_materials_and_fits_legacy_apple_scale ... ok
+test tracer::ddgi_density_rebuild_tests::staging_preparation_error_fails_fast_with_claimed_identity - should panic ... ok
+test tracer::geometry_preview_resources::tests::preview_instance_layout_stays_compact ... ok
+test tracer::local_light_visibility_diagnostic::tests::stale_source_revision_suppresses_a_still_found_light_index_without_error ... ok
+test tracer::raster_tree::tests::cached_corners_do_not_override_overlapping_tree_ownership_order ... FAILED
+test tracer::raster_tree::tests::edited_surface_reuses_rest_bindings_without_reusing_faces_or_normals ... FAILED
+test tracer::raster_tree::tests::neighboring_blocks_share_posed_corners_and_hits_recover_rest_surface ... FAILED
+test tracer::raster_tree::tests::publication_equality_covers_geometry_normals_occupancy_and_skin ... FAILED
+test tracer::raster_tree::tests::rest_binding_reuse_requires_same_tree_identity_and_placement ... FAILED
+test tracer::raster_tree::tests::smooth_surface_omits_interior_cells_but_tracks_the_full_rest_volume ... FAILED
+test tracer::raster_tree::tests::translated_surface_cells_keep_their_extraction_owner_at_float_boundaries ... FAILED
+test tracer::tree_preview_mesh::tests::default_tree_preview_is_deterministic_and_nonempty ... ok
+test tracer::tree_preview_mesh::tests::degenerate_and_non_finite_cones_are_skipped ... ok
+test tracer::tree_preview_mesh::tests::preview_canopy_is_cheaper_than_full_leaf_geometry ... ok
+test tracer::tree_preview_mesh::tests::preview_vertices_and_indices_are_valid ... ok
+test tracer::tree_preview_mesh::tests::trunk_coordinates_convert_from_voxels_to_world_local ... ok
+test util::latest_chunk_queue::tests::has_unfinished_work_tracks_pending_and_active_revisions ... ok
+test util::startup_progress::tests::early_error_reports_abort_not_success_and_retires_worker ... ok
+---- app::gui_config::tests::sprinkler_sampling_upgrades_old_saves_and_round_trips_independently stdout ----
+thread 'app::gui_config::tests::sprinkler_sampling_upgrades_old_saves_and_round_trips_independently' (426377) panicked at src/app/gui_config.rs:2219:9:
+assertion `left == right` failed
+  left: 0.65
+ right: 1.0
+---- app::gui_config_loader::tests::older_saves_gain_default_apple_size_without_rewriting_the_file stdout ----
+thread 'app::gui_config_loader::tests::older_saves_gain_default_apple_size_without_rewriting_the_file' (426404) panicked at src/app/gui_config_loader.rs:2080:9:
+assertion failed: matches!(size.value, super::GuiParamValue::Float { value: 1.0, .. })
+---- tracer::raster_tree::tests::cached_corners_do_not_override_overlapping_tree_ownership_order stdout ----
+thread 'tracer::raster_tree::tests::cached_corners_do_not_override_overlapping_tree_ownership_order' (427625) panicked at src/tracer/raster_tree.rs:696:9:
+assertion failed: !mesh.vertices.is_empty()
+---- tracer::raster_tree::tests::edited_surface_reuses_rest_bindings_without_reusing_faces_or_normals stdout ----
+thread 'tracer::raster_tree::tests::edited_surface_reuses_rest_bindings_without_reusing_faces_or_normals' (427626) panicked at src/tracer/raster_tree.rs:696:9:
+assertion failed: !mesh.vertices.is_empty()
+---- tracer::raster_tree::tests::neighboring_blocks_share_posed_corners_and_hits_recover_rest_surface stdout ----
+thread 'tracer::raster_tree::tests::neighboring_blocks_share_posed_corners_and_hits_recover_rest_surface' (427628) panicked at src/tracer/raster_tree.rs:1033:9:
+assertion `left == right` failed
+  left: 0
+ right: 2
+---- tracer::raster_tree::tests::publication_equality_covers_geometry_normals_occupancy_and_skin stdout ----
+thread 'tracer::raster_tree::tests::publication_equality_covers_geometry_normals_occupancy_and_skin' (427631) panicked at src/tracer/raster_tree.rs:696:9:
+assertion failed: !mesh.vertices.is_empty()
+---- tracer::raster_tree::tests::rest_binding_reuse_requires_same_tree_identity_and_placement stdout ----
+thread 'tracer::raster_tree::tests::rest_binding_reuse_requires_same_tree_identity_and_placement' (427632) panicked at src/tracer/raster_tree.rs:696:9:
+assertion failed: !mesh.vertices.is_empty()
+---- tracer::raster_tree::tests::smooth_surface_omits_interior_cells_but_tracks_the_full_rest_volume stdout ----
+thread 'tracer::raster_tree::tests::smooth_surface_omits_interior_cells_but_tracks_the_full_rest_volume' (427633) panicked at src/tracer/raster_tree.rs:1083:9:
+assertion failed: mesh.cell_count() < mesh.solid_cells.len()
+---- tracer::raster_tree::tests::translated_surface_cells_keep_their_extraction_owner_at_float_boundaries stdout ----
+thread 'tracer::raster_tree::tests::translated_surface_cells_keep_their_extraction_owner_at_float_boundaries' (427635) panicked at src/tracer/raster_tree.rs:727:9:
+assertion failed: !RoundConeClearanceIndex::new(&cones).has_minimum_clearance(center, 0.)
+    app::gui_config::tests::sprinkler_sampling_upgrades_old_saves_and_round_trips_independently
+    app::gui_config_loader::tests::older_saves_gain_default_apple_size_without_rewriting_the_file
+    tracer::raster_tree::tests::cached_corners_do_not_override_overlapping_tree_ownership_order
+    tracer::raster_tree::tests::edited_surface_reuses_rest_bindings_without_reusing_faces_or_normals
+    tracer::raster_tree::tests::neighboring_blocks_share_posed_corners_and_hits_recover_rest_surface
+    tracer::raster_tree::tests::publication_equality_covers_geometry_normals_occupancy_and_skin
+    tracer::raster_tree::tests::rest_binding_reuse_requires_same_tree_identity_and_placement
+    tracer::raster_tree::tests::smooth_surface_omits_interior_cells_but_tracks_the_full_rest_volume
+    tracer::raster_tree::tests::translated_surface_cells_keep_their_extraction_owner_at_float_boundaries
+test result: FAILED. 1759 passed; 9 failed; 14 ignored; 0 measured; 0 filtered out; finished in 190.08s
+error: test failed, to rerun pass `--bin re-flora`
+
+=== re-flora-soil-baseline-tests.log ===
+Source SHA-256: 212ce6ead7b29e766cf0b4c2b8fb3c69cfac21f3495de0651aa6752b4d1f08b3
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 56s
+test tracer::raster_tree::tests::translated_surface_cells_keep_their_extraction_owner_at_float_boundaries ... FAILED
+test tracer::raster_tree::tests::rest_binding_reuse_requires_same_tree_identity_and_placement ... FAILED
+test tracer::raster_tree::tests::publication_equality_covers_geometry_normals_occupancy_and_skin ... FAILED
+test tracer::raster_tree::tests::neighboring_blocks_share_posed_corners_and_hits_recover_rest_surface ... FAILED
+test tracer::raster_tree::tests::edited_surface_reuses_rest_bindings_without_reusing_faces_or_normals ... FAILED
+test tracer::raster_tree::tests::smooth_surface_omits_interior_cells_but_tracks_the_full_rest_volume ... FAILED
+test tracer::raster_tree::tests::cached_corners_do_not_override_overlapping_tree_ownership_order ... FAILED
+---- tracer::raster_tree::tests::translated_surface_cells_keep_their_extraction_owner_at_float_boundaries stdout ----
+thread 'tracer::raster_tree::tests::translated_surface_cells_keep_their_extraction_owner_at_float_boundaries' (327173) panicked at src/tracer/raster_tree.rs:727:9:
+assertion failed: !RoundConeClearanceIndex::new(&cones).has_minimum_clearance(center, 0.)
+---- tracer::raster_tree::tests::rest_binding_reuse_requires_same_tree_identity_and_placement stdout ----
+thread 'tracer::raster_tree::tests::rest_binding_reuse_requires_same_tree_identity_and_placement' (327170) panicked at src/tracer/raster_tree.rs:696:9:
+assertion failed: !mesh.vertices.is_empty()
+---- tracer::raster_tree::tests::publication_equality_covers_geometry_normals_occupancy_and_skin stdout ----
+thread 'tracer::raster_tree::tests::publication_equality_covers_geometry_normals_occupancy_and_skin' (327169) panicked at src/tracer/raster_tree.rs:696:9:
+assertion failed: !mesh.vertices.is_empty()
+---- tracer::raster_tree::tests::neighboring_blocks_share_posed_corners_and_hits_recover_rest_surface stdout ----
+thread 'tracer::raster_tree::tests::neighboring_blocks_share_posed_corners_and_hits_recover_rest_surface' (327166) panicked at src/tracer/raster_tree.rs:1033:9:
+assertion `left == right` failed
+  left: 0
+ right: 2
+---- tracer::raster_tree::tests::edited_surface_reuses_rest_bindings_without_reusing_faces_or_normals stdout ----
+thread 'tracer::raster_tree::tests::edited_surface_reuses_rest_bindings_without_reusing_faces_or_normals' (327164) panicked at src/tracer/raster_tree.rs:696:9:
+assertion failed: !mesh.vertices.is_empty()
+---- tracer::raster_tree::tests::smooth_surface_omits_interior_cells_but_tracks_the_full_rest_volume stdout ----
+thread 'tracer::raster_tree::tests::smooth_surface_omits_interior_cells_but_tracks_the_full_rest_volume' (327171) panicked at src/tracer/raster_tree.rs:1083:9:
+assertion failed: mesh.cell_count() < mesh.solid_cells.len()
+---- tracer::raster_tree::tests::cached_corners_do_not_override_overlapping_tree_ownership_order stdout ----
+thread 'tracer::raster_tree::tests::cached_corners_do_not_override_overlapping_tree_ownership_order' (327163) panicked at src/tracer/raster_tree.rs:696:9:
+assertion failed: !mesh.vertices.is_empty()
+    tracer::raster_tree::tests::cached_corners_do_not_override_overlapping_tree_ownership_order
+    tracer::raster_tree::tests::edited_surface_reuses_rest_bindings_without_reusing_faces_or_normals
+    tracer::raster_tree::tests::neighboring_blocks_share_posed_corners_and_hits_recover_rest_surface
+    tracer::raster_tree::tests::publication_equality_covers_geometry_normals_occupancy_and_skin
+    tracer::raster_tree::tests::rest_binding_reuse_requires_same_tree_identity_and_placement
+    tracer::raster_tree::tests::smooth_surface_omits_interior_cells_but_tracks_the_full_rest_volume
+    tracer::raster_tree::tests::translated_surface_cells_keep_their_extraction_owner_at_float_boundaries
+test result: FAILED. 5 passed; 7 failed; 0 ignored; 0 measured; 1723 filtered out; finished in 0.08s
+error: test failed, to rerun pass `--bin re-flora`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+test app::gui_config_loader::tests::older_saves_gain_default_apple_size_without_rewriting_the_file ... FAILED
+---- app::gui_config_loader::tests::older_saves_gain_default_apple_size_without_rewriting_the_file stdout ----
+thread 'app::gui_config_loader::tests::older_saves_gain_default_apple_size_without_rewriting_the_file' (327189) panicked at src/app/gui_config_loader.rs:2080:9:
+assertion failed: matches!(size.value, super::GuiParamValue::Float { value: 1.0, .. })
+    app::gui_config_loader::tests::older_saves_gain_default_apple_size_without_rewriting_the_file
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1734 filtered out; finished in 0.10s
+error: test failed, to rerun pass `--bin re-flora`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+test app::gui_config::tests::sprinkler_sampling_upgrades_old_saves_and_round_trips_independently ... FAILED
+---- app::gui_config::tests::sprinkler_sampling_upgrades_old_saves_and_round_trips_independently stdout ----
+thread 'app::gui_config::tests::sprinkler_sampling_upgrades_old_saves_and_round_trips_independently' (327201) panicked at src/app/gui_config.rs:2219:9:
+assertion `left == right` failed
+  left: 0.65
+ right: 1.0
+    app::gui_config::tests::sprinkler_sampling_upgrades_old_saves_and_round_trips_independently
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1734 filtered out; finished in 0.22s
+error: test failed, to rerun pass `--bin re-flora`
+
+=== garden-aggregate-integration-tests.log ===
+Source SHA-256: 8aedf25e23eb9fff6df41e6c02c91bb934f16facb90a9038e5b7a00f63c7e4c1
+warning: re-flora-vkn@0.1.0: using Slang compiler API 2025.23.2 from /home/terence/vulkan-sdk/x86_64/lib/libslang.so
+warning: re-flora-vkn@0.1.0: precompiled 133 native Slang shaders into SPIR-V artifacts (compiled 1, reused 132)
+warning: re-flora@0.4.0: using Slang compiler API 2025.23.2 from /home/terence/vulkan-sdk/x86_64/lib/libslang.so
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/clipboard_initialization.rs (target/debug/deps/clipboard_initialization-a78a7d7e79c82a74)
+running 3 tests
+test native_x11_text_and_image_clipboard_still_work ... ignored, requires a working X11 DISPLAY; run this test alone
+test unavailable_clipboard_initializes_once_and_preserves_local_fallback ... ignored, run alone with DISPLAY=invalid and WAYLAND_DISPLAY unset
+test wayland_state_does_not_initialize_arboard ... ignored, requires a native Wayland session; run this test alone
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/display_authorization.rs (target/debug/deps/display_authorization-94967aa130a33c90)
+running 2 tests
+test expired_desktop_authority_is_recovered_before_vulkan_startup ... ignored, requires a systemd Wayland desktop and GPU; run with cargo test --release
+test help_does_not_query_or_repair_the_desktop_environment ... ok
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+=== garden-aggregate-check.log ===
+Source SHA-256: f3b40ecce1aca57e7499432c3a5d8f91537171c32752dd44f064895f91a4affa
+warning: re-flora-vkn@0.1.0: using Slang compiler API 2025.23.2 from /home/terence/vulkan-sdk/x86_64/lib/libslang.so
+warning: re-flora-vkn@0.1.0: precompiled 133 native Slang shaders into SPIR-V artifacts (compiled 1, reused 132)
+    Checking re-flora-vkn v0.1.0 (/home/terence/code/re-flora/crates/re-flora-vkn)
+warning: re-flora@0.4.0: using Slang compiler API 2025.23.2 from /home/terence/vulkan-sdk/x86_64/lib/libslang.so
+    Checking re-flora v0.4.0 (/home/terence/code/re-flora)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.88s
+
+=== garden-aggregate-build.log ===
+Source SHA-256: 46c780ac82ecc9ba2b6aa187768438b285fbe9e295c9a9bb8596a49027bead98
+warning: re-flora-vkn@0.1.0: using Slang compiler API 2025.23.2 from /home/terence/vulkan-sdk/x86_64/lib/libslang.so
+warning: re-flora-vkn@0.1.0: precompiled 133 native Slang shaders into SPIR-V artifacts (compiled 1, reused 132)
+warning: re-flora@0.4.0: using Slang compiler API 2025.23.2 from /home/terence/vulkan-sdk/x86_64/lib/libslang.so
+    Finished `release` profile [optimized] target(s) in 0.13s
+
+=== garden-aggregate-grass.log ===
+Source SHA-256: 6346d763b52c8c39b96f0cdbae48294413604d109eb0eb5df7bc83097dda046c
+    Finished `release` profile [optimized] target(s) in 0.13s
+[09:31:47.340 INFO re_flora::builder::surface::soil_cover_review] [SOIL_COVER_BENCH] roots=1024 edit=one_root samples=12 median_ms=0.069 max_ms=0.084 idle_ms=0.000
+[09:31:47.431 INFO re_flora::builder::surface::soil_cover_review] [SOIL_COVER_BENCH] roots=65536 edit=one_root samples=12 median_ms=0.187 max_ms=0.241 idle_ms=0.003
+[09:31:47.859 INFO re_flora::builder::surface::soil_cover_review] [SOIL_COVER_REVIEW] bare=true flowers_excluded=true tall_short=true cross_chunk=true interior_gap=true tight_boundary=true remove_last=true moisture=true restore=true burial=true uncover=true
+
+=== garden-aggregate-audio-assets.log ===
+Source SHA-256: 95aaa4f68c66f2542283030b6afc37f29ac16f1091156d9a442872ffbe988fcc
+leaves-breeze: 4 mono loops, 379200 frames / 7.9 s, RMS -30 dBFS
+leaves-strong-wind: 4 mono loops, 379200 frames / 7.9 s, RMS -30 dBFS
+
+=== garden-aggregate-audio.log ===
+Source SHA-256: 31dbb98bc803e13e9aa0eb8503a58e9b1a8e12e48e972dc225b04cc3467e44b7
+    Finished `release` profile [optimized] target(s) in 0.13s
+[09:31:54.773 INFO re_flora::app::core::tree_leaf_audio_review] [TREE_LEAF_AUDIO_REVIEW] stage=0 recorded=false canopies=5 layered=0 blend=0.000000..0.000000 saved=false
+[09:31:55.784 INFO re_flora::app::core::tree_leaf_audio_review] [TREE_LEAF_AUDIO_REVIEW] stage=1 recorded=true canopies=5 layered=5 blend=0.000000..0.000000 saved=false
+[09:31:57.787 INFO re_flora::app::core::tree_leaf_audio_review] [TREE_LEAF_AUDIO_REVIEW] stage=2 recorded=true canopies=5 layered=5 blend=0.266667..0.266667 saved=false
+[09:31:59.794 INFO re_flora::app::core::tree_leaf_audio_review] [TREE_LEAF_AUDIO_REVIEW] stage=3 recorded=true canopies=5 layered=5 blend=1.000000..1.000000 saved=false
+[09:32:00.802 INFO re_flora::app::core::tree_leaf_audio_review] [TREE_LEAF_AUDIO_REVIEW] stage=4 recorded=false canopies=5 layered=0 blend=0.000000..0.000000 saved=false
+[09:32:02.804 INFO re_flora::app::core::tree_leaf_audio_review] [TREE_LEAF_AUDIO_REVIEW] stage=5 recorded=true canopies=5 layered=5 blend=1.000000..1.000000 saved=false
+[09:32:02.804 INFO re_flora::app::core::tree_leaf_audio_review] [TREE_LEAF_AUDIO_REVIEW] passed stages=6 one_voice_per_generation=true saved=false
+
+=== garden-aggregate-economy.log ===
+Source SHA-256: 61e520feefd89e720526794eabc4c33a72b6e26bdf6af230fc678664ed6e936b
+    Finished `release` profile [optimized] target(s) in 0.13s
+[09:28:17.177 INFO re_flora::app::core::terrain_persistence] [GARDEN_PERSISTENCE] restored flora=3 authored=2 trees=2 tree_age=1.000 retired_tree_migration=false; current species retain saved wood
+[09:28:17.177 INFO re_flora::app::core::garden_economy::review] [GARDEN_ECONOMY_REVIEW] loaded=true coins=23 apples=1 harvest_receipts=2 verified=true
+
+=== garden-aggregate-fence.log ===
+Source SHA-256: 4ec847d2a0aa2a5ba31d49b4a1873ad86db5934ed55a33bf4327c64caa418f68
+    Finished `release` profile [optimized] target(s) in 0.13s
+[09:28:22.078 INFO re_flora::app::core::terrain_persistence] [GARDEN_PERSISTENCE] restored flora=0 authored=0 trees=1 tree_age=1.000 retired_tree_migration=false; current species retain saved wood
+[09:28:22.078 INFO re_flora::app::core::garden_fence] [GARDEN_FENCE_REVIEW] mode=load verified=true initial_posts=3 remaining_posts=3 rope_cells=203 thin_thick=true arbitrary_chain=true
+
+=== garden-aggregate-plow.log ===
+Source SHA-256: 2b592eb9ebbed750eb6335379027190d33c8cf7a2f757db312269dc11537a35d
+    Finished `release` profile [optimized] target(s) in 0.12s
+[09:28:26.978 INFO re_flora::app::core::terrain_persistence] [GARDEN_PERSISTENCE] restored flora=0 authored=0 trees=1 tree_age=1.000 retired_tree_migration=false; current species retain saved wood
+[09:28:26.979 INFO re_flora::app::core::soil_movement] [SOIL_MOVE_REVIEW] load=true soil=110592 conserved=true
+
+=== garden-aggregate-shovel.log ===
+Source SHA-256: 5f94f9dfe82c4cb883f476d7cf332dac78fc5832e64059a91b2d7e3deb2b6e57
+    Finished `release` profile [optimized] target(s) in 0.13s
+[09:28:31.926 INFO re_flora::app::core::terrain_persistence] [GARDEN_PERSISTENCE] restored flora=0 authored=0 trees=1 tree_age=1.000 retired_tree_migration=false; current species retain saved wood
+[09:28:31.937 INFO re_flora::app::core::soil_shovel] [SOIL_SHOVEL_REVIEW] mode=load-drop terrain=110592 outside_fixture=0 carry=0 total=110592 conserved=true
+
+=== garden-aggregate-sapling.log ===
+Source SHA-256: 692c354012f266936fe1456c1c37c1ab0eb4db887757974e72c71508285ca2ef
+    Finished `release` profile [optimized] target(s) in 0.13s
+[09:28:38.032 INFO re_flora::app::core::terrain_persistence] [GARDEN_PERSISTENCE] restored flora=0 authored=0 trees=1 tree_age=1.000 retired_tree_migration=false; current species retain saved wood
+[09:28:38.032 INFO re_flora::app::core::vegetation::growth] [TREE_GROWTH_REVIEW] loaded=true age=0.5 elapsed=180.001 leaves=18 verified=true
+
+=== garden-aggregate-lantern.log ===
+Source SHA-256: 84f47ed95bb1d93e28542301c2253680b2f1f53dae9c46e530ca965f33193cad
+    Finished `release` profile [optimized] target(s) in 0.13s
+[09:28:42.921 INFO re_flora::app::core::terrain_persistence] [GARDEN_PERSISTENCE] restored flora=0 authored=0 trees=1 tree_age=1.000 retired_tree_migration=false; current species retain saved wood
+[09:28:42.922 INFO re_flora::app::core::stone_lantern] [STONE_LANTERN_REVIEW] verified=true mode=load stone=9847 emissive=150 open_windows=true physical_roof_ray=true
+
+=== garden-aggregate-bees.log ===
+Source SHA-256: f05f1851520b2da170ce1ef6420834903b36b55ea90af6e60ae83db47c5f4198
+    Finished `release` profile [optimized] target(s) in 0.12s
+[09:28:47.951 INFO re_flora::app::core::terrain_persistence] [GARDEN_PERSISTENCE] restored flora=6 authored=6 trees=1 tree_age=1.000 retired_tree_migration=false; current species retain saved wood
+[09:28:47.952 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] loaded_houses=2 tree_and_pole=true verified=true
+[09:29:01.970 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] mode=load houses=2 residents=16 outside=9 visits=15 returns=10 lost_hosts=0 verified=true
+
+=== garden-aggregate-fireflies.log ===
+Source SHA-256: 4e651d28a8e66b2313ce236ae5931a1994d5e10c0cb795ae8078a1de8db0ea10
+    Finished `release` profile [optimized] target(s) in 0.13s
+[09:29:07.809 INFO re_flora::app::core::loading] [NIGHT_REVIEW] time=0.08 mode=fireflies-cycle saved=false
+[09:29:07.816 INFO re_flora::app::core::night_garden] [FIREFLY_REVIEW] spawned=24 model_cache=true terrain_voxels=false night=1 saved=false
+[09:29:11.082 INFO re_flora::app::core::ambient_ecology] [FIREFLY] emerged=true habitat_kind=2 active=25 via=ecology
+[09:29:11.785 INFO re_flora::app::core::night_garden] [FIREFLY_REVIEW] switched_to_day=true saved=false
+[09:29:11.802 INFO re_flora::app::core::ambient_ecology] [FIREFLY] retired=25 active=0 night_enabled=false
+
+=== garden-aggregate-blue.log ===
+Source SHA-256: 81cdfdc8d32f935edc29fc1e51134841c165536e3c8d86ad28c54c47ef090846
+    Finished `release` profile [optimized] target(s) in 0.13s
+[09:29:21.686 INFO re_flora::app::core::terrain_persistence::smoke] [GARDEN_PLANT_REVIEW] species=forget-me-not center=Vec3(0.82, 0.38671863, 1.22) saved=false
+[09:29:21.686 INFO re_flora::app::core::loading] [NIGHT_REVIEW] time=0.08 mode=flowers saved=false
+[09:29:21.694 INFO re_flora::app::core::night_garden] [NIGHT_FLOWERS] clusters=1 budget=2 night=1 revision=1 direct_and_ddgi=true
+
+=== garden-aggregate-smoke.log ===
+Source SHA-256: 8cf3980af6ea827042fc99939de8e418c3389885e251c7296ab2226802a0cfe7
+    Finished `release` profile [optimized] target(s) in 0.12s
+
+=== soil-perf-before.log ===
+Source SHA-256: 8576545ccc0a75e9d122e902962de254e1a4d9d01894d92a2f7edd7d46b09afb
+[02:06:42.908 INFO re_flora::builder::surface::soil_cover_review] [SOIL_COVER_BENCH] roots=1024 edit=one_root samples=12 median_ms=3.290 max_ms=3.353 idle_ms=0.000
+[02:06:45.538 INFO re_flora::builder::surface::soil_cover_review] [SOIL_COVER_BENCH] roots=65536 edit=one_root samples=12 median_ms=202.454 max_ms=206.667 idle_ms=0.000
+
+=== soil-perf-after.log ===
+Source SHA-256: dac0dba850557683aa14e3111b7e08a3e1c0ecd1a63a1a0f7724a21e0b275928
+[02:30:30.060 INFO re_flora::builder::surface::soil_cover_review] [SOIL_COVER_BENCH] roots=1024 edit=one_root samples=12 median_ms=0.447 max_ms=0.858 idle_ms=0.000
+[02:30:30.230 INFO re_flora::builder::surface::soil_cover_review] [SOIL_COVER_BENCH] roots=65536 edit=one_root samples=12 median_ms=0.854 max_ms=1.138 idle_ms=0.003
+[02:30:31.846 INFO re_flora::builder::surface::soil_cover_review] [SOIL_COVER_REVIEW] bare=true flowers_excluded=true tall_short=true cross_chunk=true interior_gap=true tight_boundary=true remove_last=true moisture=true restore=true burial=true uncover=true
+[02:30:32.005 INFO re_flora::app::core::terrain_persistence::smoke] [SOIL_COVER_REVIEW] visual roots=1014 center=Vec3(0.82, 0.38671863, 1.22)
+
+=== garden-butterfly-visits.log ===
+Source SHA-256: f325f815a52bcce0a782515b7d7f4a144d9b706b269666fb7c127b15aa372c60
+    Finished `release` profile [optimized] target(s) in 0.13s
+[03:10:38.849 INFO re_flora::app::core::flower_model_review] [FLOWER_REVIEW_PLANT] species=2 root=UVec3(166, 105, 342)
+[03:10:38.849 INFO re_flora::app::core::flower_model_review] [FLOWER_REVIEW_PLANT] species=3 root=UVec3(200, 110, 342)
+[03:10:38.849 INFO re_flora::app::core::flower_model_review] [FLOWER_REVIEW_PLANT] species=4 root=UVec3(234, 109, 342)
+[03:10:38.849 INFO re_flora::app::core::flower_model_review] [FLOWER_REVIEW_PLANT] species=5 root=UVec3(268, 116, 342)
+[03:10:38.849 INFO re_flora::app::core::flower_model_review] [FLOWER_REVIEW_PLANT] species=6 root=UVec3(166, 110, 376)
+[03:10:38.849 INFO re_flora::app::core::flower_model_review] [FLOWER_REVIEW_PLANT] species=7 root=UVec3(200, 118, 376)
+[03:10:38.849 INFO re_flora::app::core::flower_model_review] [FLOWER_REVIEW_PLANT] species=8 root=UVec3(234, 118, 376)
+[03:10:38.864 INFO re_flora::app::core::flower_model_review] [FLOWER_REVIEW] planted=7 placement=production saved=false target=Vec3(0.8211495, 0.4755692, 1.3948103) camera=Vec3(0.8211495, 0.7155692, 1.9648104)
+[03:10:38.864 INFO re_flora::app::core::flower_model_review] [FLOWER_REVIEW_PHASE] phase=0 heads_only=true resolution=32 frame=0 saved=false
+[03:10:38.987 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] mode=visits seeded=2 actual_heads=7 saved=false
+[03:10:38.987 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=0.00 choices=0 landings=0 departures=0 different_flowers=0 lost=0 wind=0 stalls=0 phases=[2, 0, 0, 0, 0, 0]
+[03:10:39.316 INFO re_flora::app::core::flower_model_review] [FLOWER_REVIEW_PHASE] phase=0 heads_only=true resolution=32 frame=24 saved=false
+[03:10:39.726 INFO re_flora::app::core::flower_model_review] [FLOWER_REVIEW_PHASE] phase=0 heads_only=true resolution=32 frame=48 saved=false
+[03:10:40.001 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=1.01 choices=2 landings=2 departures=0 different_flowers=0 lost=0 wind=0 stalls=0 phases=[0, 0, 0, 2, 0, 0]
+[03:10:40.139 INFO re_flora::app::core::flower_model_review] [FLOWER_REVIEW_PHASE] phase=0 heads_only=true resolution=32 frame=72 saved=false
+[03:10:40.551 INFO re_flora::app::core::flower_model_review] [FLOWER_REVIEW_PHASE] phase=0 heads_only=true resolution=32 frame=96 saved=false
+[03:10:40.962 INFO re_flora::app::core::flower_model_review] [FLOWER_REVIEW_PHASE] phase=0 heads_only=true resolution=32 frame=120 saved=false
+[03:10:41.014 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=2.03 choices=2 landings=2 departures=2 different_flowers=0 lost=0 wind=0 stalls=0 phases=[0, 0, 0, 0, 2, 0]
+[03:10:41.375 INFO re_flora::app::core::flower_model_review] [FLOWER_REVIEW_PHASE] phase=0 heads_only=true resolution=32 frame=144 saved=false
+[03:10:41.784 INFO re_flora::app::core::flower_model_review] [FLOWER_REVIEW_PHASE] phase=0 heads_only=true resolution=32 frame=168 saved=false
+[03:10:42.022 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=3.04 choices=4 landings=2 departures=2 different_flowers=0 lost=0 wind=0 stalls=0 phases=[0, 2, 0, 0, 0, 0]
+[03:10:42.194 INFO re_flora::app::core::flower_model_review] [FLOWER_REVIEW_PHASE] phase=0 heads_only=true resolution=32 frame=192 saved=false
+[03:10:43.034 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=4.05 choices=4 landings=2 departures=2 different_flowers=0 lost=0 wind=0 stalls=0 phases=[0, 0, 2, 0, 0, 0]
+[03:10:44.042 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=5.06 choices=4 landings=4 departures=2 different_flowers=2 lost=0 wind=0 stalls=0 phases=[0, 0, 0, 2, 0, 0]
+[03:10:44.042 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW_PASS] complete_cycle=true distinct_hosts=true
+[03:10:45.051 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=6.06 choices=4 landings=4 departures=4 different_flowers=2 lost=0 wind=0 stalls=0 phases=[0, 0, 0, 0, 2, 0]
+[03:10:46.062 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=7.08 choices=6 landings=4 departures=4 different_flowers=2 lost=0 wind=0 stalls=0 phases=[0, 2, 0, 0, 0, 0]
+[03:10:47.070 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=8.08 choices=6 landings=4 departures=4 different_flowers=2 lost=0 wind=0 stalls=0 phases=[0, 0, 2, 0, 0, 0]
+[03:10:48.085 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=9.10 choices=6 landings=6 departures=4 different_flowers=4 lost=0 wind=0 stalls=0 phases=[0, 0, 0, 2, 0, 0]
+[03:10:49.106 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=10.12 choices=6 landings=6 departures=6 different_flowers=4 lost=0 wind=0 stalls=0 phases=[0, 0, 0, 0, 2, 0]
+[03:10:50.120 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=11.13 choices=8 landings=6 departures=6 different_flowers=4 lost=0 wind=0 stalls=0 phases=[0, 2, 0, 0, 0, 0]
+[03:10:51.121 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=12.13 choices=8 landings=7 departures=6 different_flowers=5 lost=0 wind=0 stalls=0 phases=[0, 0, 1, 1, 0, 0]
+[03:10:52.134 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=13.15 choices=8 landings=8 departures=8 different_flowers=6 lost=0 wind=0 stalls=0 phases=[0, 0, 0, 0, 2, 0]
+[03:10:53.147 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=14.16 choices=9 landings=8 departures=8 different_flowers=6 lost=0 wind=0 stalls=0 phases=[1, 1, 0, 0, 0, 0]
+[03:10:54.164 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=15.18 choices=10 landings=8 departures=8 different_flowers=6 lost=0 wind=0 stalls=0 phases=[0, 1, 1, 0, 0, 0]
+[03:10:55.171 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=16.18 choices=10 landings=10 departures=8 different_flowers=8 lost=0 wind=0 stalls=0 phases=[0, 0, 0, 2, 0, 0]
+[03:10:56.181 INFO re_flora::app::core::butterfly_foraging_review] [BUTTERFLY_FORAGING][REVIEW] elapsed=17.19 choices=10 landings=10 departures=10 different_flowers=8 lost=0 wind=0 stalls=0 phases=[0, 0, 0, 0, 2, 0]
+
+=== garden-plow-run-final.log ===
+Source SHA-256: 21c51962db61f3ea1b5f09e545f3da57309bf1e3be174d0be49c4d0d2ba3b616
+    Finished `release` profile [optimized] target(s) in 0.12s
+[04:44:10.631 INFO re_flora::app::core::soil_movement] [SOIL_MOVE_REVIEW] native=true before=110592 after=110592 moved=2074 conserved=true
+[04:44:10.646 INFO re_flora::app::core::terrain_persistence] [GARDEN_PERSISTENCE] capture flora=0 authored=0 trees=1
+
+=== garden-shovel-partial.log ===
+Source SHA-256: 0842d3c4b02482bdaa4f4a75d134b0b6efa3d782da3773d11681488cb2d58562
+    Finished `release` profile [optimized] target(s) in 0.13s
+[05:06:33.041 INFO re_flora::app::core::soil_shovel] [SOIL_SHOVEL_REVIEW] mode=partial terrain=109904 outside_fixture=1 carry=687 total=110592 conserved=true
+
+=== garden-shovel-moisture.log ===
+Source SHA-256: c946f536a8723aa061459f98c2c104259b7461c4fa8739de92ec92c262b3d34c
+    Finished `release` profile [optimized] target(s) in 0.13s
+[05:06:37.959 INFO re_flora::app::core::soil_shovel] [SOIL_SHOVEL_REVIEW] GPU_moisture_histogram=[27648, 27648, 27648, 27648] preserved=true
+[05:06:37.959 INFO re_flora::app::core::soil_shovel] [SOIL_SHOVEL_REVIEW] mode=moisture terrain=110592 outside_fixture=0 carry=0 total=110592 conserved=true
+
+=== garden-growth-0.5-final.log ===
+Source SHA-256: 0e3c6aec8ad91345008bbace1b0faf12fe81dad70fd51984693ecb3e46e6b8ba
+    Finished `release` profile [optimized] target(s) in 0.13s
+[05:50:50.026 INFO re_flora::app::core::vegetation::growth] [TREE_GROWTH_REVIEW] age=0.5 height_voxels=18.521 branches=118 leaves=18 fruit=0 verified=true
+[05:50:50.030 INFO re_flora::app::core::terrain_persistence] [GARDEN_PERSISTENCE] capture flora=0 authored=0 trees=1
+
+=== garden-growth-1-final.log ===
+Source SHA-256: 96aba341075cb2e3e90b2da842f7ce3373404c7be7e1aae095c8494bbdb8049c
+    Finished `release` profile [optimized] target(s) in 0.13s
+[05:57:32.087 INFO re_flora::app::core::vegetation::growth] [TREE_GROWTH_REVIEW] age=1 height_voxels=39.099 branches=250 leaves=1628 fruit=24 verified=true
+
+=== garden-economy-trade-final.log ===
+Source SHA-256: 2e7afad642d52e12fcbad0618a3f0bd94db82c80f058eb70d15401900634e73d
+    Finished `release` profile [optimized] target(s) in 0.12s
+[07:02:16.607 INFO re_flora::app::core::garden_economy::review] [GARDEN_ECONOMY_REVIEW] coins=23 apples=1 harvest_receipts=2 saplings_owned=1 flower_seeds=4 grass_seeds=31 failed_and_duplicate_planting_preserved=true debug_supply_preserved=true verified=true
+[07:02:16.610 INFO re_flora::app::core::terrain_persistence] [GARDEN_PERSISTENCE] capture flora=3 authored=2 trees=2
+
+=== garden-economy-fallen-final.log ===
+Source SHA-256: 6af7d7f761540b111d7646a9342c3c6fb5f51f4d0ad826b38df9c32333ae4a43
+    Finished `release` profile [optimized] target(s) in 0.13s
+[07:02:29.392 INFO re_flora::app::core::garden_economy::review] [GARDEN_ECONOMY_REVIEW] fallen_collected=true stored=1 dynamic_owner_retired=true verified=true
+
+=== garden-bees-garden-final.log ===
+Source SHA-256: 2deb717f8b9082b55f71fac0dac8ac4bd8c3641b2fed8379eafa659a87f8a0f7
+    Finished `release` profile [optimized] target(s) in 0.14s
+[08:31:54.350 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] houses=2 flowers=6 atlas_unchanged_by_houses=true original_cached_models=true
+[08:31:54.351 INFO re_flora::app::core::terrain_persistence] [GARDEN_PERSISTENCE] capture flora=6 authored=6 trees=1
+[08:32:08.713 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] mode=garden houses=2 residents=16 outside=9 visits=15 returns=10 lost_hosts=0 verified=true
+
+=== garden-bees-load-final.log ===
+Source SHA-256: 97571e50cef50b74471b2dfc408d53edb8dd297b558848070bd7d0e3eb4c4d94
+    Finished `release` profile [optimized] target(s) in 0.13s
+[09:16:03.915 INFO re_flora::app::core::terrain_persistence] [GARDEN_PERSISTENCE] restored flora=6 authored=6 trees=1 tree_age=1.000 retired_tree_migration=false; current species retain saved wood
+[09:16:03.915 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] loaded_houses=2 tree_and_pole=true verified=true
+[09:16:17.934 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] mode=load houses=2 residents=16 outside=9 visits=15 returns=10 lost_hosts=0 verified=true
+
+=== garden-bees-edit-final.log ===
+Source SHA-256: a60e16e3519bde70500b028463f9c98dfd752b4226124af5e2bdd4621410d807
+    Finished `release` profile [optimized] target(s) in 0.13s
+[08:32:34.506 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] edited_supports=2 remaining_houses=0 next_id=3 verified=true
+[08:32:34.506 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] houses=0 flowers=6 atlas_unchanged_by_houses=true original_cached_models=true
+[08:32:48.517 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] mode=edit houses=0 residents=0 outside=0 visits=0 returns=0 lost_hosts=0 verified=true
+
+=== garden-bees-cap-final.log ===
+Source SHA-256: 0eaeff6b6a44a7526c3b3b07917229c8484bef7cbaee9a8ac5434f0aecd7c21c
+    Finished `release` profile [optimized] target(s) in 0.13s
+[08:33:54.484 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] cap_removed=true pole_identity_retired=true remaining_tree_house=1 verified=true
+[08:33:54.484 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] houses=1 flowers=6 atlas_unchanged_by_houses=true original_cached_models=true
+[08:34:08.509 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] mode=cap houses=1 residents=8 outside=4 visits=11 returns=8 lost_hosts=0 verified=true
+
+=== garden-bees-tree-delete-final.log ===
+Source SHA-256: 06219fab72042526de4529b53d1dda3a1495aabe4e9e2e0760aec41447fd9132
+    Finished `release` profile [optimized] target(s) in 0.13s
+[08:34:14.465 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] tree_removed=true remaining_pole_house=1 verified=true
+[08:34:14.465 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] houses=1 flowers=6 atlas_unchanged_by_houses=true original_cached_models=true
+[08:34:28.475 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] mode=tree-delete houses=1 residents=8 outside=4 visits=11 returns=8 lost_hosts=0 verified=true
+
+=== garden-bees-bury-final.log ===
+Source SHA-256: 584fcb7f30b6441170bc1245701ccdbf879a1e7b4311704f68f079953c47e036
+    Finished `release` profile [optimized] target(s) in 0.13s
+[09:15:44.006 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] burial_retired_house=true rock_preserved=true remaining_pole_house=1 verified=true
+[09:15:44.006 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] houses=1 flowers=6 atlas_unchanged_by_houses=true original_cached_models=true
+[09:15:58.029 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] mode=bury houses=1 residents=8 outside=4 visits=11 returns=8 lost_hosts=0 verified=true
+
+=== garden-bees-cycle-final.log ===
+Source SHA-256: d9b2f1ee375fad1ffa7ade5bfd8503ada233056cf4be95f2276aa8d3d524c438
+    Finished `release` profile [optimized] target(s) in 0.13s
+[08:32:54.437 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] houses=2 flowers=6 atlas_unchanged_by_houses=true original_cached_models=true
+[08:33:02.128 INFO re_flora::app::core::ambient_ecology] [FIREFLY] emerged=true habitat_kind=2 active=1 via=ecology
+[08:33:03.314 INFO re_flora::app::core::ambient_ecology] [FIREFLY] emerged=true habitat_kind=2 active=2 via=ecology
+[08:33:04.563 INFO re_flora::app::core::ambient_ecology] [FIREFLY] emerged=true habitat_kind=2 active=3 via=ecology
+[08:33:07.098 INFO re_flora::app::core::ambient_ecology] [FIREFLY] emerged=true habitat_kind=2 active=4 via=ecology
+[08:33:08.455 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] mode=cycle houses=2 residents=16 outside=0 visits=6 returns=8 lost_hosts=0 verified=true
+[08:33:08.637 INFO re_flora::app::core::ambient_ecology] [FIREFLY] emerged=true habitat_kind=2 active=5 via=ecology
+[08:33:09.772 INFO re_flora::app::core::ambient_ecology] [FIREFLY] emerged=true habitat_kind=2 active=6 via=ecology
+
+=== garden-bees-flowers-removed-final.log ===
+Source SHA-256: 1f392179c494514c9a3fcba28353e4d4c9245058babcae18b090cc45c719b727
+    Finished `release` profile [optimized] target(s) in 0.12s
+[08:33:14.380 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] houses=2 flowers=6 atlas_unchanged_by_houses=true original_cached_models=true
+[08:33:28.399 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] mode=flowers-removed houses=2 residents=16 outside=0 visits=6 returns=8 lost_hosts=6 verified=true
+
+=== garden-bees-particles-off-final.log ===
+Source SHA-256: e4f81c459cad20dd8decad994f63c894bd49923b4912c0f136a0e1c1c1b21fb6
+    Finished `release` profile [optimized] target(s) in 0.13s
+[08:33:34.553 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] houses=2 flowers=6 atlas_unchanged_by_houses=true original_cached_models=true
+[08:33:48.573 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] mode=particles-off houses=2 residents=0 outside=0 visits=0 returns=0 lost_hosts=0 verified=true
+
+=== garden-bees-native-final.log ===
+Source SHA-256: 926d7fd2e1338e032545bd6f931338b088819a799cde1a4ea85bb44f07f7da98
+    Finished `release` profile [optimized] target(s) in 0.12s
+[09:15:24.023 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] houses=2 flowers=6 atlas_unchanged_by_houses=true original_cached_models=true
+[09:15:38.032 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] mode=native houses=2 residents=16 outside=9 visits=15 returns=10 lost_hosts=0 verified=true
+
+=== garden-bees-tree-view-final.log ===
+Source SHA-256: 29e76c965fa42dec48bae92a519760994fa3f0b3960602da8b5eabdb815e98ff
+    Finished `release` profile [optimized] target(s) in 0.12s
+[08:55:11.191 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] houses=2 flowers=6 atlas_unchanged_by_houses=true original_cached_models=true
+[08:55:25.208 INFO re_flora::app::core::garden_bees::review] [BEE_REVIEW] mode=tree-view houses=2 residents=16 outside=0 visits=0 returns=0 lost_hosts=0 verified=true
+
+=== garden-insect-schema-tests.log ===
+Source SHA-256: e8c32188a64c6d0eba8ab500d2bbdea92df8d795195e363675387403e6a8fd88
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.76s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+test result: ok. 52 passed; 0 failed; 0 ignored; 0 measured; 1730 filtered out; finished in 1.02s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+=== garden-final-glow-off.log ===
+Source SHA-256: 164aa19c93e07002c9645476c5e367c8d937a7a6ed6fe7dabab9e5f58a11483e
+    Finished `release` profile [optimized] target(s) in 0.13s
+[09:54:00.201 INFO re_flora::app::core::terrain_persistence::smoke] [GARDEN_PLANT_REVIEW] species=forget-me-not center=Vec3(0.82, 0.38671863, 1.22) saved=false
+[09:54:00.201 INFO re_flora::app::core::loading] [NIGHT_REVIEW] time=0.08 mode=flowers saved=false
+[09:54:03.225 INFO re_flora::app::core::ambient_ecology] [FIREFLY] emerged=true habitat_kind=2 active=1 via=ecology
+[09:54:04.367 INFO re_flora::app::core::ambient_ecology] [FIREFLY] emerged=true habitat_kind=2 active=2 via=ecology
+[09:54:05.669 INFO re_flora::app::core::ambient_ecology] [FIREFLY] emerged=true habitat_kind=2 active=3 via=ecology
+
+=== garden-final-glow-on.log ===
+Source SHA-256: bbbad51e86810097f2efa7ae190ca820d534b1624e625a40669c004062804c6a
+    Finished `release` profile [optimized] target(s) in 0.13s
+[09:54:12.141 INFO re_flora::app::core::terrain_persistence::smoke] [GARDEN_PLANT_REVIEW] species=forget-me-not center=Vec3(0.82, 0.38671863, 1.22) saved=false
+[09:54:12.141 INFO re_flora::app::core::loading] [NIGHT_REVIEW] time=0.08 mode=flowers saved=false
+[09:54:12.148 INFO re_flora::app::core::night_garden] [NIGHT_FLOWERS] clusters=1 budget=2 night=1 revision=1 direct_and_ddgi=true
+[09:54:15.161 INFO re_flora::app::core::ambient_ecology] [FIREFLY] emerged=true habitat_kind=2 active=1 via=ecology
+[09:54:16.308 INFO re_flora::app::core::ambient_ecology] [FIREFLY] emerged=true habitat_kind=2 active=2 via=ecology
+[09:54:17.599 INFO re_flora::app::core::ambient_ecology] [FIREFLY] emerged=true habitat_kind=2 active=3 via=ecology

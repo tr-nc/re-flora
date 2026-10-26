@@ -1,0 +1,70 @@
+{
+  "date": "2026-10-26",
+  "engine": "Chromium via agent-browser 0.38.1",
+  "desktop": {
+    "viewport": [
+      1280,
+      900
+    ],
+    "decoded": 25,
+    "horizontalOverflow": false,
+    "externalResources": 0
+  },
+  "mobile": {
+    "viewport": [
+      390,
+      844
+    ],
+    "decoded": 25,
+    "horizontalOverflow": false,
+    "externalResources": 0
+  },
+  "portableCopy": {
+    "allDecoded": true,
+    "externalResources": 0,
+    "horizontalOverflow": false,
+    "images": 25,
+    "viewport": [
+      390,
+      844
+    ]
+  },
+  "accessibility": {
+    "axeVersion": "4.12.1",
+    "tags": [
+      "wcag2a",
+      "wcag2aa"
+    ],
+    "desktop": {
+      "inapplicable": 35,
+      "incomplete": 0,
+      "passes": 25,
+      "violations": 0
+    },
+    "mobile": {
+      "inapplicable": 34,
+      "incomplete": 0,
+      "passes": 26,
+      "violations": 0
+    }
+  },
+  "interaction": {
+    "tableOfContents": true,
+    "baselineDetailsExpanded": true,
+    "tableKeyboardScroll": {
+      "focused": "table-scroll",
+      "scrollLeft": 19
+    },
+    "originalScreenshotLinkOpened": true
+  },
+  "method": "Sequential in-viewport PNG decoding with ordinary lazy loading; all files hash-verified in a copied directory. HTTP/HTTPS routes aborted; no external resources requested. Browser sessions closed.",
+  "resolvedFindings": [
+    "Darkened seven section labels to meet contrast requirements.",
+    "Made overflow tables keyboard-focusable and moved the grass caption outside the horizontally clipped region."
+  ],
+  "discardedProbes": [
+    "Forced concurrent full-resolution decode of 25 originals produced EncodingError; not counted as a pass. Sequential visible-image checks passed.",
+    "An about:blank audit after relaunch and incorrectly patterned fragment wait were discarded. Final checks validate the target document.",
+    "CLI offline toggle left navigator.onLine=true, so hardware disconnection/emulation is not claimed. Explicit HTTP/HTTPS route blocking and copied local-file checks were used instead."
+  ]
+}
