@@ -301,9 +301,6 @@ impl GuiConfigLoader {
             if param.id == "fruit_cycle" {
                 param.label = "Fruit Growth (held until kick)".into();
             }
-            if param.id == "butterfly_animation_fps" {
-                param.label = "Butterfly Update FPS (Position + Heading + Wings)".into();
-            }
         }
         Self::add_missing_param(&mut config, "Debug", "tree_stiffness");
         // Rename the old quota control without rewriting saves or losing its value.
@@ -682,6 +679,9 @@ impl GuiConfigLoader {
             ("Debug", "sprinkler_pixel_resolution"),
             ("Debug", "apple_pixel_resolution"),
             ("Butterflies", "butterfly_pixel_resolution"),
+            // Shared insect presentation metadata follows the declarative owner;
+            // migrating an old save must not restore a stale butterfly-only label.
+            ("Butterflies", "butterfly_animation_fps"),
             ("Flora", "model_flower_pixel_resolution"),
         ] {
             let retained = config
