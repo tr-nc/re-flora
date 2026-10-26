@@ -28,13 +28,19 @@ only this provider's sources. Light registry state is derived, not saved.
 - Hidden muted smoke and review logs: no ERROR, panic or VUID found.
 - Eight-second Release runs with two planted flowers/one light, frames >120:
   lights disabled 17.07 ms median / 17.84 ms p95 (448 logged frames);
-  enabled 17.03 / 17.88 ms (452 logged frames). Present-paced frame timings do
-  not isolate GPU lighting cost; this establishes no large regression in this
-  small fixture, not a dense-garden performance budget or perceptual approval.
+  enabled 17.03 / 17.88 ms (452 logged frames). These historical `[PERF][FRAME]`
+  records are conditional (every 30th frame, total >=16 ms, or queue work >=2 ms),
+  so their distribution is **not all frames**. They do not isolate GPU lighting cost.
   Enabled run published exactly once, not each frame.
+- Final-runtime repetition with `RE_FLORA_GARDEN_PERF=1` logs every frame. Same
+  8-second fixture, frames >120: off median/p95 17.10/17.66 ms (471 samples), on
+  17.10/17.88 ms (463). Maximums were 23.81/56.50 ms, at early frames 122/125 with
+  pending terrain/collider work; the enabled outlier had 43.43 ms untracked CPU.
+  Its cause is not isolated. This pair is not a dense-garden, 60-FPS, isolated-GPU
+  or statistical-significance acceptance claim.
 
 Reproduce with `RE_FLORA_GARDEN_PLANT_REVIEW=forget-me-not
-RE_FLORA_NIGHT_REVIEW=flowers cargo run --release -- --hidden --mute --perf
+RE_FLORA_NIGHT_REVIEW=flowers RE_FLORA_GARDEN_PERF=1 cargo run --release -- --hidden --mute --perf
 --auto-exit 8` (environment assignments on one shell command). For the diagnostic
 baseline, add `RE_FLORA_NIGHT_FLOWER_LIGHTS_OFF=1`. This opt-in test switch does
 not save settings. Screenshots use `--screenshot garden-arrival <path>

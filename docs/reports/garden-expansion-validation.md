@@ -45,7 +45,7 @@ Per-feature docs retain the original placement/edit/burial/fallen-fruit/partial-
 
 - No new failures in the executed full-test set; this is **not proof of no bugs**. Nine baseline failures and 18 ignored tests across the main/integration targets remain explicit.
 - Plow correctness edits measured 17.035/20.164 ms; a growth stage including preflight measured 18.905 ms. Neither is a 60-FPS acceptance result. Dense combined scenes, maximum insect population and sustained tool dragging are not accepted performance workloads.
-- Flower and bee comparisons are presentation-inclusive whole frames, not isolated GPU timings or statistically significant claims.
+- Flower and bee comparisons are presentation-inclusive whole frames, not isolated GPU timings or statistically significant claims. Historical flower `[PERF][FRAME]` records were threshold-triggered, not every frame. A final repeat enabled all-frame logging: off 17.10/17.66 ms median/p95 (471 samples), on 17.10/17.88 ms (463), frame >120. Maxima 23.81/56.50 ms occurred at early frames 122/125 with pending terrain/collider work; the cause of the enabled outlier is not isolated.
 - Subjective sound, moon/flower/insect appearance, sapling silhouette, collision feel, shovel gestures, economy balance and shop input still await player feedback. No visible game was automatically launched for user review.
 - Firefly environmental GI is deliberately omitted; blue flowers use bounded shared cluster lights. No seasonal harvests, all-construction prices, bee breeding/honey or global soil collapse is claimed.
 - Commercial wind-audio rights and the original sun texture purchase/rights evidence remain unresolved. Repository licenses do not override third-party rights.

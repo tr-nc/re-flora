@@ -182,8 +182,11 @@ known limitations; partially implemented items remain open.
   `target/garden-blue-day.png`. Three focused tests, check, Release build, hidden
   smoke and logs pass. Two 8-second Release runs, after frame 120: lights off
   median/p95 17.07/17.84 ms (448 logged frames), on 17.03/17.88 ms (452 frames).
-  These are present-paced whole frames for two flowers/one cluster, not isolated
-  GPU costs or dense-garden performance proof. Cluster lights approximate heads;
+  These historical records use threshold-triggered frame logging, not every frame.
+  Final all-frame repetition (`RE_FLORA_GARDEN_PERF=1`, frame >120) measured off
+  17.10/17.66 ms median/p95 (471 samples), on 17.10/17.88 ms (463). Early-frame
+  maxima were 23.81/56.50 ms; the enabled outlier's cause was not isolated.
+  Neither comparison establishes isolated GPU costs or dense-garden performance. Cluster lights approximate heads;
   not every petal is an individual physical light.
 - Butterfly brightness: shared daylight-only paper-wing fill and a bounded
   chroma-dependent gain (up to 25%) keep colored/back-facing resting wings readable.
