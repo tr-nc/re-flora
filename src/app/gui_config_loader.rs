@@ -217,9 +217,7 @@ impl GuiConfigLoader {
         }
         Self::migrate_model_surface_cache(&mut config);
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_density");
-        Self::add_missing_param(&mut config, "Debug", "sprinkler_design");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_placement_type");
-        Self::add_missing_param(&mut config, "Debug", "sprinkler_size_scale");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_particles");
         // Retire obsolete sprinkler settings at the load boundary; do not rewrite user files.
         for section in &mut config.section {
@@ -313,6 +311,8 @@ impl GuiConfigLoader {
                         | "bee_size_scale"
                         | "gui_panel_outlines"
                         | "camera_orbit_max_elevation"
+                        | "sprinkler_design"
+                        | "sprinkler_size_scale"
                 )
             });
         }
@@ -1693,6 +1693,8 @@ max = 2
             "camera_orbit_max_elevation",
             "hive_style",
             "bee_size_scale",
+            "sprinkler_design",
+            "sprinkler_size_scale",
         ] {
             let mut config: GuiConfigFile =
                 toml::from_str(include_str!("../../config/gui.toml")).unwrap();
@@ -1718,79 +1720,6 @@ max = 2
                 .any(|p| p.id == id));
             GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
             assert!(!std::fs::read_to_string(&path).unwrap().contains(id));
-        }
-    }
-
-    #[test]
-    fn hardware_candidates_load_old_files_and_preserve_saved_choices_without_writing() {
-        use crate::app::gui_config_model::{GuiParamConditionValue, GuiParamEnabledIf};
-        for existing in [false, true] {
-            for old_enabled in [false, true] {
-                let mut config: GuiConfigFile =
-                    toml::from_str(include_str!("../../config/gui.toml")).unwrap();
-                let section = config
-                    .section
-                    .iter_mut()
-                    .find(|s| s.name == "Debug")
-                    .unwrap();
-                let template = section
-                    .param
-                    .iter()
-                    .find(|p| p.id == "sprinkler_cache_enabled")
-                    .unwrap()
-                    .clone();
-                for id in [
-                    "sprinkler_design_variants",
-                    "sprinkler_mist_flow",
-                    "sprinkler_mist_air",
-                ] {
-                    let mut obsolete = template.clone();
-                    obsolete.id = id.into();
-                    obsolete.value = super::GuiParamValue::Bool { value: old_enabled };
-                    section.param.push(obsolete);
-                }
-                for (id, dependency) in [
-                    ("sprinkler_design", "sprinkler_design_variants"),
-                    ("sprinkler_mist_air", "sprinkler_mist_flow"),
-                ] {
-                    let param = section.param.iter_mut().find(|p| p.id == id).unwrap();
-                    param.enabled_if = Some(GuiParamEnabledIf {
-                        param: dependency.into(),
-                        equals: GuiParamConditionValue::Bool(true),
-                    });
-                    if id == "sprinkler_design" {
-                        if let super::GuiParamValue::Choice { value, .. } = &mut param.value {
-                            *value = 2;
-                        }
-                    }
-                }
-                if !existing {
-                    section.param.retain(|p| p.id != "sprinkler_design");
-                }
-                let dir = tempfile::tempdir().unwrap();
-                let path = dir.path().join("gui.toml");
-                let original = toml::to_string_pretty(&config).unwrap();
-                std::fs::write(&path, &original).unwrap();
-                let loaded = GuiConfigLoader::load_from_path(&path);
-                assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
-                let params: Vec<_> = loaded.section.iter().flat_map(|s| &s.param).collect();
-                assert!(!params.iter().any(|p| matches!(
-                    p.id.as_str(),
-                    "sprinkler_design_variants" | "sprinkler_mist_flow"
-                )));
-                let design = params.iter().find(|p| p.id == "sprinkler_design").unwrap();
-                assert_eq!(
-                    design.value.get_choice().unwrap().0,
-                    if existing { 2 } else { 0 }
-                );
-                assert!(design.enabled_if.is_none());
-                assert!(!params.iter().any(|p| p.id == "sprinkler_mist_air"));
-                GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
-                assert_eq!(
-                    serde_json::to_value(&loaded).unwrap(),
-                    serde_json::to_value(GuiConfigLoader::load_from_path(&path)).unwrap()
-                );
-            }
         }
     }
 

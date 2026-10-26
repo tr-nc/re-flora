@@ -7,7 +7,8 @@ public struct B_SprinklerInstance {
     public uint4 kind;
 };
 public static const uint SPRINKLER_KIND_TALL=1u;
-public static const uint SPRINKLER_DESIGN_TALL=4u;
+public static const uint SPRINKLER_DESIGN_COMPACT=0u;
+public static const uint SPRINKLER_DESIGN_TALL=1u;
 public static const float SPRINKLER_TALL_LIFT=22.0/256.0;
 public float3 sprinklerKindOutlet(float angle,uint kind)
 {

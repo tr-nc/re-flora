@@ -29,7 +29,7 @@ ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint instance:SV_VulkanInstan
     float4 pose=emitter.position_phase;
     float angle=gui_input.sprinkler_rotor_angle+frac(pose.w)*6.28318530718;
     uint design=emitter.kind.x==SPRINKLER_KIND_TALL?SPRINKLER_DESIGN_TALL:
-        min(gui_input.sprinkler_design,3u);
+        SPRINKLER_DESIGN_COMPACT;
     SprinklerPart part=sprinkler_parts[design*SPRINKLER_ROTARY_FRAMES+sprinklerRotaryFrame(angle)];
     ModelMeshOutput output; output.position=float4(2,2,2,1);output.color=float4(0);
     // One fixed assembly frame selects the same camera view/grid for all discrete

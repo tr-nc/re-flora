@@ -111,13 +111,6 @@ const GROUPS: &[ControlGroup] = &[
     },
     ControlGroup {
         parent: None,
-        title: "Hardware Appearance",
-        description: "Sprinklers: placement snaps the anchor to a voxel center on X/Y/Z. Overall size scales the complete hardware around that anchor, including the spray outlet. It does not scale launch speed, spray angle, RPM, sound or watering strength; changing nozzle height can naturally shift ground coverage. Choose a brass impact, garden pulse or enclosed rotor head. Size applies live to native and pre-cached models without rebaking. Saved with Save.",
-        initially_open: false,
-        params: &["sprinkler_size_scale", "sprinkler_design"],
-    },
-    ControlGroup {
-        parent: None,
         title: "Sprinkler Spray & Motion",
         description: "Type applies to NEW placements: compact and tall impact sprinklers can coexist. Tall has a raised head, stronger upward launch and a wider falling arc. Plants never block water; terrain does. One rotating nozzle. The whole assembly and spray launches use the same 32 internal poses (11.25 degrees apart); existing droplets keep their birth direction. Camera directions follow the global Model direction count. Spray angle changes the shared air/soil distribution; RPM changes rotation, not flight speed. Six fixed spray bursts follow the recording.",
         initially_open: false,

@@ -7,16 +7,13 @@ use glam::Vec3;
 mod candidates;
 
 pub(super) fn build_design(design: crate::sprinkler::Design) -> (Vec<SprinklerVertex>, Vec<u32>) {
-    if design == crate::sprinkler::Design::Current {
-        build_rotary_sprinkler_mesh()
-    } else {
-        candidates::build(design)
-    }
+    candidates::build(design)
 }
 
 const SAGE: Vec3 = Vec3::new(0.39, 0.57, 0.43);
 const SAGE_LIGHT: Vec3 = Vec3::new(0.55, 0.69, 0.48);
 const SAGE_DARK: Vec3 = Vec3::new(0.23, 0.36, 0.29);
+#[cfg(test)]
 const CREAM: Vec3 = Vec3::new(0.89, 0.83, 0.64);
 const COPPER: Vec3 = Vec3::new(0.72, 0.39, 0.20);
 const BRASS: Vec3 = Vec3::new(0.91, 0.66, 0.35);
@@ -195,112 +192,6 @@ pub(super) fn build_sprinkler_mesh() -> (Vec<SprinklerVertex>, Vec<u32>) {
     (mesh.vertices, mesh.indices)
 }
 
-/// Single-outlet rotor. Group markers are consumed while baking whole-assembly poses.
-pub(super) fn build_rotary_sprinkler_mesh() -> (Vec<SprinklerVertex>, Vec<u32>) {
-    use crate::sprinkler::{RotorPose, ROTARY_NOZZLE_HEIGHT};
-    let mut mesh = Mesh::default();
-    mesh.lathe(
-        Vec3::ZERO,
-        Vec3::Y,
-        &[
-            (0., 0., DARK),
-            (0., 1.65, DARK),
-            (0.18, 1.95, SAGE_DARK),
-            (0.42, 2.0, SAGE),
-            (0.64, 1.7, SAGE_LIGHT),
-            (0.78, 0.75, SAGE),
-            (0.78, 0., SAGE),
-        ],
-        16,
-        Vec3::ZERO,
-    );
-    mesh.lathe(
-        Vec3::ZERO,
-        Vec3::Y,
-        &[
-            (0.6, 0., COPPER),
-            (0.6, 0.66, COPPER),
-            (0.9, 0.66, BRASS),
-            (1.04, 0.48, CREAM),
-            (3.25, 0.48, CREAM),
-            (3.4, 0.68, BRASS),
-            (3.72, 0.68, COPPER),
-            (4.16, 0.35, BRASS),
-            (4.16, 0., BRASS),
-        ],
-        12,
-        Vec3::ZERO,
-    );
-    mesh.lathe(
-        Vec3::new(0., 0.55, 0.),
-        -Vec3::Z,
-        &[
-            (0.4, 0., SAGE),
-            (0.4, 0.43, SAGE),
-            (1.6, 0.43, SAGE),
-            (1.72, 0.54, BRASS),
-            (2.0, 0.54, BRASS),
-            (2.0, 0.28, BRASS),
-            (1.86, 0.28, DARK),
-            (1.86, 0., DARK),
-        ],
-        10,
-        Vec3::ZERO,
-    );
-    let moving = Vec3::Y; // rigid-group marker; rotary motion is a frame, not translation
-    mesh.lathe(
-        Vec3::ZERO,
-        Vec3::Y,
-        &[
-            (3.75, 0., DARK),
-            (3.75, 0.74, DARK),
-            (3.93, 0.88, BRASS),
-            (4.3, 0.88, COPPER),
-            (4.5, 0.70, SAGE),
-            (4.7, 0.32, SAGE_LIGHT),
-            (4.78, 0., CREAM),
-        ],
-        16,
-        moving,
-    );
-    let path = [
-        Vec3::new(0.65, ROTARY_NOZZLE_HEIGHT, 0.),
-        Vec3::new(1.2, ROTARY_NOZZLE_HEIGHT, 0.),
-        Vec3::new(1.9, ROTARY_NOZZLE_HEIGHT, -0.10),
-        Vec3::new(2.45, ROTARY_NOZZLE_HEIGHT, -0.32),
-        Vec3::new(2.8, ROTARY_NOZZLE_HEIGHT, -0.58),
-    ];
-    for segment in path.windows(2) {
-        let delta = segment[1] - segment[0];
-        mesh.lathe(
-            segment[0] - delta.normalize() * 0.03,
-            delta.normalize(),
-            &[(0., 0.21, COPPER), (delta.length() + 0.06, 0.21, BRASS)],
-            8,
-            moving,
-        );
-    }
-    let pose = RotorPose { angle: 0.0 };
-    let direction = pose.direction();
-    let outlet = pose.outlet() / WORLD_SCALE;
-    mesh.lathe(
-        outlet - direction * 0.66,
-        direction,
-        &[
-            (0., 0.22, COPPER),
-            (0.15, 0.30, BRASS),
-            (0.5, 0.36, COPPER),
-            (0.66, 0.34, BRASS),
-            (0.66, 0.18, BRASS),
-            (0.55, 0.18, DARK),
-            (0.55, 0., DARK),
-        ],
-        10,
-        moving,
-    );
-    (mesh.vertices, mesh.indices)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -332,38 +223,7 @@ mod tests {
     }
 
     #[test]
-    fn rotary_mesh_has_only_one_arm_and_its_rim_tracks_the_spray_outlet() {
-        use crate::sprinkler::RotorPose;
-        let (vertices, _) = build_rotary_sprinkler_mesh();
-        let bind = RotorPose { angle: 0.0 };
-        let outlet = bind.outlet() / WORLD_SCALE;
-        let moving: Vec<_> = vertices
-            .iter()
-            .filter(|v| v.animation_direction != [0.; 3])
-            .map(|v| Vec3::from_array(v.position) / WORLD_SCALE)
-            .collect();
-        assert!(
-            moving.iter().all(|p| p.x >= -0.89),
-            "no extra arm behind the hub"
-        );
-        let rim: Vec<_> = moving
-            .iter()
-            .copied()
-            .filter(|p| (*p - outlet).dot(bind.direction()).abs() < 1e-5)
-            .collect();
-        assert!(rim.len() >= 20);
-        for tick in [0, 7, 20, 39, 79] {
-            let pose = RotorPose::sample(tick, 0.5, 0.05, 0.125);
-            for p in &rim {
-                let offset = pose.rotate(*p) - pose.outlet() / WORLD_SCALE;
-                assert!(offset.dot(pose.direction()).abs() < 1e-5);
-                assert!((0.179..=0.341).contains(&offset.length()));
-            }
-        }
-    }
-
-    #[test]
-    fn candidates_are_finite_distinct_complete_meshes_with_the_same_mouth() {
+    fn approved_compact_and_tall_hardware_have_complete_geometry_and_the_same_mouth() {
         let mut signatures = Vec::new();
         for design in crate::sprinkler::Design::ALL {
             let lift = if design == crate::sprinkler::Design::Tall {

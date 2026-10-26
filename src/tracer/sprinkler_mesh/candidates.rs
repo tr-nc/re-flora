@@ -1,4 +1,4 @@
-//! Silhouette studies, not product replicas or an alternate irrigation model.
+//! Approved brass impact hardware, with compact and raised-stand source types.
 use super::*;
 use crate::sprinkler::{Design, RotorPose};
 
@@ -238,152 +238,6 @@ fn brass_impact(mesh: &mut Mesh) {
     );
 }
 
-fn garden_pulse(mesh: &mut Mesh) {
-    // A low portable sled, rather than another scaled version of the round foot.
-    for x in [-2.05, 2.05] {
-        bar(
-            mesh,
-            Vec3::new(x, 0.25, -2.7),
-            Vec3::new(x, 0.25, 2.7),
-            0.50,
-            0.78,
-            SAGE_DARK,
-            Vec3::ZERO,
-        );
-        bar(
-            mesh,
-            Vec3::new(x, 0.48, -2.3),
-            Vec3::new(0., 0.85, -0.25),
-            0.36,
-            0.55,
-            SAGE,
-            Vec3::ZERO,
-        );
-        bar(
-            mesh,
-            Vec3::new(x, 0.48, 2.3),
-            Vec3::new(0., 0.85, 0.25),
-            0.36,
-            0.55,
-            SAGE,
-            Vec3::ZERO,
-        );
-    }
-    inlet(mesh);
-    bearing(mesh, SAGE_DARK);
-    mesh.lathe(
-        Vec3::ZERO,
-        Vec3::Y,
-        &[
-            (3.1, 0., DARK),
-            (3.1, 1.25, DARK),
-            (3.45, 1.55, SAGE_DARK),
-            (4.4, 1.35, SAGE),
-            (4.75, 0.95, SAGE_LIGHT),
-            (4.85, 0., SAGE_LIGHT),
-        ],
-        12,
-        ROTOR,
-    );
-    mouth(mesh, 1.9, SAGE_DARK);
-    let d = RotorPose { angle: 0. }.direction();
-    let side = Vec3::new(-d.z, 0., d.x);
-    let tip = RotorPose { angle: 0. }.outlet() / WORLD_SCALE + Vec3::Y * 0.70;
-    let hinge = Vec3::Y * 4.55 - side * 1.0;
-    bar(mesh, hinge, tip - side * 0.40, 0.25, 0.72, STEEL, ROTOR);
-    bar(
-        mesh,
-        tip - side * 0.6,
-        tip + side * 0.3,
-        0.45,
-        0.50,
-        STEEL,
-        ROTOR,
-    );
-    bar(mesh, hinge, hinge - d * 1.45, 0.44, 1.35, SAGE_DARK, ROTOR);
-    // A generous adjustment dial survives low-resolution model sampling.
-    mesh.lathe(
-        Vec3::Y * 4.7,
-        Vec3::Y,
-        &[
-            (0., 0., COPPER),
-            (0., 0.74, COPPER),
-            (0.35, 0.74, COPPER),
-            (0.43, 0.57, BRASS),
-            (0.43, 0., BRASS),
-        ],
-        10,
-        ROTOR,
-    );
-    bar(
-        mesh,
-        -d * 0.47 + Vec3::Y * 5.15,
-        d * 0.47 + Vec3::Y * 5.15,
-        0.14,
-        0.19,
-        CREAM,
-        ROTOR,
-    );
-}
-
-fn enclosed_rotor(mesh: &mut Mesh) {
-    mesh.lathe(
-        Vec3::ZERO,
-        Vec3::Y,
-        &[
-            (0., 0., RUBBER),
-            (0., 2.55, RUBBER),
-            (0.25, 2.9, DARK),
-            (0.65, 2.9, DARK),
-            (0.82, 2.35, SAGE_DARK),
-            (2.95, 2.35, SAGE_DARK),
-            (3.1, 2.65, CREAM),
-            (3.3, 2.65, CREAM),
-            (3.3, 0., CREAM),
-        ],
-        16,
-        Vec3::ZERO,
-    );
-    mesh.lathe(
-        Vec3::ZERO,
-        Vec3::Y,
-        &[
-            (3.2, 0., RUBBER),
-            (3.2, 2.4, RUBBER),
-            (4.65, 2.4, DARK),
-            (4.85, 2.65, SAGE),
-            (5.12, 2.65, SAGE),
-            (5.25, 2.35, SAGE_LIGHT),
-            (5.25, 0., SAGE_LIGHT),
-        ],
-        16,
-        ROTOR,
-    );
-    mouth(mesh, 0.85, DARK);
-    let d = RotorPose { angle: 0. }.direction();
-    bar(
-        mesh,
-        Vec3::Y * 5.28 - d * 0.25,
-        Vec3::Y * 5.28 + d * 1.65,
-        0.10,
-        0.34,
-        CREAM,
-        ROTOR,
-    );
-    mesh.lathe(
-        Vec3::Y * 5.22,
-        Vec3::Y,
-        &[
-            (0., 0., DARK),
-            (0., 0.33, DARK),
-            (0.12, 0.33, CREAM),
-            (0.12, 0., CREAM),
-        ],
-        8,
-        ROTOR,
-    );
-}
-
 fn tall(mesh: &mut Mesh) {
     // A complete elevated impact head on a braced stand. The moving head and
     // water outlet receive exactly the same lift; the ground foot stays fixed.
@@ -412,10 +266,7 @@ pub(super) fn build(design: Design) -> (Vec<SprinklerVertex>, Vec<u32>) {
     let mut mesh = Mesh::default();
     match design {
         Design::BrassImpact => brass_impact(&mut mesh),
-        Design::GardenPulse => garden_pulse(&mut mesh),
-        Design::EnclosedRotor => enclosed_rotor(&mut mesh),
         Design::Tall => tall(&mut mesh),
-        Design::Current => unreachable!("the reference mesh has its own authoring function"),
     }
     (mesh.vertices, mesh.indices)
 }

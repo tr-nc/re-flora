@@ -23,8 +23,6 @@ pub struct Options {
     pub views: u32,
     pub resolutions: [u32; MODEL_KINDS],
     pub enabled: [bool; MODEL_KINDS],
-    /// Compact hardware family. The tall type shares this cache owner and is baked too.
-    pub sprinkler_design: u32,
 }
 impl Default for Options {
     fn default() -> Self {
@@ -32,7 +30,6 @@ impl Default for Options {
             views: 32,
             resolutions: [32, 22, 16, 32, 32],
             enabled: [true; MODEL_KINDS],
-            sprinkler_design: 0,
         }
     }
 }
@@ -44,16 +41,12 @@ impl Options {
             views: self.views,
             resolutions: [self.resolutions[kind]; MODEL_KINDS],
             enabled,
-            sprinkler_design: if kind == 4 { self.sprinkler_design } else { 0 },
         }
         .normalized()
     }
     pub fn normalized(self) -> Self {
         Self {
             views: model_pixel_views::runtime_count(self.views),
-            sprinkler_design: self
-                .sprinkler_design
-                .min(crate::sprinkler::Design::ALL.len() as u32 - 1),
             resolutions: self
                 .resolutions
                 .map(|n| n.clamp(MIN_RESOLUTION, MAX_RESOLUTION)),
@@ -385,11 +378,7 @@ fn bake(source: &Source, options: Options, cancel: &AtomicBool) -> Result<Baked>
         .map(|p| p.range[2])
         .collect();
     let selected = |id: usize, r: &[u32; 4]| {
-        options.enabled[r[2] as usize - 1]
-            && (r[2] != 3 || heads.contains(&(id as u32)))
-            && (r[2] != 5
-                || r[3] / crate::sprinkler::ROTARY_FRAMES == options.sprinkler_design
-                || r[3] / crate::sprinkler::ROTARY_FRAMES == crate::sprinkler::Design::Tall as u32)
+        options.enabled[r[2] as usize - 1] && (r[2] != 3 || heads.contains(&(id as u32)))
     };
     let needed: usize = source
         .ranges
@@ -554,7 +543,7 @@ mod tests {
         assert_eq!(a.for_kind(2), b.for_kind(2));
         assert_ne!(a.for_kind(0), b.for_kind(0));
         let mut candidate = a;
-        candidate.sprinkler_design = 2;
+        candidate.resolutions[4] = 8;
         for kind in 0..4 {
             assert_eq!(a.for_kind(kind), candidate.for_kind(kind));
         }
@@ -616,17 +605,12 @@ mod tests {
                         views: 8,
                         resolutions: [n; MODEL_KINDS],
                         enabled: [false, false, false, false, true],
-                        sprinkler_design: design as u32,
                     },
                     &AtomicBool::new(false),
                 )
                 .unwrap();
                 let frames = crate::sprinkler::ROTARY_FRAMES as usize;
-                let families = if design == crate::sprinkler::Design::Tall {
-                    1
-                } else {
-                    2
-                };
+                let families = 2;
                 assert_eq!(data.samples.len(), families * frames * 8 * (n * n) as usize);
                 let parts = &source.sprinkler_parts[design as usize * frames..][..frames];
                 for part in parts {
@@ -649,11 +633,7 @@ mod tests {
                     }
                 }
                 for (entry, range) in data.entries.iter().zip(&source.ranges) {
-                    if range[2] != 5
-                        || (range[3] / crate::sprinkler::ROTARY_FRAMES != design as u32
-                            && range[3] / crate::sprinkler::ROTARY_FRAMES
-                                != crate::sprinkler::Design::Tall as u32)
-                    {
+                    if range[2] != 5 {
                         assert_eq!(
                             entry.layout, [0; 4],
                             "inactive candidates must use native geometry, not a stale cache"
@@ -679,14 +659,12 @@ mod tests {
                 views: 0,
                 resolutions: [0, 64, u32::MAX, 16, 24],
                 enabled: [false, true, false, true, true],
-                sprinkler_design: u32::MAX,
             }
             .normalized(),
             Options {
                 views: 8,
                 resolutions: [8, 32, 32, 16, 24],
                 enabled: [false, true, false, true, true],
-                sprinkler_design: crate::sprinkler::Design::Tall as u32,
             }
         );
     }

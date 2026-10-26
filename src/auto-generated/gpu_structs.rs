@@ -1045,7 +1045,6 @@ pub struct GuiInput {
     pub sprinkler_spray_angle: f32,
     pub sprinkler_rotation_speed: f32,
     pub sprinkler_pulse_duty: f32,
-    pub sprinkler_design: u32,
     pub sprinkler_rotor_angle: f32,
     pub sprinkler_pulse_time: f32,
     pub sprinkler_pulse_frequency: f32,
@@ -1079,6 +1078,7 @@ pub struct GuiInput {
     pub leaf_shadow_min_transmittance: f32,
     pub leaf_shadow_filter_radius_texels: f32,
     pub leaf_transmission_strength: f32,
+    pub _pad7: [u8; 4],
 }
 
 /// Auto-generated from `U_InstancesToOccupancyInfo` (native Slang source of truth).

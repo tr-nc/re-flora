@@ -20,7 +20,6 @@ pub(super) struct Review {
     mode: String,
     // Legacy renderer comparisons are native-fixture facts, never saved GUI overrides.
     mist_flow: bool,
-    hardware_enabled: bool,
     frame: u32,
     base: Option<Vec3>,
     control_step: usize,
@@ -42,10 +41,6 @@ impl Review {
 
     pub fn apply_render_inputs(&mut self, inputs: &mut crate::tracer::RenderFrameInputs) {
         inputs.environment.sprinkler_mist_flow = self.mist_flow;
-        if !self.hardware_enabled {
-            inputs.terrain.model_surface_cache.sprinkler_design =
-                crate::sprinkler::Design::Current as u32;
-        }
         if let Some(air) = self.air.as_mut() {
             air.apply_render_inputs(self.frame, inputs);
         }
@@ -131,11 +126,7 @@ impl Review {
             "near",
             "rotary-near",
             "rotary-tall",
-            "rotary-design-current",
             "rotary-design-impact",
-            "rotary-design-garden",
-            "rotary-design-rotor",
-            "rotary-design-switch",
             "rotary-terraces",
             "rotary-terraces-wide",
             "rotary-contact-continuous",
@@ -230,7 +221,6 @@ impl Review {
         Ok(Some(Self {
             mode,
             mist_flow: true,
-            hardware_enabled: true,
             frame: 0,
             base: None,
             control_step: 0,
@@ -725,7 +715,6 @@ impl App {
                 .sprinkler_mist_particles
                 .value = review.mode.contains("particles") && !review.mode.ends_with("disabled");
             self.sprinkler_diagnostic_timing.frequency = 4.0;
-            review.hardware_enabled = false;
             if review.is_rotary() {
                 let gui = &mut self.debug_settings.adjustables;
                 gui.sprinkler_spray_angle.value = 40.0;
@@ -753,13 +742,6 @@ impl App {
             }
             if review.mode.starts_with("rotary-design-") {
                 let gui = &mut self.debug_settings.adjustables;
-                review.hardware_enabled =
-                    review.mode != "rotary-design-current" && review.mode != "rotary-design-switch";
-                gui.sprinkler_design.value = match review.mode.as_str() {
-                    "rotary-design-garden" => 1,
-                    "rotary-design-rotor" => 2,
-                    _ => 0,
-                };
                 gui.sprinkler_rotation_speed.value = 0.0;
                 gui.sprinkler_wetting_speed.value = 0.0;
             }
@@ -1080,13 +1062,14 @@ impl App {
                     "[SPRINKLER_CONTACT_CONTROL] stopped_air_and_water=true rotor_continues=true"
                 );
             }
-            let (angle, rpm, duty, size) = match review.frame / 40 {
-                0 => (10.0, 0.0, 100.0, 0.25),
-                1 => (90.0, 60.0, 100.0, 4.0),
-                2 => (40.0, 15.0, 0.0, 2.0),
-                3 => (40.0, 15.0, 50.0, 0.5),
-                _ => (40.0, 15.0, 100.0, 1.0),
+            let (angle, rpm, duty) = match review.frame / 40 {
+                0 => (10.0, 0.0, 100.0),
+                1 => (90.0, 60.0, 100.0),
+                2 => (40.0, 15.0, 0.0),
+                3 => (40.0, 15.0, 50.0),
+                _ => (40.0, 15.0, 100.0),
             };
+            let size = crate::sprinkler::SIZE_SCALE;
             let gui = &mut self.debug_settings.adjustables;
             self.sprinkler_diagnostic_timing.frequency = match review.frame / 40 {
                 0 => 0.25,
@@ -1094,7 +1077,6 @@ impl App {
                 3 => 1.0,
                 _ => 4.0,
             };
-            gui.sprinkler_size_scale.value = size;
             gui.sprinkler_spray_angle.value = angle;
             gui.sprinkler_rotation_speed.value = rpm;
             self.sprinkler_diagnostic_timing.duty_percent = duty;
@@ -1360,47 +1342,6 @@ impl App {
                 self.apply_sprinkler_placement(base)?;
             }
         }
-        if review.mode == "rotary-design-switch" {
-            const STEPS: [(bool, u32, bool); 7] = [
-                (false, 0, true),
-                (true, 0, true),
-                (true, 1, true),
-                (true, 2, true),
-                (true, 2, false),
-                (false, 2, true),
-                (true, 0, true),
-            ];
-            if let Some(&(enabled, candidate, cached)) = STEPS.get(review.control_step) {
-                let gui = &mut self.debug_settings.adjustables;
-                review.hardware_enabled = enabled;
-                gui.sprinkler_design.value = candidate;
-                gui.sprinkler_cache_enabled.value = cached;
-                let selected = crate::sprinkler::Design::comparison(enabled, candidate) as u32;
-                let input =
-                    super::render_frame_input::model_cache_inputs(&self.debug_settings).surfaces;
-                for kind in 0..4 {
-                    ensure!(
-                        input.for_kind(kind) == review.control_baseline.unwrap().for_kind(kind),
-                        "candidate affected other model caches"
-                    );
-                }
-                if review.control_frames > 0
-                    && self.tracer.sprinkler_cache_status() == Some((cached, 32, selected))
-                {
-                    review.control_frames += 1;
-                    if review.control_frames >= 8 {
-                        log::info!("[SPRINKLER_DESIGN_REVIEW] step={} design={selected} cached={cached} other_models_unchanged=true",review.control_step);
-                        review.control_step += 1;
-                        review.control_frames = 0;
-                        if review.control_step == STEPS.len() {
-                            log::info!("[SPRINKLER_DESIGN_REVIEW] complete steps=7 saved=false");
-                        }
-                    }
-                } else {
-                    review.control_frames = 1;
-                }
-            }
-        }
         if matches!(review.mode.as_str(), "controls" | "rotary-controls") {
             const STEPS: [(bool, u32); 7] = [
                 (true, 8),
@@ -1424,7 +1365,7 @@ impl App {
                     );
                 }
                 if review.control_frames > 0
-                    && self.tracer.sprinkler_cache_status() == Some((enabled, resolution, 0))
+                    && self.tracer.sprinkler_cache_status() == Some((enabled, resolution))
                 {
                     review.control_frames += 1;
                     if review.control_frames >= 12 {

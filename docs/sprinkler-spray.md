@@ -1,5 +1,15 @@
 # 单喷口：共享喷流、挡片分流与落地浇水
 
+## 当前硬件外观
+
+只保留 **Brass impact head（黄铜摇臂式）**，整体尺寸固定为 **0.65**。
+已删除 Overall size 滑杆、Hardware design 下拉框和空的 Hardware Appearance 分组，
+以及 Garden pulse、Enclosed gear rotor 和旧弯管硬件的运行时几何／缓存分支。
+旧配置里的尺寸、外观选择在加载时丢弃，不自动写回文件。
+Compact / Tall 仍是两种放置类型；高款继续使用同一黄铜机头与加高支架，
+不是另一种可选硬件外观。两种类型各有 32 个完整姿态，共用固定尺寸、喷口与喷流路径。
+
+
 **Debug → Sprinkler Spray & Motion**。仅保留单口旋转模式；旧 `sprinkler_rotary`
 A/B 设置与依赖条件在加载时退休，不写回文件、不覆盖其它保存值。
 
@@ -60,7 +70,7 @@ GPU 整帧中位 **6.437 → 4.543 ms**，p95 **9.207 → 5.912 ms**；
 [研究与实验报告](research/sprinkler-vegetation-response.html) 已标记为历史实验档案；
 其中植物水响应的截图、性能数据、旧开关和旧 review 命令不代表当前功能。
 
-## 外观候选（仅外观 A/B）
+## 历史外观候选记录（已移除，不代表当前控件）
 
 **Debug → Hardware Appearance**：
 

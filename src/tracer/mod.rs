@@ -7329,7 +7329,7 @@ impl Tracer {
             .collect())
     }
 
-    pub(crate) fn sprinkler_cache_status(&self) -> Option<(bool, u32, u32)> {
+    pub(crate) fn sprinkler_cache_status(&self) -> Option<(bool, u32)> {
         self.model_mesh_frame.sprinkler_cache_status()
     }
 

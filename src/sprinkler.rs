@@ -104,29 +104,14 @@ pub(crate) const TALL_LIFT_VOXELS: f32 = 22.0;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
 pub(crate) enum Design {
-    Current,
     BrassImpact,
-    GardenPulse,
-    EnclosedRotor,
     Tall,
 }
 impl Design {
-    pub const ALL: [Self; 5] = [
-        Self::Current,
-        Self::BrassImpact,
-        Self::GardenPulse,
-        Self::EnclosedRotor,
-        Self::Tall,
-    ];
-
-    pub fn comparison(enabled: bool, candidate: u32) -> Self {
-        if enabled {
-            Self::ALL[1 + candidate.min(2) as usize]
-        } else {
-            Self::Current
-        }
-    }
+    pub const ALL: [Self; 2] = [Self::BrassImpact, Self::Tall];
 }
+/// Fixed approved hardware size, shared by geometry and the spray outlet.
+pub(crate) const SIZE_SCALE: f32 = 0.65;
 pub(crate) const ROTARY_NOZZLE_HEIGHT: f32 = 4.2;
 pub(crate) const ROTARY_NOZZLE_X: f32 = 3.15;
 pub(crate) const ROTARY_NOZZLE_Z: f32 = -0.85;

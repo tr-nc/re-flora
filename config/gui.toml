@@ -569,31 +569,6 @@ type = "Bool"
 value = true
 
 [[section.param]]
-id = "sprinkler_size_scale"
-kind = "float"
-label = "Sprinklers: overall size (x)"
-type = "Float"
-
-[section.param.data]
-value = 0.65
-min = 0.25
-max = 4
-
-[[section.param]]
-id = "sprinkler_design"
-kind = "choice"
-label = "Sprinklers: hardware design"
-type = "Choice"
-
-[section.param.data]
-value = 0
-options = [
-    "Brass impact head",
-    "Garden pulse head",
-    "Enclosed gear rotor",
-]
-
-[[section.param]]
 id = "sprinkler_placement_type"
 kind = "choice"
 label = "Sprinklers: type for new placements"
