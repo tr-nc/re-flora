@@ -18,12 +18,17 @@ mod geometry;
 mod review;
 use geometry::HiveStyle;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 struct Hive {
     id: u32,
     base: [u32; 3],
     style: HiveStyle,
     quarter_turn: u8,
+    #[serde(default = "legacy_hive_scale")]
+    scale: f32,
+}
+fn legacy_hive_scale() -> f32 {
+    1.0
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(from = "SavedHives")]
@@ -101,12 +106,17 @@ impl HiveSnapshot {
                 h.id > 0 && h.id < self.next_id && ids.insert(h.id),
                 "invalid hive identity"
             );
+            ensure!(
+                h.scale.is_finite() && (0.4..=2.0).contains(&h.scale),
+                "invalid hive scale"
+            );
             let base = UVec3::from(h.base);
+            let (below, above) = h.bound_margins();
             ensure!(
                 h.quarter_turn < 4
-                    && base.cmpge(UVec3::new(6, 1, 6)).all()
+                    && base.cmpge(below).all()
                     && base.cmplt(world).all()
-                    && (world - base).cmpge(UVec3::new(7, 46, 7)).all(),
+                    && (world - base).cmpge(above).all(),
                 "hive outside world"
             );
             ensure!(
@@ -219,11 +229,8 @@ impl App {
             id,
             base: base.as_uvec3().to_array(),
             quarter_turn,
-            style: if self.debug_settings.adjustables.hive_style.value == 1 {
-                HiveStyle::Natural
-            } else {
-                HiveStyle::Artificial
-            },
+            style: HiveStyle::Artificial,
+            scale: self.debug_settings.adjustables.hive_size_scale.value,
         };
         let mut candidate = self.garden_bees.saved.clone();
         candidate.next_id = next_id;
@@ -368,11 +375,9 @@ impl App {
                 self.butterfly_presentation_time(),
                 self.debug_settings.adjustables.bee_animation_fps.value,
             );
-            self.garden_bees.swarm.append(
-                frame,
-                self.debug_settings.adjustables.bee_size_scale.value,
-                &mut self.particle_snapshots,
-            );
+            self.garden_bees
+                .swarm
+                .append(frame, &mut self.particle_snapshots);
         }
     }
     pub(super) fn update_hive_models_without_particles(&mut self) {
@@ -394,12 +399,14 @@ mod tests {
                     base: [100; 3],
                     style: HiveStyle::Artificial,
                     quarter_turn: 0,
+                    scale: 0.6,
                 },
                 Hive {
                     id: 2,
                     base: [150; 3],
                     style: HiveStyle::Natural,
                     quarter_turn: 3,
+                    scale: 1.0,
                 },
             ],
         };
@@ -407,6 +414,17 @@ mod tests {
         let restored: HiveSnapshot =
             serde_json::from_slice(&serde_json::to_vec(&saved).unwrap()).unwrap();
         assert_eq!(restored.hives, saved.hives);
+        let mut old = serde_json::to_value(&saved).unwrap();
+        for h in old["hives"].as_array_mut().unwrap() {
+            h.as_object_mut().unwrap().remove("scale");
+        }
+        let old: HiveSnapshot = serde_json::from_value(old).unwrap();
+        assert!(old.hives.iter().all(|h| h.scale == 1.0));
+        let mut invalid = saved.clone();
+        for scale in [f32::NAN, 0., 3.] {
+            invalid.hives[0].scale = scale;
+            assert!(invalid.validate(UVec3::splat(512)).is_err());
+        }
         let legacy: HiveSnapshot = serde_json::from_str(r#"{"next_id":9,"hives":[{"id":1,"anchor":{"kind":"tree","id":4},"support":[100,100,100],"facing":[0,0,1]},{"id":2,"anchor":{"kind":"pole","id":5},"support":[150,100,100],"facing":[0,0,1]}]}"#).unwrap();
         assert!(legacy.hives.is_empty());
         assert_eq!(legacy.next_id, 9);

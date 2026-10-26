@@ -7,6 +7,7 @@ use glam::IVec3;
 #[serde(rename_all = "snake_case")]
 pub(super) enum HiveStyle {
     Artificial,
+    /// Decode-only: existing natural nests retain their original geometry.
     Natural,
 }
 impl Hive {
@@ -19,10 +20,10 @@ impl Hive {
         };
         (UVec3::from(self.base).as_ivec3() + p).as_uvec3()
     }
-    pub(super) fn cells(&self) -> BTreeMap<[u32; 3], u32> {
+    fn canonical_cells(&self) -> BTreeMap<[i32; 3], u32> {
         let mut cells = BTreeMap::new();
         let mut put = |x, y, z, material| {
-            cells.insert(self.local_cell(IVec3::new(x, y, z)).to_array(), material);
+            cells.insert([x, y, z], material);
         };
         // Narrow square post, physically joined to the nest's underside.
         for y in 0..34 {
@@ -95,15 +96,51 @@ impl Hive {
         }
         cells
     }
+    pub(super) fn cells(&self) -> BTreeMap<[u32; 3], u32> {
+        let mut cells = BTreeMap::new();
+        // Rasterize scaled volumes, not centers: thin roofs and the post/body
+        // joint stay face-connected at fractional scales.
+        for ([x, y, z], material) in self.canonical_cells() {
+            let lo = Vec3::new(x as f32 - 0.5, y as f32, z as f32 - 0.5) * self.scale
+                + Vec3::new(0.5, 0., 0.5);
+            let hi = Vec3::new(x as f32 + 0.5, y as f32 + 1., z as f32 + 0.5) * self.scale
+                + Vec3::new(0.5, 0., 0.5);
+            let lo = (lo + Vec3::splat(1e-5)).floor().as_ivec3();
+            let hi = (hi - Vec3::splat(1e-5)).ceil().as_ivec3();
+            for y in lo.y..hi.y {
+                for z in lo.z..hi.z {
+                    for x in lo.x..hi.x {
+                        // Keep a usable one-voxel entrance at sub-source resolution.
+                        if self.scale != 1.0 && x == 0 && y == self.entrance_height() && z >= 1 {
+                            continue;
+                        }
+                        cells.insert(self.local_cell(IVec3::new(x, y, z)).to_array(), material);
+                    }
+                }
+            }
+        }
+        cells
+    }
+    fn entrance_height(&self) -> i32 {
+        (36.5 * self.scale).floor() as i32
+    }
     pub(super) fn entrance_cell(&self) -> UVec3 {
+        let front = match self.style {
+            HiveStyle::Artificial => 3.5,
+            HiveStyle::Natural => 5.5,
+        };
         self.local_cell(IVec3::new(
             0,
-            36,
-            match self.style {
-                HiveStyle::Artificial => 4,
-                HiveStyle::Natural => 6,
-            },
+            self.entrance_height(),
+            (front * self.scale).ceil() as i32,
         ))
+    }
+    pub(super) fn bound_margins(&self) -> (UVec3, UVec3) {
+        let radius = (6. * self.scale).ceil() as u32;
+        (
+            UVec3::new(radius, 1, radius),
+            UVec3::new(radius + 1, (46. * self.scale).ceil() as u32, radius + 1),
+        )
     }
     pub(super) fn site(&self) -> HiveSite {
         HiveSite {
@@ -113,7 +150,8 @@ impl Hive {
     }
     pub(super) fn bound(&self) -> UAabb3 {
         let base = UVec3::from(self.base);
-        UAabb3::new(base - UVec3::new(6, 1, 6), base + UVec3::new(7, 46, 7))
+        let (below, above) = self.bound_margins();
+        UAabb3::new(base - below, base + above)
     }
     pub(super) fn intact(&self, bytes: &[u8]) -> bool {
         let bound = self.bound();
@@ -140,12 +178,16 @@ mod tests {
     #[test]
     fn both_styles_are_connected_and_entrances_are_empty_in_every_orientation() {
         for style in [HiveStyle::Artificial, HiveStyle::Natural] {
-            for quarter_turn in 0..4 {
+            for (scale, quarter_turn) in [0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1.0, 1.25, 1.5, 2.0]
+                .into_iter()
+                .flat_map(|s| (0..4).map(move |r| (s, r)))
+            {
                 let h = Hive {
                     id: 1,
                     base: [100; 3],
                     style,
                     quarter_turn,
+                    scale,
                 };
                 let cells = h.cells();
                 assert!(!cells.contains_key(&h.entrance_cell().to_array()));
@@ -168,7 +210,7 @@ mod tests {
                         }
                     }
                 }
-                assert_eq!(visited.len(), cells.len());
+                assert_eq!(visited.len(), cells.len(), "style={style:?} scale={scale}");
                 assert_eq!(h.site().entrance(), h.site().position);
                 let bound = h.bound();
                 let dim = bound.max() - bound.min();

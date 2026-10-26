@@ -17,13 +17,13 @@ impl App {
                 self.remove_tree(id)?;
             }
             self.contree_builder.flush_cpu_chunk_cache_jobs();
-            let old_style = self.debug_settings.adjustables.hive_style.value;
-            for (style, x) in [(0, 0.82), (1, 1.02)] {
+            let old_scale = self.debug_settings.adjustables.hive_size_scale.value;
+            for (scale, x) in [(0.6, 0.82), (1.0, 1.02)] {
                 let ground = self
                     .query_terrain_ray_cpu(Vec3::new(x, 3., 1.22), Vec3::NEG_Y)
                     .context("hive ground")?
                     .position;
-                self.debug_settings.adjustables.hive_style.value = style;
+                self.debug_settings.adjustables.hive_size_scale.value = scale;
                 self.place_voxel_hive(ground, Vec3::Z)?;
                 let next = self.garden_bees.saved.next_id;
                 ensure!(
@@ -35,7 +35,7 @@ impl App {
                     "rejected placement consumed identity"
                 );
             }
-            self.debug_settings.adjustables.hive_style.value = old_style;
+            self.debug_settings.adjustables.hive_size_scale.value = old_scale;
             let species = crate::flora::models::FLOWER_REGISTRY
                 .iter()
                 .position(|(id, _, _)| *id == "oxeye-daisy")
@@ -83,9 +83,14 @@ impl App {
             "two live voxel nests expected"
         );
         ensure!(
-            self.garden_bees.saved.hives[0].style == HiveStyle::Artificial
-                && self.garden_bees.saved.hives[1].style == HiveStyle::Natural,
-            "placement-only style not retained"
+            self.garden_bees
+                .saved
+                .hives
+                .iter()
+                .all(|h| h.style == HiveStyle::Artificial)
+                && self.garden_bees.saved.hives[0].scale == 0.6
+                && self.garden_bees.saved.hives[1].scale == 1.0,
+            "placement-only scale not retained"
         );
         let saved: HiveSnapshot =
             serde_json::from_slice(&serde_json::to_vec(&self.garden_bees.saved)?)?;
@@ -163,7 +168,7 @@ impl App {
             self.garden_bees.review_started =
                 Some(self.time_info.time_since_start_duration().as_secs_f32());
         }
-        log::info!("[BEE_VOXEL_REVIEW] mode={mode} styles=2 solid_post=true restore=true placement_only=true verified=true");
+        log::info!("[BEE_VOXEL_REVIEW] mode={mode} scales=0.6,1.0 solid_post=true restore=true placement_only=true verified=true");
         Ok(())
     }
     pub(in crate::app::core) fn review_bee_garden(&mut self) -> Result<()> {

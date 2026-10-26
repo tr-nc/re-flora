@@ -79,7 +79,7 @@ screenshots, not source textures.
 is the original runtime source for striped ellipsoid bees with antennae and four
 wing poses, using the deterministic sphere helper in `firefly.rs`. Bee pigments
 live in [`garden_model_material.slang`](../../shader/slang/garden_model_material.slang).
-Debug Panel → Bees independently controls their size and presentation FPS.
+Bee size is fixed at 0.3 of the original model size; Debug Panel → Bees controls presentation FPS.
 
 The former cached tree/post-mounted house model and skin bindings have been removed.
 New nests are actual solid terrain voxels with an integrated thin post, authored in
@@ -87,7 +87,7 @@ New nests are actual solid terrain voxels with an integrated thin post, authored
 are a roofed artificial house with recessed openings and a stylized rounded, tiered
 natural ochre nest. Both reuse the existing cherry/oak voxel materials; their colors
 follow the saved terrain palette. Ground placement captures the selected style and
-orientation, so later style changes do not alter existing nests. Legacy model-only
+orientation. New placements now only use the artificial house, with a saved per-placement overall scale (default 0.6). Later slider changes never resize existing nests; older unscaled nests retain scale 1, including decode-only natural nests. Legacy model-only
 attachments retire on load without modifying their old hosts.
 
 No image, audio, external model, photograph or AI generation service was used for

@@ -305,6 +305,12 @@ impl GuiConfigLoader {
             );
         }
         Self::migrate_flutter_amplitude(&mut config);
+        Self::add_missing_param(&mut config, "Bees", "hive_size_scale");
+        for section in &mut config.section {
+            section
+                .param
+                .retain(|p| !matches!(p.id.as_str(), "hive_style" | "bee_size_scale"));
+        }
         // Retired controls are fixed render inputs, including when loading older saves.
         for section in &mut config.section {
             section.param.retain(|p| {

@@ -2653,27 +2653,14 @@ max = 2
 name = "Bees"
 
 [[section.param]]
-id = "hive_style"
-kind = "choice"
-label = "Hive style (new placements)"
-type = "Choice"
-
-[section.param.data]
-value = 0
-options = [
-    "Artificial bee house",
-    "Natural ochre nest",
-]
-
-[[section.param]]
-id = "bee_size_scale"
+id = "hive_size_scale"
 kind = "float"
-label = "Size scale"
+label = "Hive overall scale (new placements)"
 type = "Float"
 
 [section.param.data]
-value = 0.3
-min = 0.1
+value = 0.6
+min = 0.4
 max = 2
 
 [[section.param]]
