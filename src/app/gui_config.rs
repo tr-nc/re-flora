@@ -956,16 +956,16 @@ fn render_section_controls(
     }
     if section.name == "Sky" {
         ui_text::section(ui, "Scene lighting");
-        for id in ["sun_luminance", "sky_light_strength"] {
+        for id in ["sun_luminance"] {
             if let Some(param) = section.param.iter().find(|param| param.id == id) {
                 render_gui_param_from_config(ui, param, &section.name, adjustables);
             }
         }
         ui_text::hint(ui, "Sun lights exposed surfaces; sky fills shadows. Changes apply live; indirect light settles over several frames.");
         ui_text::section(ui, "Sky appearance & time");
-        ui_text::hint(ui, "The sky gradient and its mirror image keep their appearance. Sun disk brightness does not set surface lighting.");
+        ui_text::hint(ui, "Sky lighting and sun disk appearance are fixed.");
         for param in &section.param {
-            if !matches!(param.id.as_str(), "sun_luminance" | "sky_light_strength") {
+            if param.id != "sun_luminance" {
                 render_gui_param_from_config(ui, param, &section.name, adjustables);
             }
         }
@@ -2192,7 +2192,6 @@ mod tests {
             config.custom.butterfly_flight.tuning.speed = 0.75;
             let mut expected = DebugSettings::from_config(config);
             expected.adjustables.sun_luminance.value = 3.25;
-            expected.adjustables.sky_light_strength.value = 0.75;
             expected.sync_config();
             let expected_text = toml::to_string(&expected.config).unwrap();
             let mut legacy: GuiConfigFile =
@@ -2438,30 +2437,52 @@ mod tests {
     }
 
     #[test]
-    fn older_sky_settings_load_the_new_control_and_preserve_saved_sun_values() {
+    fn retired_sky_controls_are_discarded_without_changing_saved_sun_lighting() {
         let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
         settings.adjustables.sun_luminance.value = 3.25;
-        settings.adjustables.sun_display_luminance.value = 0.75;
         settings.sync_config();
-        for section in &mut settings.config.section {
-            section
-                .param
-                .retain(|param| param.id != "sky_light_strength");
+        let sky = settings
+            .config
+            .section
+            .iter_mut()
+            .find(|s| s.name == "Sky")
+            .unwrap();
+        let template = sky
+            .param
+            .iter()
+            .find(|p| p.id == "sun_luminance")
+            .unwrap()
+            .clone();
+        for id in ["sun_size", "sky_light_strength", "sun_display_luminance"] {
+            let mut retired = template.clone();
+            retired.id = id.into();
+            sky.param.push(retired);
         }
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("gui.toml");
         GuiConfigLoader::save_to_path(&settings.config, &path).unwrap();
+        let before = std::fs::read(&path).unwrap();
         let mut reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
         assert_eq!(reloaded.adjustables.sun_luminance.value, 3.25);
-        assert_eq!(reloaded.adjustables.sun_display_luminance.value, 0.75);
         assert_eq!(
-            reloaded.adjustables.sky_light_strength.value,
-            settings.adjustables.sky_light_strength.value
+            std::fs::read(&path).unwrap(),
+            before,
+            "loading never rewrites user files"
         );
-        reloaded.adjustables.sky_light_strength.value = 0.0;
+        assert!(reloaded
+            .config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .all(|p| !matches!(
+                p.id.as_str(),
+                "sun_size" | "sky_light_strength" | "sun_display_luminance"
+            )));
         reloaded.save_to_path(&path).unwrap();
-        let reloaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
-        assert_eq!(reloaded.adjustables.sky_light_strength.value, 0.0);
+        let saved = std::fs::read_to_string(&path).unwrap();
+        for id in ["sun_size", "sky_light_strength", "sun_display_luminance"] {
+            assert!(!saved.contains(id));
+        }
     }
 
     #[test]
@@ -2621,8 +2642,6 @@ wind_drift = 1.0
         let mut settings = DebugSettings::from_config(GuiConfigLoader::load());
         settings.adjustables.time_of_day.value = 0.987;
         settings.adjustables.sun_luminance.value = 3.25;
-        settings.adjustables.sky_light_strength.value = 0.125;
-        settings.adjustables.sun_display_luminance.value = 0.75;
         settings.adjustables.voxel_dirt_color.value = Color32::from_rgb(12, 34, 56);
         settings.tree.render_leaves = false;
         settings.tree.desc.size = 19.5;
@@ -2647,7 +2666,5 @@ wind_drift = 1.0
         );
         assert_eq!(reloaded.adjustables.time_of_day.value, 0.987);
         assert_eq!(reloaded.adjustables.sun_luminance.value, 3.25);
-        assert_eq!(reloaded.adjustables.sky_light_strength.value, 0.125);
-        assert_eq!(reloaded.adjustables.sun_display_luminance.value, 0.75);
     }
 }

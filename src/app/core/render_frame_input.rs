@@ -10,6 +10,11 @@ use crate::tracer::{
 use egui::Color32;
 use glam::Vec3;
 
+// Fixed art direction; retired GUI preferences must not affect these values.
+const SKY_LIGHT_STRENGTH: f32 = 1.0;
+const SUN_DISK_SIZE: f32 = 0.06;
+const SUN_DISK_BRIGHTNESS: f32 = 1.0;
+
 /// Per-frame facts whose owners are outside GUI configuration.
 pub(super) struct LiveRenderFrameFacts {
     pub world_tick_seconds: f32,
@@ -272,7 +277,7 @@ pub(super) fn freeze_render_frame_inputs(
         sprinkler_mist_flow: true,
         // Retired visual experiment; only the explicit developer review may override this.
         sprinkler_mist_air: false,
-        sky_light_strength: gui.sky_light_strength.value,
+        sky_light_strength: SKY_LIGHT_STRENGTH,
         lens_flare_intensity: gui.lens_flare_intensity.value,
         lens_flare_sun_pixel_scale: gui.lens_flare_sun_pixel_scale.value,
         ordered_dither: crate::tracer::OrderedDitherSettings::from_controls(
@@ -282,10 +287,10 @@ pub(super) fn freeze_render_frame_inputs(
         ),
         sun: SunFrameInput {
             direction: live.sun_direction,
-            size: gui.sun_size.value,
+            size: SUN_DISK_SIZE,
             color: color_to_vec3(gui.sun_color.value),
             luminance: gui.sun_luminance.value,
-            display_luminance: gui.sun_display_luminance.value,
+            display_luminance: SUN_DISK_BRIGHTNESS,
             altitude: live.sun_altitude,
             azimuth: live.sun_azimuth,
         },
@@ -567,10 +572,10 @@ mod tests {
         gui.ordered_dither_global.value = true;
         gui.ordered_dither_levels.value = 13;
         gui.ordered_dither_strength.value = 0.35;
-        let sun_size = float!(sun_size);
+        let sun_size = 0.06;
         let sun_color = color!(sun_color);
         let sun_luminance = float!(sun_luminance);
-        let sky_light_strength = float!(sky_light_strength);
+        let sky_light_strength = 1.0;
         let sprinkler_mist_density = float!(sprinkler_mist_density);
         let sprinkler_size_scale = float!(sprinkler_size_scale);
         let sprinkler_spray_angle = float!(sprinkler_spray_angle);
@@ -578,7 +583,7 @@ mod tests {
         let sprinkler_pulse_duty = crate::sprinkler::PULSE_DUTY_PERCENT;
         let sprinkler_pulse_frequency = crate::sprinkler::PULSE_FREQUENCY;
         gui.sprinkler_mist_particles.value = false;
-        let sun_display_luminance = float!(sun_display_luminance);
+        let sun_display_luminance = 1.0;
         let god_ray_max_depth = float!(god_ray_max_depth);
         let god_ray_max_checks = uint!(god_ray_max_checks);
         gui.god_ray_temporal_blend.value = true;

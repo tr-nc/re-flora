@@ -2204,6 +2204,22 @@ impl App {
         Ok(())
     }
 
+    pub(super) fn apply_environment_test_lighting(
+        &self,
+        inputs: &mut crate::tracer::RenderFrameInputs,
+    ) {
+        // Dark-room diagnostics remain isolated from the fixed normal sky lighting.
+        if matches!(
+            self.launch_owners.environment_case(),
+            Some(
+                EnvironmentLightingTestCase::IndirectResponse
+                    | EnvironmentLightingTestCase::IndirectResponseStatic
+            )
+        ) {
+            inputs.environment.sky_light_strength = 0.0;
+        }
+    }
+
     pub(super) fn configure_environment_lighting_test_scene_camera(&mut self) {
         let Some(case) = self.launch_owners.environment_case() else {
             panic!("environment camera configuration requires the environment test scene")
@@ -2216,7 +2232,6 @@ impl App {
             EnvironmentLightingTestCase::IndirectResponse
                 | EnvironmentLightingTestCase::IndirectResponseStatic
         ) {
-            self.debug_settings.adjustables.sky_light_strength.value = 0.0;
             0.0
         } else {
             RADIANCE_R1_SUN_LUMINANCE

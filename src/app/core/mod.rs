@@ -3451,6 +3451,7 @@ impl App {
                     },
                 );
                 // Only opt-in native fixtures mutate these internal facts; no saved/UI override.
+                self.apply_environment_test_lighting(&mut frame_inputs);
                 frame_inputs.environment.sprinkler_pulse_frequency =
                     self.sprinkler_diagnostic_timing.frequency;
                 frame_inputs.environment.sprinkler_pulse_duty =

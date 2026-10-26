@@ -305,7 +305,15 @@ impl GuiConfigLoader {
             );
         }
         Self::migrate_flutter_amplitude(&mut config);
-        Self::add_missing_param(&mut config, "Sky", "sky_light_strength");
+        // Retired controls are fixed render inputs, including when loading older saves.
+        for section in &mut config.section {
+            section.param.retain(|p| {
+                !matches!(
+                    p.id.as_str(),
+                    "sun_size" | "sky_light_strength" | "sun_display_luminance"
+                )
+            });
+        }
         Self::add_missing_param(&mut config, "Butterflies", "butterfly_wing_transmission");
         for param in config.section.iter_mut().flat_map(|s| &mut s.param) {
             if param.id == "fruit_cycle" {

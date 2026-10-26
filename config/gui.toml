@@ -1228,17 +1228,6 @@ max = 1
 name = "Sky"
 
 [[section.param]]
-id = "sun_size"
-kind = "float"
-label = "Sun Disk Size (appearance)"
-type = "Float"
-
-[section.param.data]
-value = 0.06
-min = 0
-max = 1
-
-[[section.param]]
 id = "sun_color"
 kind = "color"
 label = "Sun Color (lighting + disk)"
@@ -1255,28 +1244,6 @@ type = "Float"
 
 [section.param.data]
 value = 1.5
-min = 0
-max = 10
-
-[[section.param]]
-id = "sky_light_strength"
-kind = "float"
-label = "Sky Lighting Strength (1 = original)"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = 0
-max = 4
-
-[[section.param]]
-id = "sun_display_luminance"
-kind = "float"
-label = "Sun Disk Brightness (appearance)"
-type = "Float"
-
-[section.param.data]
-value = 1
 min = 0
 max = 10
 

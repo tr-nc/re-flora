@@ -614,12 +614,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Sky",
-        id: "sun_size",
-        kind: "float",
-        label: "Sun Disk Size (appearance)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Sky",
         id: "sun_color",
         kind: "color",
         label: "Sun Color (lighting + disk)",
@@ -629,18 +623,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         id: "sun_luminance",
         kind: "float",
         label: "Sun Lighting Strength",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Sky",
-        id: "sky_light_strength",
-        kind: "float",
-        label: "Sky Lighting Strength (1 = original)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Sky",
-        id: "sun_display_luminance",
-        kind: "float",
-        label: "Sun Disk Brightness (appearance)",
     },
     GeneratedGuiParamDescriptor {
         section: "Sky",
@@ -1824,11 +1806,8 @@ pub struct GuiAdjustables {
     pub ordered_dither_global: crate::gui_adjustables::BoolParam,
     pub ordered_dither_levels: crate::gui_adjustables::UintParam,
     pub ordered_dither_strength: crate::gui_adjustables::FloatParam,
-    pub sun_size: crate::gui_adjustables::FloatParam,
     pub sun_color: crate::gui_adjustables::ColorParam,
     pub sun_luminance: crate::gui_adjustables::FloatParam,
-    pub sky_light_strength: crate::gui_adjustables::FloatParam,
-    pub sun_display_luminance: crate::gui_adjustables::FloatParam,
     pub auto_daynight_cycle: crate::gui_adjustables::BoolParam,
     pub time_of_day: crate::gui_adjustables::FloatParam,
     pub latitude: crate::gui_adjustables::FloatParam,
@@ -2120,11 +2099,8 @@ impl GuiAdjustables {
         let mut ordered_dither_global_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut ordered_dither_levels_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut ordered_dither_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut sun_size_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sun_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut sun_luminance_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut sky_light_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut sun_display_luminance_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut auto_daynight_cycle_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut time_of_day_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut latitude_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2945,13 +2921,6 @@ impl GuiAdjustables {
                             ordered_dither_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "sun_size" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            sun_size_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
                     "sun_color" => {
                         if let (GuiParamKind::Color, GuiParamValue::Color { value }) = (&param.kind, &param.value) {
                             sun_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
@@ -2962,20 +2931,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             sun_luminance_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "sky_light_strength" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            sky_light_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "sun_display_luminance" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            sun_display_luminance_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "auto_daynight_cycle" => {
@@ -4286,11 +4241,8 @@ impl GuiAdjustables {
             ordered_dither_global: ordered_dither_global_field.expect("Missing parameter: ordered_dither_global"),
             ordered_dither_levels: ordered_dither_levels_field.expect("Missing parameter: ordered_dither_levels"),
             ordered_dither_strength: ordered_dither_strength_field.expect("Missing parameter: ordered_dither_strength"),
-            sun_size: sun_size_field.expect("Missing parameter: sun_size"),
             sun_color: sun_color_field.expect("Missing parameter: sun_color"),
             sun_luminance: sun_luminance_field.expect("Missing parameter: sun_luminance"),
-            sky_light_strength: sky_light_strength_field.expect("Missing parameter: sky_light_strength"),
-            sun_display_luminance: sun_display_luminance_field.expect("Missing parameter: sun_display_luminance"),
             auto_daynight_cycle: auto_daynight_cycle_field.expect("Missing parameter: auto_daynight_cycle"),
             time_of_day: time_of_day_field.expect("Missing parameter: time_of_day"),
             latitude: latitude_field.expect("Missing parameter: latitude"),
@@ -4537,10 +4489,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "footstep_volume_db" => Some(&adjustables.footstep_volume_db),
         "tree_wind_volume_db" => Some(&adjustables.tree_wind_volume_db),
         "ordered_dither_strength" => Some(&adjustables.ordered_dither_strength),
-        "sun_size" => Some(&adjustables.sun_size),
         "sun_luminance" => Some(&adjustables.sun_luminance),
-        "sky_light_strength" => Some(&adjustables.sky_light_strength),
-        "sun_display_luminance" => Some(&adjustables.sun_display_luminance),
         "time_of_day" => Some(&adjustables.time_of_day),
         "latitude" => Some(&adjustables.latitude),
         "season" => Some(&adjustables.season),
@@ -4867,10 +4816,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "footstep_volume_db" => Some(&mut adjustables.footstep_volume_db),
         "tree_wind_volume_db" => Some(&mut adjustables.tree_wind_volume_db),
         "ordered_dither_strength" => Some(&mut adjustables.ordered_dither_strength),
-        "sun_size" => Some(&mut adjustables.sun_size),
         "sun_luminance" => Some(&mut adjustables.sun_luminance),
-        "sky_light_strength" => Some(&mut adjustables.sky_light_strength),
-        "sun_display_luminance" => Some(&mut adjustables.sun_display_luminance),
         "time_of_day" => Some(&mut adjustables.time_of_day),
         "latitude" => Some(&mut adjustables.latitude),
         "season" => Some(&mut adjustables.season),
