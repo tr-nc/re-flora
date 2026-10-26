@@ -172,8 +172,10 @@ impl ButterflyMeshRenderer {
                 });
                 continue;
             }
-            let original_phase =
-                (s.animation_sample_time.unwrap() + s.animation_phase_offset).rem_euclid(1.);
+            let original_phase = (s.animation_sample_time.unwrap()
+                * crate::particles::butterfly_wingbeat::FLIGHT_WINGBEATS_HZ
+                + s.animation_phase_offset)
+                .rem_euclid(1.);
             let coupling = s.butterfly_wingbeat;
             let blend = coupling.map_or(0., |p| p.blend);
             let phase = coupling.map_or(original_phase, |p| {
@@ -210,8 +212,14 @@ impl ButterflyMeshRenderer {
                     s.color.w,
                 ],
                 metadata: [
-                    super::model_geometry::BUTTERFLY_SOURCE_BASE
-                        + super::model_geometry::animation_frame(phase),
+                    if body.is_some_and(|p| p.host.is_some()) {
+                        super::model_geometry::BUTTERFLY_REST_SOURCE_BASE
+                            + (phase * (super::model_geometry::REST_FRAMES - 1) as f32).round()
+                                as u32
+                    } else {
+                        super::model_geometry::BUTTERFLY_SOURCE_BASE
+                            + super::model_geometry::animation_frame(phase)
+                    },
                     0,
                     settings.resolution.clamp(8, MAX_RESOLUTION),
                     0,

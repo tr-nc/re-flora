@@ -85,6 +85,8 @@ pub(super) struct ButterflyBehavior {
     wind_time: f32,
     heading: Quat,
     yaw: f32,
+    orbit_duration: f32,
+    orbit_start: f32,
     escape: Vec3,
     preference: u32,
     memory: VecDeque<(FlowerId, f32)>,
@@ -117,6 +119,8 @@ impl ButterflyBehavior {
             wind_time: 0.,
             heading: super::butterfly_wingbeat::flight_orientation(direction, 0.),
             yaw: 0.,
+            orbit_duration: 0.,
+            orbit_start: 0.,
             escape: Vec3::ZERO,
             preference,
             memory: VecDeque::with_capacity(4),
@@ -131,6 +135,7 @@ impl ButterflyBehavior {
         self.elapsed = 0.;
         self.next_decision = 0.25;
         self.wind_time = 0.;
+        self.orbit_duration = 0.;
         self.settle_time = 0.;
         self.memory.clear();
         self.failed.clear();
@@ -223,6 +228,15 @@ impl ButterflyBehavior {
                 self.target = self.choose(flowers, position, time, settings);
                 if self.target.is_some() {
                     self.stats.choices += 1;
+                    self.orbit_duration = if hash(self.preference ^ self.stats.choices) % 3 == 0 {
+                        1.4
+                    } else {
+                        0.
+                    };
+                    if let Some(f) = flowers.iter().find(|f| Some(f.id) == self.target) {
+                        let delta = position - f.position;
+                        self.orbit_start = delta.z.atan2(delta.x);
+                    }
                     self.transition(Phase::Travel);
                 }
             }
@@ -253,7 +267,8 @@ impl ButterflyBehavior {
             self.recover(position, time);
             return result;
         };
-        let (phase, clearance) = super::butterfly_wingbeat::perching_pose();
+        let clearance = super::butterfly_wingbeat::FEEDING_CLEARANCE;
+        let phase = (super::butterfly_wingbeat::resting_opening(time, self.preference) - 10.) / 50.;
         let contact = flower.position
             + flower.velocity * (time - flower.observed_at).clamp(0., 0.05)
             + flower.normal
@@ -301,7 +316,8 @@ impl ButterflyBehavior {
             self.recover(position, time);
             return result;
         }
-        if self.phase == Phase::Travel && distance < 0.035 {
+        let circling = self.phase == Phase::Travel && self.elapsed < self.orbit_duration;
+        if self.phase == Phase::Travel && !circling && distance < 0.035 {
             self.transition(Phase::Approach);
         }
         if self.phase == Phase::Approach {
@@ -311,7 +327,9 @@ impl ButterflyBehavior {
             } else {
                 self.settle_time = 0.;
             }
-            if self.settle_time > 0.12 {
+            // Keep full-speed flight strokes through capture: two or more braking
+            // beats, then adopt the relaxed feeding articulation only on attachment.
+            if self.settle_time > 0.30 {
                 let forward = self.heading * Vec3::Z;
                 self.yaw = forward
                     .dot(flower.normal.cross(flower.tangent))
@@ -335,14 +353,25 @@ impl ButterflyBehavior {
                 return result;
             }
         }
-        let direction = contact - position;
+        let mut goal = contact;
+        let mut goal_velocity = flower.velocity;
+        if circling {
+            let t = (self.elapsed / self.orbit_duration).clamp(0., 1.);
+            let sign = if self.preference % 2 == 0 { 1. } else { -1. };
+            let angle = self.orbit_start + sign * std::f32::consts::TAU * t;
+            let radius = 0.035 * (1. - t).sqrt();
+            goal += Vec3::new(angle.cos() * radius, 0.018 * (1. - t), angle.sin() * radius);
+            goal_velocity += Vec3::new(-angle.sin(), 0., angle.cos())
+                * (sign * std::f32::consts::TAU * radius / self.orbit_duration);
+        }
+        let direction = goal - position;
         if direction.length_squared() > 1e-7 {
             let desired = super::butterfly_wingbeat::flight_orientation(direction, 0.);
-            self.heading = self.heading.slerp(desired, 1. - (-dt * 6.).exp());
+            self.heading = self.heading.slerp(desired, 1. - (-dt * 14.).exp());
         }
         result.goal = Some(FlightGoal {
-            position: contact,
-            velocity: flower.velocity,
+            position: goal,
+            velocity: goal_velocity,
             precision: if self.phase == Phase::Approach {
                 1.
             } else {
@@ -454,7 +483,7 @@ mod tests {
     fn landing_dwell_departure_and_next_flower_complete() {
         let mut brain = ButterflyBehavior::new(10., Vec3::X);
         let mut flowers = [flower(1, Vec3::ZERO), flower(2, Vec3::X * 0.1)];
-        let (_, clearance) = super::super::butterfly_wingbeat::perching_pose();
+        let clearance = super::super::butterfly_wingbeat::FEEDING_CLEARANCE;
         let offset = Vec3::Y
             * clearance
             * super::super::system::BUTTERFLY_GUIDED_RENDER_SIZE
@@ -493,6 +522,82 @@ mod tests {
         assert_eq!(brain.stats.departures, 1);
         assert_eq!(brain.stats.different_flowers, 1);
     }
+    #[test]
+    fn feeding_tracks_a_swaying_host_while_wings_relax_independently() {
+        let mut brain = ButterflyBehavior::new(10., Vec3::X);
+        let mut f = flower(1, Vec3::ONE);
+        brain.phase = Phase::Feed;
+        brain.target = Some(f.id);
+        let mut position = f.position;
+        let mut phases = std::collections::BTreeSet::new();
+        for tick in 0..420 {
+            let time = tick as f32 / 120.;
+            f.position.x = 1. + 0.01 * (time * 3.).sin();
+            f.normal = Quat::from_rotation_z(0.2 * time.sin()) * Vec3::Y;
+            f.observed_at = time;
+            let intent = brain.advance(
+                position,
+                Vec3::ZERO,
+                1. / 120.,
+                time,
+                Vec3::ZERO,
+                &[f],
+                ButterflyForagingSettings {
+                    dwell_seconds: 12.,
+                    ..settings()
+                },
+            );
+            let (p, body) = intent.attached.expect("must remain anchored through sway");
+            let offset = f.normal
+                * super::super::butterfly_wingbeat::FEEDING_CLEARANCE
+                * super::super::system::BUTTERFLY_GUIDED_RENDER_SIZE
+                * (1.53125 / 3.4);
+            assert!(p.distance(f.position + offset) < 1e-6);
+            assert!((body.orientation * Vec3::Y).distance(f.normal) < 1e-5);
+            assert_eq!(body.host, Some(f.id));
+            let phase = body.phase.unwrap();
+            assert!((0. ..=1.).contains(&phase));
+            phases.insert((phase * 15.).round() as u32);
+            position = p;
+        }
+        assert!(
+            phases.len() >= 12,
+            "rest must not be a frozen animation frame"
+        );
+    }
+
+    #[test]
+    fn occasional_circling_finishes_and_landing_keeps_flight_beats_until_contact() {
+        let f = flower(1, Vec3::ONE);
+        let mut saw_orbit = false;
+        let mut saw_direct = false;
+        for seed in 0..24 {
+            let mut brain = ButterflyBehavior::new(seed as f32, Vec3::X);
+            brain.next_decision = 0.;
+            let p = f.position + Vec3::Y * 0.01;
+            brain.advance(p, Vec3::ZERO, 1. / 120., 0., Vec3::ZERO, &[f], settings());
+            saw_orbit |= brain.orbit_duration > 0.;
+            saw_direct |= brain.orbit_duration == 0.;
+            if brain.orbit_duration > 0. {
+                let mut quadrants = std::collections::BTreeSet::new();
+                for tick in 1..168 {
+                    let time = tick as f32 / 120.;
+                    let f = FlowerTarget {
+                        observed_at: time,
+                        ..f
+                    };
+                    let intent =
+                        brain.advance(p, Vec3::ZERO, 1. / 120., time, Vec3::ZERO, &[f], settings());
+                    assert!(intent.attached.is_none());
+                    let d = intent.goal.unwrap().position - f.position;
+                    quadrants.insert((d.x >= 0., d.z >= 0.));
+                }
+                assert_eq!(quadrants.len(), 4, "approach must wind around the flower");
+            }
+        }
+        assert!(saw_orbit && saw_direct);
+    }
+
     #[test]
     fn settings_reject_non_finite_and_unsafe_values() {
         let s = ButterflyForagingSettings {

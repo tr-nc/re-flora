@@ -20,8 +20,8 @@ impl Review {
             .ok()
             .map(|mode| {
                 assert!(
-                    ["visits", "wind", "lifetime"].contains(&mode.as_str()),
-                    "foraging review must be visits/wind/lifetime"
+                    ["visits", "close", "wind", "lifetime"].contains(&mode.as_str()),
+                    "foraging review must be visits/close/wind/lifetime"
                 );
                 Self {
                     mode,
@@ -111,12 +111,31 @@ impl App {
         let settings = &mut self.debug_settings;
         settings.adjustables.butterflies_enabled.value = true;
         settings.butterfly_flight.variant = crate::particles::ButterflyFlightVariant::Darting;
-        settings.butterfly_flight.foraging.dwell_seconds = 1.;
+        settings.butterfly_flight.foraging.dwell_seconds =
+            if review.mode == "close" { 10. } else { 1. };
         settings.butterfly_flight.foraging.search_radius = 0.7;
         settings.butterfly_flight.foraging.wind_limit = 2.;
         settings.butterfly_flight.tuning.speed = 1.;
         settings.adjustables.butterfly_lifetime_min.value = 60.;
         settings.adjustables.butterfly_lifetime_max.value = 60.;
+        if review.mode == "close" {
+            if let Some(p) = self.particle_snapshots.iter().find(|p| {
+                p.butterfly_body_pose
+                    .is_some_and(|body| body.host.is_some())
+            }) {
+                let target = p.position_ws;
+                self.camera_control.apply_snapshot_mode(true);
+                self.camera_control.set_orbit_focus(target);
+                self.tracer.set_camera_pose_looking_at(
+                    target
+                        + p.butterfly_body_pose.unwrap().orientation
+                            * Vec3::new(0.012, 0.035, 0.018),
+                    target,
+                );
+                self.reset_camera_movement_input();
+            }
+        }
+        let review = self.butterfly_foraging_review.as_mut().unwrap();
         if review.mode == "lifetime" && elapsed > 1. && !review.removed {
             if let Some(host) = self
                 .particle_snapshots

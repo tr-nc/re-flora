@@ -27,8 +27,7 @@ version of their geometry/animation. Butterfly flight coupling additionally requ
 one-second, uniformly keyed wing stroke; a changed contract must be adapted explicitly, not silently
 approximated.
 
-Consumers adapt **world placement, lighting, palette and display sampling**, not the authored mesh
-or local animation. Butterfly flight coupling still owns world attitude and suppresses authored
+Consumers adapt **world placement, lighting, palette and display sampling**. Flight continues to use the authored mesh and local animation unchanged. Feeding now has a separate derived articulation in [`butterfly_rest.rs`](../../src/tracer/model_geometry/butterfly_rest.rs): the same GLB wings, hinges raised to 60–85 degrees (10–60 degrees between wings), level root, and a small original six-sided bent proboscis. Its tip extends 0.015 model units into the flower contact. The code specifies all coordinates, tessellation and the 16 cached poses; no imported image/model, AI generation or third-party asset is involved. This game-specific feeding pose does not replace the shared flight GLB or change the web flight preview. Butterfly flight coupling still owns world attitude and suppresses authored
 root bob to avoid double world displacement. Its stroke integrals are now derived from the same GLB
 rotation channel. Browser lights are not a substitute for in-game environment lighting.
 

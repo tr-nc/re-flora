@@ -10,8 +10,11 @@ use std::sync::LazyLock;
 pub const ANIMATION_FRAMES: u32 = 32;
 pub const APPLE_SOURCE: u32 = 0;
 pub const BUTTERFLY_SOURCE_BASE: u32 = 1;
+mod butterfly_rest;
 mod firefly;
-pub const FIREFLY_SOURCE_BASE: u32 = BUTTERFLY_SOURCE_BASE + ANIMATION_FRAMES;
+pub const REST_FRAMES: u32 = 16;
+pub const BUTTERFLY_REST_SOURCE_BASE: u32 = BUTTERFLY_SOURCE_BASE + ANIMATION_FRAMES;
+pub const FIREFLY_SOURCE_BASE: u32 = BUTTERFLY_REST_SOURCE_BASE + REST_FRAMES;
 pub const FIREFLY_POSES: u32 = 4;
 mod bees;
 pub const BEE_SOURCE_BASE: u32 = FIREFLY_SOURCE_BASE + FIREFLY_POSES;
@@ -146,6 +149,11 @@ pub(super) fn source(shape: Shape) -> Source {
                 0,
             ));
         }
+        ranges.push([first, triangles.len() as u32 - first, 2, frame]);
+    }
+    for frame in 0..REST_FRAMES {
+        let first = triangles.len() as u32;
+        triangles.extend(butterfly_rest::mesh(frame));
         ranges.push([first, triangles.len() as u32 - first, 2, frame]);
     }
     for frame in 0..FIREFLY_POSES {
@@ -360,7 +368,7 @@ pub(super) fn source(shape: Shape) -> Source {
         }
     }
     let mut cache_bounds = vec![None; ranges.len()];
-    for frame in 0..ANIMATION_FRAMES {
+    for frame in 0..ANIMATION_FRAMES + REST_FRAMES {
         cache_bounds[(BUTTERFLY_SOURCE_BASE + frame) as usize] = Some((Vec3::ZERO, 1.7));
     }
     for frame in 0..FIREFLY_POSES {

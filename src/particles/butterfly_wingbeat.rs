@@ -4,6 +4,17 @@
 use glam::{Quat, Vec3};
 use std::sync::OnceLock;
 
+/// Art-directed flight cadence; independent of display FPS and navigation rhythm.
+pub(crate) const FLIGHT_WINGBEATS_HZ: f32 = 7.5;
+pub(crate) const FEEDING_CLEARANCE: f32 = 0.24;
+
+/// Opening is the angle BETWEEN the two raised wings, not from the horizontal.
+pub(crate) fn resting_opening(time: f32, individual: u32) -> f32 {
+    let offset = (individual % 997) as f32 * 0.013;
+    let breath = 0.5 + 0.5 * (time * 2.1 + offset + 0.35 * (time * 0.73 + offset).sin()).sin();
+    10. + 50. * breath
+}
+
 struct Animation {
     source_fps: usize,
     keys: Vec<[f32; 3]>,
@@ -57,35 +68,12 @@ fn animation() -> &'static Animation {
 }
 
 /// One authored cycle per second, independently of source or display FPS.
+#[cfg(test)]
 pub(crate) fn wing_pose(phase: f32) -> [f32; 3] {
     let a = animation();
     let key = phase.rem_euclid(1.) * a.source_fps as f32;
     let i = (key.floor() as usize).min(a.source_fps - 1);
     std::array::from_fn(|c| a.keys[i][c] + (a.keys[i + 1][c] - a.keys[i][c]) * key.fract())
-}
-
-/// Raised-wing rest pose and exact clearance of its lowest authored vertex.
-/// Shared by CPU contact capture and the GPU attachment adapter.
-pub(super) fn perching_pose() -> (f32, f32) {
-    static POSE: OnceLock<(f32, f32)> = OnceLock::new();
-    *POSE.get_or_init(|| {
-        let phase = (0..32)
-            .map(|i| i as f32 / 32.)
-            .max_by(|a, b| wing_pose(*a)[0].total_cmp(&wing_pose(*b)[0]))
-            .unwrap();
-        let model = crate::model_assets::butterfly();
-        let transforms = model.transforms(phase, 0);
-        let root = transforms[model.node("Flight pose")].w_axis.truncate();
-        let minimum = model
-            .triangles
-            .iter()
-            .flat_map(|t| {
-                t.positions
-                    .map(|p| transforms[t.node].transform_point3(p).y - root.y)
-            })
-            .fold(f32::INFINITY, f32::min);
-        (phase, (-minimum).max(0.))
-    })
 }
 
 /// Positive wing rotation raises the right wing in the exported Y-up geometry.
@@ -164,7 +152,7 @@ impl WingbeatCoupling {
         if self.pose.blend == 0. || dt <= 0. {
             return Vec3::ZERO;
         }
-        let (down, up) = average_strokes(self.pose.phase, dt);
+        let (down, up) = average_strokes(self.pose.phase, dt * FLIGHT_WINGBEATS_HZ);
         let orientation = flight_orientation(velocity, self.pose.bank);
         let support = orientation * Vec3::Y;
         let forward = orientation * -Vec3::Z;
@@ -237,10 +225,10 @@ mod tests {
     fn fixed_step_impulses_balance_without_source_key_aliasing() {
         for offset in [0., 0.137, 0.999] {
             let mut integral = Vec3::ZERO;
-            for tick in 1..=120 {
+            for tick in 1..=240 {
                 let coupling = WingbeatCoupling {
                     pose: ButterflyWingbeatPose {
-                        phase: (offset + tick as f32 / 120.).rem_euclid(1.),
+                        phase: (offset + tick as f32 * FLIGHT_WINGBEATS_HZ / 120.).rem_euclid(1.),
                         blend: 1.,
                         bank: 0.,
                     },

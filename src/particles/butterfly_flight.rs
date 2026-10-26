@@ -71,10 +71,10 @@ impl Default for ButterflyFlightTuning {
             wingbeat_coupling: false,
             flight_frequency_hz: 10.0,
             height_above_ground: 0.08,
-            maneuver_tempo: 1.0,
+            maneuver_tempo: 2.75,
             vertical_strength: 4.0,
-            turn_sharpness: 1.0,
-            speed: 0.35,
+            turn_sharpness: 2.2,
+            speed: 0.65,
             wind_drift: 1.0,
         }
     }
@@ -735,7 +735,8 @@ mod tests {
     #[test]
     fn butterfly_user_tuning_is_the_startup_and_sanitization_default() {
         let defaults = ButterflyFlightTuning::default();
-        assert_eq!(defaults.speed, 0.35);
+        assert_eq!(defaults.speed, 0.65);
+        assert_eq!(defaults.turn_sharpness, 2.2);
         assert_eq!(defaults.vertical_strength, 4.0);
         assert_eq!(defaults.flight_frequency_hz, 10.0);
         assert_eq!(
@@ -935,6 +936,7 @@ mod tests {
         };
         let baseline = ButterflyFlightTuning {
             vertical_strength: 1.0,
+            turn_sharpness: 1.0,
             ..Default::default()
         };
         let (velocity, remaining) = run(baseline);
@@ -1095,7 +1097,11 @@ mod tests {
                 assert!(flight.acceleration.length() <= BUTTERFLY_FLIGHT_MAX_ACCELERATION + 1e-5);
                 assert!(
                     (flight.acceleration - old_acceleration).length()
-                        <= BUTTERFLY_FLIGHT_MAX_JERK * dt + 1e-5
+                        <= BUTTERFLY_FLIGHT_MAX_JERK
+                            * ButterflyFlightTuning::default().speed
+                            * ButterflyFlightTuning::default().turn_sharpness
+                            * dt
+                            + 1e-5
                 );
                 assert!(
                     (next - velocity).length() <= BUTTERFLY_FLIGHT_MAX_ACCELERATION * dt + 1e-5

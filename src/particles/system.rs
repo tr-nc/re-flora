@@ -828,7 +828,9 @@ impl ParticleSystem {
 
     pub(super) fn wingbeat_phase(&self, handle: ParticleHandle, time: f64) -> f32 {
         self.validate_handle(handle).map_or(0., |slot| {
-            (time + f64::from(self.butterfly_phase_offset(slot))).rem_euclid(1.) as f32
+            (time * f64::from(super::butterfly_wingbeat::FLIGHT_WINGBEATS_HZ)
+                + f64::from(self.butterfly_phase_offset(slot)))
+            .rem_euclid(1.) as f32
         })
     }
 

@@ -286,7 +286,20 @@ impl Model {
     }
 
     pub fn transforms(&self, time: f32, clip: usize) -> Vec<Mat4> {
-        let pose = self.pose(time, clip);
+        self.transforms_with_rotations(time, clip, &[])
+    }
+
+    /// Pose articulation reuses the authored hierarchy and mesh, including normals.
+    pub fn transforms_with_rotations(
+        &self,
+        time: f32,
+        clip: usize,
+        rotations: &[(usize, Quat)],
+    ) -> Vec<Mat4> {
+        let mut pose = self.pose(time, clip);
+        for &(node, rotation) in rotations {
+            pose[node].rotation = rotation;
+        }
         let local: Vec<_> = pose
             .iter()
             .map(|p| Mat4::from_scale_rotation_translation(p.scale, p.rotation, p.translation))
