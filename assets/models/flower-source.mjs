@@ -19,7 +19,8 @@ export const flowerShapes={
 const entry=(id,displayName,stemLayers,label,latin,tilt,palette)=>({id,displayName,stemLayers,label,latin,
   cacheFamily:id,defaults:{...flowerShapeDefaults,...flowerShapes[id],tilt,
     paletteA:palette[0],paletteB:palette[1],paletteC:palette[2],paletteD:palette[3],weightMap:'root-tip'}});
-// Stable IDs/order/layers preserve old gardens. Species silhouettes share the
+// Stable IDs/order preserve old gardens; layers are species-owned art tuning.
+// Species silhouettes share the
 // same surface mechanism; no per-species mesh or rendering branches.
 export const flowerCatalog=[
   entry('wild-geranium','Wild Geranium',41,'五瓣野花 · 野老鹳草','Geranium maculatum',38,['#be78a6','#d695c5','#ecd18a','#52734a']),
@@ -28,7 +29,7 @@ export const flowerCatalog=[
   entry('cosmos','Cosmos',42,'波斯菊','Cosmos bipinnatus',44,['#b94880','#e4a0c0','#e9be4c','#52734a']),
   entry('coneflower','Coneflower',43,'紫松果菊','Echinacea purpurea',55,['#b36c98','#d18bb4','#b77c3c','#52734a']),
   entry('tulip','Tulip',37,'郁金香','Tulipa',70,['#f3c38e','#e8a075','#755048','#52734a']),
-  entry('sunflower','Sunflower',68,'向日葵','Helianthus annuus',70,['#d99922','#ffdc52','#664323','#4f7135']),
+  entry('sunflower','Sunflower',136,'向日葵','Helianthus annuus',70,['#d99922','#ffdc52','#664323','#4f7135']),
 ];
 export function flowerGeometry(id,settings={}){
   const spec=flowerCatalog.find(spec=>spec.id===id);

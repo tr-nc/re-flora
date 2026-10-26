@@ -36,7 +36,7 @@ rotation channel. Browser lights are not a substitute for in-game environment li
 
 `sunflower` is appended after all existing stable species IDs. It uses the same
 original parametric head generator, not an imported image/model: 20 pointed gold
-rays, a broad brown seed disk, 68 stem layers, 70-degree head tilt, palette
+rays, a broad brown seed disk, 136 stem layers (initially 68), 70-degree head tilt, palette
 `#d99922 / #ffdc52 / #664323 / #4f7135`. The exact repeatable shape parameters are
 in `flower-source.mjs`; `node scripts/publish-flower-models.mjs` regenerates the
 mesh and embedded resolved RGB texture together. No AI provider, external texture
@@ -48,6 +48,16 @@ Release production planting fixture was inspected in `target/garden-sunflower.pn
 Use `RE_FLORA_GARDEN_PLANT_REVIEW=sunflower` with `--screenshot garden-arrival` to
 reproduce the unsaved fixture. It is a stylized single-whorl sunflower, not a
 botanical seed/floret simulation.
+
+Player height feedback raised only the sunflower's authored stem layers from 68
+to 136 on 2026-10-26. The head mesh, texture, palette, stem width, species identity
+and other flowers are unchanged. Re-publish with the command above; existing
+sunflowers use the new proportions after restarting the rebuilt game, without a
+save migration. At the current saved controls, a mature zero-normal-sample plant
+rises from about 12.14 to 22.39 terrain voxels (player body: 24). Random height,
+growth and user scale controls still apply; this is not a uniform height guarantee.
+The original `garden-sunflower.png` in the offline delivery report predates this
+adjustment. See [height research and validation](../../docs/research/sunflower-player-height.md).
 
 ## Procedural firefly model (2026-10-26)
 

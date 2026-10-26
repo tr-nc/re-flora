@@ -9,7 +9,7 @@ test('native flower publication regenerates byte-for-byte from shared geometry a
   const json=await publishedFlowers();
   assert.equal(await readFile(new URL('../../../assets/models/flowers.json',import.meta.url),'utf8'),json);
   const {flowers}=JSON.parse(json);
-  assert.deepEqual(flowers.map(f=>[f.id,f.stem_layers]),[['wild-geranium',41],['forget-me-not',42],['oxeye-daisy',42],['cosmos',42],['coneflower',43],['tulip',37]]);
+  assert.deepEqual(flowers.map(f=>[f.id,f.stem_layers]),[['wild-geranium',41],['forget-me-not',42],['oxeye-daisy',42],['cosmos',42],['coneflower',43],['tulip',37],['sunflower',136]]);
   for(const [i,f]of flowers.entries()){
     const spec=flowerCatalog[i],recipe=flowerGeometry(spec.id);
     assert.deepEqual(f.socket_normal,recipe.socketNormal.map(v=>Number(v.toFixed(9))||0));

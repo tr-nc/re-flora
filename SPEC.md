@@ -146,6 +146,15 @@ known limitations; partially implemented items remain open.
 
 ### Delivery log
 
+- Player follow-up (2026-10-26): sunflower stems raised from 68 to 136 authored
+  layers, keeping the head and every other flower unchanged. At current reference
+  controls, mature height rises from 12.14 to 22.39 voxels versus the 24-voxel
+  player. Research, native before/after review and validation are recorded in
+  `docs/research/sunflower-player-height.md`; the initial offline report's
+  sunflower screenshot intentionally remains historical. Release rebuilt;
+  14 Node flower, 36 Rust flora and 9 snapshot tests pass. User's running game
+  was not interrupted; the new embedded asset requires a restart.
+
 - Initial checklist recorded from the full user request; no items silently dropped.
 - Grass baseline: previous implementation `ebd7c0f5` synchronously recomputes all
   roots. Native Release fixture, one root toggled 12 times: 1,024 roots median
