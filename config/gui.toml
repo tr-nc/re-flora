@@ -727,7 +727,7 @@ param = "apple_cache_enabled"
 equals = true
 
 [section.param.data]
-value = 16
+value = 12
 min = 8
 max = 32
 
@@ -1804,7 +1804,7 @@ param = "model_flower_cache_enabled"
 equals = true
 
 [section.param.data]
-value = 16
+value = 20
 min = 8
 max = 32
 
