@@ -13,7 +13,7 @@ Requested scope (sequential, local commits only):
   transactions and persistence, with visible collection feedback.
 - [x] Add carrots with a stylized taproot/feathery rosette, selection, planting,
   growth, inventory and harvesting; inspect in-game appearance.
-- [ ] Aggregate validation and current Release binary for later manual acceptance.
+- [x] Aggregate validation and current Release binary for later manual acceptance.
 
 ## Acceptance boundaries
 
@@ -21,6 +21,38 @@ Checks use real production interfaces, deterministic tests and native Release
 runs. In-game screenshots count as renderer/appearance inspection, not the user's
 subjective approval of animated motion. No push, official packaging, external
 publication or unattended persistent garden/config writes are requested.
+
+## Final aggregate validation
+
+All four features were rechecked together at `70a302b6`, in the main worktree.
+The four independent implementation commits are `0d636289` (butterflies),
+`d2d73f5a` (plane), `ec18b7b8` (vacuum), and `70a302b6` (carrots).
+No push or package/release operation was performed.
+
+- `cargo fmt --check`, `cargo check`, `cargo build --release`: passed.
+  Current executable: `target/release/re-flora`.
+- Full Rust suite: 1707 passed / 13 ignored / 8 existing baseline failures;
+  details and starting-commit reproduction are recorded below. **The full suite
+  is not green.** `target/liveliness-carrot-all-tests.log` contains the results.
+- All 64 model-preview Node tests passed, including exact published asset
+  regeneration and crop geometry/studio separation:
+  `target/liveliness-final-node-tests.log`.
+- Final native Release runs used hidden/muted windows and the real Vulkan path:
+  - `target/liveliness-final-butterflies.log`: complete visit cycle, distinct hosts.
+  - `target/liveliness-final-plane.log`: preview/placement, growth, serialized
+    restore, GPU pose/surface/lighting (seed 907).
+  - `target/liveliness-final-vacuum.log`: batch plants + ripe apple, occlusion,
+    grass/tree preservation, duplicate prevention, save/reload.
+  - `target/liveliness-final-carrot.log`: finite planting, canonical and scheduled
+    growth, mature-only vacuum/manual harvest, produce/sale, save/reload.
+  All four reported their acceptance marker and shutdown `failures=0`; no
+  ERROR, panic, VUID or validation-error lines. The ordinary hidden/muted 0.5s
+  smoke also passed (`target/liveliness-carrot-smoke.log`).
+- Working tree remained clean after the final runs; diagnostic settings were
+  not saved. No visible game was left running. For later manual acceptance,
+  launch `cargo run --release` from `/home/terence/code/re-flora` (without
+  `--hidden` or `--perf`). Animated feel and subjective art approval remain
+  the user's acceptance, not something screenshots/tests can certify.
 
 ## Evidence
 
