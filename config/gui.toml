@@ -115,7 +115,7 @@ label = "GUI: panel outlines"
 type = "Bool"
 
 [section.param.data]
-value = true
+value = false
 
 [[section.param]]
 id = "camera_orbit_max_elevation"
@@ -124,7 +124,7 @@ label = "Orbit camera: maximum downward angle (Degrees)"
 type = "Float"
 
 [section.param.data]
-value = 45
+value = 60
 min = 5
 max = 87.7
 
@@ -2705,7 +2705,7 @@ label = "Size scale"
 type = "Float"
 
 [section.param.data]
-value = 0.5
+value = 0.3
 min = 0.1
 max = 2
 
@@ -2716,7 +2716,7 @@ label = "Update FPS (Position + Heading + Wings)"
 type = "Uint"
 
 [section.param.data]
-value = 24
+value = 30
 min = 2
 max = 60
 
