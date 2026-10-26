@@ -243,7 +243,7 @@ mod tests {
                 );
                 let height = crate::tree_gen::Tree::new(desc.clone()).height_voxels();
                 assert!(
-                    (35.0..=45.0).contains(&height),
+                    (38.0..=49.0).contains(&height),
                     "seed={seed} tree={i} height={height}"
                 );
                 let defaults = crate::tree_gen::TreeDesc::default();

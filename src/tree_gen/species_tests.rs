@@ -167,10 +167,10 @@ fn new_apples_are_mature_human_scale_trees_across_individual_seeds() {
         desc.branching.seed = seed;
         let tree = Tree::new(desc.at_age(1.));
         let height = tree.height_voxels();
-        // Roughly 1.5–1.8 of the current 24-voxel player body; keep a voxel of
+        // Roughly 1.6–2.0 of the current 24-voxel player body; keep a voxel of
         // tolerance for the randomly sampled leaf envelope, rather than clipping crowns.
         assert!(
-            (35.0..=45.0).contains(&height),
+            (38.0..=49.0).contains(&height),
             "seed={seed} height={height}"
         );
         assert_eq!(

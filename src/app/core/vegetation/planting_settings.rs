@@ -124,6 +124,23 @@ mod tests {
     }
 
     #[test]
+    fn neutral_planting_scale_uses_larger_apple_baseline_only() {
+        let mut settings = crate::app::gui_config::DebugSettings::load();
+        settings.adjustables.tree_planting_scale.value = 1.;
+        let planting = TreePlantingSettings::from_gui(&settings.adjustables);
+        for (species, expected_size) in [
+            (TreeSpecies::AppleTree, 5.8 * 1.1),
+            (TreeSpecies::Pine, 20.),
+            (TreeSpecies::WeepingWillow, 20.),
+        ] {
+            let planted = planting.apply(species.default_desc());
+            assert_eq!(planted.size, expected_size);
+            assert_eq!(planting.apply(planted.clone()), planted);
+        }
+        assert_eq!(settings.adjustables.tree_planting_scale.value, 1.);
+    }
+
+    #[test]
     fn apple_density_thins_stable_candidates_without_changing_tree_geometry() {
         let mut desc = TreeSpecies::AppleTree.default_desc();
         desc.branching.seed = 907;

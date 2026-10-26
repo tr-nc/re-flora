@@ -68,7 +68,7 @@ impl TreeSpecies {
                 label: "Apple Tree",
                 growth: rules::APPLE,
                 apples: true,
-                planting_size: 5.8,
+                planting_size: 5.8 * 1.1,
                 authoring: AuthoringDefaults::Garden(GardenDefaults {
                     trunk_thickness: 0.32,
                     leaf_size_level: 3,
