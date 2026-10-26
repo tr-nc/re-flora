@@ -146,6 +146,13 @@ known limitations; partially implemented items remain open.
 
 ### Delivery log
 
+- Player follow-up: saved **Tree Planting** sliders now own future tree size
+  (0.5–2x species-relative scale) and apple density (0–1, default 0.25).
+  Preview/placement capture the settings; existing mature trees and growing
+  saplings keep their original descriptions across subsequent edits and reload.
+  Real slider interaction, settings migration/persistence, growth and native
+  world save/restart checks pass. See `docs/garden-tree-planting.md`.
+
 - Player follow-up (2026-10-26): sunflower stems raised from 68 to 136 authored
   layers, keeping the head and every other flower unchanged. At current reference
   controls, mature height rises from 12.14 to 22.39 voxels versus the 24-voxel

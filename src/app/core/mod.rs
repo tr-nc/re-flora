@@ -1727,7 +1727,7 @@ impl App {
         app.sync_cursor_with_panels();
 
         app.configure_gui_font()?;
-        app.rebuild_tree_placement_preview()?;
+        app.sync_tree_placement_preview_from_gui()?;
         if hybrid_transparency {
             app.configure_hybrid_transparency_test_scene()?;
         }
@@ -1774,7 +1774,7 @@ impl App {
         if desc.species == crate::tree_gen::TreeSpecies::Conifer {
             desc.axis_model = self.debug_settings.tree.conifer_axis_model;
         }
-        desc
+        self.tree_planting_settings().apply(desc)
     }
 
     fn sync_tree_placement_preview_from_gui(&mut self) -> Result<()> {
@@ -2482,6 +2482,7 @@ impl App {
                     self.tracer.handle_mouse(mouse_delta);
                 }
 
+                let tree_planting_before_gui = self.tree_planting_settings();
                 let conifer_axis_before_gui = self.debug_settings.tree.conifer_axis_model;
                 let mut tree_desc_changed = false;
                 let time_of_day_before_gui = self.debug_settings.adjustables.time_of_day.value;
@@ -3190,7 +3191,13 @@ impl App {
                         log::error!("Failed to switch conifer architecture: {err:#}");
                     }
                 }
-                if tree_desc_changed || tree_age_changed || conifer_axis_changed {
+                // Placement controls only invalidate the next-tree preview. They never
+                // enter the live-tree rebuild paths above; planted descriptions own values.
+                if tree_desc_changed
+                    || tree_age_changed
+                    || conifer_axis_changed
+                    || self.tree_planting_settings() != tree_planting_before_gui
+                {
                     if let Err(err) = self.sync_tree_placement_preview_from_gui() {
                         log::error!("Failed to rebuild tree geometry preview: {err}");
                     }

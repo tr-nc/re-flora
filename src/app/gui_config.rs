@@ -1192,6 +1192,88 @@ mod search_tests {
     }
 
     #[test]
+    fn tree_planting_sliders_edit_and_save_without_requesting_live_tree_rebuilds() {
+        let mut settings = DebugSettings::load();
+        let tree = settings.tree.desc.clone();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        for (id, label) in [
+            ("tree_planting_scale", "Tree scale (new trees)"),
+            ("tree_planting_apple_density", "Apple density (new trees)"),
+        ] {
+            let context = egui::Context::default();
+            settings.search.query = label.into();
+            let before = GuiAdjustables::get_float_param_mut(&mut settings.adjustables, id)
+                .unwrap()
+                .value;
+            let mut draw = |events| {
+                context.run_ui(
+                    egui::RawInput {
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        assert!(
+                            !settings.draw(ui, |_, _| {}),
+                            "new-tree sliders must not emit the live-tree edit signal"
+                        );
+                        assert_eq!(settings.tree.desc, tree);
+                    },
+                )
+            };
+            draw(vec![]);
+            let output = draw(vec![]);
+            let label_rect = output
+                .shapes
+                .iter()
+                .find_map(|s| text_rect(&s.shape, label))
+                .unwrap();
+            let track = output
+                .shapes
+                .iter()
+                .find_map(|s| match &s.shape {
+                    egui::Shape::Rect(r)
+                        if r.rect.width() > 50.
+                            && r.rect.height() < 10.
+                            && (r.rect.center().y - label_rect.center().y).abs() < 5. =>
+                    {
+                        Some(r.rect)
+                    }
+                    _ => None,
+                })
+                .expect("visible slider track");
+            let point = egui::pos2(track.left() + track.width() * 0.85, track.center().y);
+            for pressed in [true, false] {
+                draw(vec![
+                    egui::Event::PointerMoved(point),
+                    egui::Event::PointerButton {
+                        pos: point,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ]);
+            }
+            let value = GuiAdjustables::get_float_param_mut(&mut settings.adjustables, id)
+                .unwrap()
+                .value;
+            assert_ne!(
+                value, before,
+                "real slider press/release must change its value"
+            );
+            settings.save_to_path(&path).unwrap();
+            let mut loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            assert_eq!(
+                GuiAdjustables::get_float_param_mut(&mut loaded.adjustables, id)
+                    .unwrap()
+                    .value,
+                value
+            );
+            assert_eq!(loaded.tree.desc, tree);
+        }
+    }
+
+    #[test]
     fn model_view_has_one_searchable_saved_direction_count_and_no_ab() {
         let mut settings = DebugSettings::load();
         let context = egui::Context::default();

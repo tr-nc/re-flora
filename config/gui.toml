@@ -3012,6 +3012,31 @@ type = "Color"
 value = "#7A7D80"
 
 [[section]]
+name = "Tree Planting"
+
+[[section.param]]
+id = "tree_planting_scale"
+kind = "float"
+label = "Tree scale (new trees)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.5
+max = 2
+
+[[section.param]]
+id = "tree_planting_apple_density"
+kind = "float"
+label = "Apple density (new trees)"
+type = "Float"
+
+[section.param.data]
+value = 0.25
+min = 0
+max = 1
+
+[[section]]
 name = "Material Supply"
 
 [[section.param]]

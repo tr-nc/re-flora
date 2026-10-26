@@ -346,6 +346,7 @@ impl GuiConfigLoader {
                 )
             });
         }
+        Self::add_missing_section_params(&mut config, "Tree Planting");
         Self::add_missing_section_params(&mut config, "Terrain Material");
         Self::add_missing_section_params(&mut config, "Climbing Plants");
         // Old saves gain new flower controls from the declarations, without
@@ -1400,6 +1401,41 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn tree_planting_controls_upgrade_old_settings_without_touching_tree_authoring() {
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        config.section.retain(|s| s.name != "Tree Planting");
+        config.tree.desc.size = 9.;
+        config.tree.desc.fruit_spawn_probability = 0.8;
+        let tree = config.tree.desc.clone();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        let original = toml::to_string_pretty(&config).unwrap();
+        std::fs::write(&path, &original).unwrap();
+        let mut loaded = GuiConfigLoader::load_from_path(&path);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        assert_eq!(loaded.tree.desc, tree);
+        let fields = crate::app::gui_config::GuiAdjustables::from_config(&loaded);
+        assert_eq!(fields.tree_planting_scale.value, 1.);
+        assert_eq!(fields.tree_planting_apple_density.value, 0.25);
+        for param in loaded.section.iter_mut().flat_map(|s| &mut s.param) {
+            if let super::GuiParamValue::Float { value, .. } = &mut param.value {
+                match param.id.as_str() {
+                    "tree_planting_scale" => *value = 1.6,
+                    "tree_planting_apple_density" => *value = 0.12,
+                    _ => {}
+                }
+            }
+        }
+        GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+        let restored = GuiConfigLoader::load_from_path(&path);
+        assert_eq!(restored.tree.desc, tree);
+        let fields = crate::app::gui_config::GuiAdjustables::from_config(&restored);
+        assert_eq!(fields.tree_planting_scale.value, 1.6);
+        assert_eq!(fields.tree_planting_apple_density.value, 0.12);
+    }
+
     #[test]
     fn panel_outline_setting_upgrades_old_saves_and_preserves_both_choices() {
         for saved in [None, Some(false), Some(true)] {

@@ -1591,6 +1591,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Rock Color",
     },
     GeneratedGuiParamDescriptor {
+        section: "Tree Planting",
+        id: "tree_planting_scale",
+        kind: "float",
+        label: "Tree scale (new trees)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tree Planting",
+        id: "tree_planting_apple_density",
+        kind: "float",
+        label: "Apple density (new trees)",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Material Supply",
         id: "infinite_materials",
         kind: "bool",
@@ -2059,6 +2071,8 @@ pub struct GuiAdjustables {
     pub voxel_cherry_wood_color: crate::gui_adjustables::ColorParam,
     pub voxel_oak_wood_color: crate::gui_adjustables::ColorParam,
     pub voxel_rock_color: crate::gui_adjustables::ColorParam,
+    pub tree_planting_scale: crate::gui_adjustables::FloatParam,
+    pub tree_planting_apple_density: crate::gui_adjustables::FloatParam,
     pub infinite_materials: crate::gui_adjustables::BoolParam,
     pub soil_deposition_batch_size: crate::gui_adjustables::UintParam,
     pub soil_deposition_rate: crate::gui_adjustables::FloatParam,
@@ -2367,6 +2381,8 @@ impl GuiAdjustables {
         let mut voxel_cherry_wood_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_oak_wood_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_rock_color_field: Option<crate::gui_adjustables::ColorParam> = None;
+        let mut tree_planting_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_planting_apple_density_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut infinite_materials_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut soil_deposition_batch_size_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut soil_deposition_rate_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -4128,6 +4144,20 @@ impl GuiAdjustables {
                             voxel_rock_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
+                    "tree_planting_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_planting_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_planting_apple_density" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_planting_apple_density_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
                     "infinite_materials" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             infinite_materials_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -4625,6 +4655,8 @@ impl GuiAdjustables {
             voxel_cherry_wood_color: voxel_cherry_wood_color_field.expect("Missing parameter: voxel_cherry_wood_color"),
             voxel_oak_wood_color: voxel_oak_wood_color_field.expect("Missing parameter: voxel_oak_wood_color"),
             voxel_rock_color: voxel_rock_color_field.expect("Missing parameter: voxel_rock_color"),
+            tree_planting_scale: tree_planting_scale_field.expect("Missing parameter: tree_planting_scale"),
+            tree_planting_apple_density: tree_planting_apple_density_field.expect("Missing parameter: tree_planting_apple_density"),
             infinite_materials: infinite_materials_field.expect("Missing parameter: infinite_materials"),
             soil_deposition_batch_size: soil_deposition_batch_size_field.expect("Missing parameter: soil_deposition_batch_size"),
             soil_deposition_rate: soil_deposition_rate_field.expect("Missing parameter: soil_deposition_rate"),
@@ -4851,6 +4883,8 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "butterfly_worm_noise_frequency" => Some(&adjustables.butterfly_worm_noise_frequency),
         "butterfly_worm_noise_detail_frequency" => Some(&adjustables.butterfly_worm_noise_detail_frequency),
         "butterfly_worm_noise_detail_weight" => Some(&adjustables.butterfly_worm_noise_detail_weight),
+        "tree_planting_scale" => Some(&adjustables.tree_planting_scale),
+        "tree_planting_apple_density" => Some(&adjustables.tree_planting_apple_density),
         "soil_deposition_rate" => Some(&adjustables.soil_deposition_rate),
         "soil_deposition_spread_radius" => Some(&adjustables.soil_deposition_spread_radius),
         "soil_deposition_repose_slope" => Some(&adjustables.soil_deposition_repose_slope),
@@ -5193,6 +5227,8 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "butterfly_worm_noise_frequency" => Some(&mut adjustables.butterfly_worm_noise_frequency),
         "butterfly_worm_noise_detail_frequency" => Some(&mut adjustables.butterfly_worm_noise_detail_frequency),
         "butterfly_worm_noise_detail_weight" => Some(&mut adjustables.butterfly_worm_noise_detail_weight),
+        "tree_planting_scale" => Some(&mut adjustables.tree_planting_scale),
+        "tree_planting_apple_density" => Some(&mut adjustables.tree_planting_apple_density),
         "soil_deposition_rate" => Some(&mut adjustables.soil_deposition_rate),
         "soil_deposition_spread_radius" => Some(&mut adjustables.soil_deposition_spread_radius),
         "soil_deposition_repose_slope" => Some(&mut adjustables.soil_deposition_repose_slope),
