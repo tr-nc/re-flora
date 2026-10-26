@@ -73,26 +73,30 @@ these deterministic functions and uses the same cached-angle surface bank as
 butterflies. This is not terrain voxel geometry. Visual reviews are runtime
 screenshots, not source textures.
 
-## Procedural bees and nesting houses (2026-10-26)
+## Procedural bees and voxel nests
 
 [`src/tracer/model_geometry/bees.rs`](../../src/tracer/model_geometry/bees.rs)
-is the original runtime source: a striped ellipsoid bee with antennae and four
-wing poses, plus a timber-colored box, sloped roof and nine recessed openings.
-It reuses the deterministic sphere tessellation helper in `firefly.rs`; boxes
-and openings are constructed as triangles. The exact dimensions/rotations are
-in that source, colors in
-[`garden_model_material.slang`](../../shader/slang/garden_model_material.slang),
-and world scale in [`particles/bees.rs`](../../src/particles/bees.rs) (`HIVE_SCALE=6/256`).
-No texture, external model, reference photograph or AI image/3D-generation service
-was used; no seed or offline binary-generation step is required. These are
-procedural code-generated models, not terrain voxels. Runtime screenshots are
-validation references, not source art. Existing repository code/asset licensing
-remains applicable; this note grants no new rights to third-party resources.
+is the original runtime source for striped ellipsoid bees with antennae and four
+wing poses, using the deterministic sphere helper in `firefly.rs`. Bee pigments
+live in [`garden_model_material.slang`](../../shader/slang/garden_model_material.slang).
+Debug Panel → Bees independently controls their size and presentation FPS.
 
-The house is a stylized solitary-bee nesting block, not a honeybee colony;
-[research](../../docs/research/garden-bee-houses.md) informed the roof, openings
-and tree/pole placement. No RHS pictures were copied. Enlarged bee scale and
-fixed populations are readability/budget choices, not biological measurements.
+The former cached tree/post-mounted house model and skin bindings have been removed.
+New nests are actual solid terrain voxels with an integrated thin post, authored in
+[`garden_bees/geometry.rs`](../../src/app/core/garden_bees/geometry.rs). The two recipes
+are a roofed artificial house with recessed openings and a stylized rounded, tiered
+natural ochre nest. Both reuse the existing cherry/oak voxel materials; their colors
+follow the saved terrain palette. Ground placement captures the selected style and
+orientation, so later style changes do not alter existing nests. Legacy model-only
+attachments retire on load without modifying their old hosts.
+
+No image, audio, external model, photograph or AI generation service was used for
+these procedural recipes. There is no imported binary asset or offline generation
+step. Runtime screenshots are validation references, not source art. Existing
+repository licensing applies; no new third-party rights are asserted. The natural
+nest is a visual stylization, not a claim about solitary-bee nest biology. The older
+[research](../../docs/research/garden-bee-houses.md) describes the retired attachment
+proposal, not the current placement behavior.
 
 ## Publish the flower bank
 

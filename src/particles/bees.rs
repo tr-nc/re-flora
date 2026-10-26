@@ -4,22 +4,19 @@ use super::{
     flower_visits::{ButterflyBodyPose, FlowerId, FlowerTarget},
     ButterflyFrame, ParticleRenderKind, ParticleSnapshot,
 };
-use glam::{Quat, Vec3, Vec4};
+use glam::{Vec3, Vec4};
 pub(crate) const MAX_HIVES: usize = 8;
 pub(crate) const RESIDENTS: usize = 8;
 pub(crate) const CAPACITY: usize = MAX_HIVES * RESIDENTS;
-pub(crate) const HIVE_SCALE: f32 = 6. / 256.;
-const MODEL_SCALE: f32 = 1.53125 / 3.4;
 const CLEARANCE: f32 = 0.002;
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct HiveSite {
     pub id: u32,
     pub position: Vec3,
-    pub rotation: Quat,
 }
 impl HiveSite {
     pub fn entrance(self) -> Vec3 {
-        self.position + self.rotation * Vec3::Z * (HIVE_SCALE * 0.4)
+        self.position
     }
 }
 #[derive(Clone, Copy, Debug)]
@@ -73,9 +70,11 @@ fn homeward(bee: &mut Bee, site: HiveSite) {
     };
 }
 impl Bees {
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.residents.len()
     }
+    #[cfg(test)]
     pub fn outside(&self) -> usize {
         self.residents
             .iter()
@@ -267,28 +266,6 @@ impl Bees {
         }
     }
 }
-pub(crate) fn append_hives(
-    sites: &[HiveSite],
-    frame: ButterflyFrame,
-    out: &mut Vec<ParticleSnapshot>,
-) {
-    for site in sites {
-        let mut snap = model_snapshot(
-            ParticleRenderKind::Hive,
-            site.position,
-            HIVE_SCALE / MODEL_SCALE,
-            frame,
-        );
-        snap.butterfly_body_pose = Some(ButterflyBodyPose {
-            orientation: site.rotation,
-            phase: Some(0.),
-            host: None,
-            yaw: 0.,
-            clearance: 0.,
-        });
-        out.push(snap);
-    }
-}
 fn model_snapshot(
     kind: ParticleRenderKind,
     position: Vec3,
@@ -318,7 +295,6 @@ mod tests {
         HiveSite {
             id,
             position: Vec3::ONE,
-            rotation: Quat::IDENTITY,
         }
     }
     fn flower() -> FlowerTarget {
@@ -404,11 +380,8 @@ mod tests {
     }
 
     #[test]
-    fn houses_are_opaque_models_and_visits_retain_stable_host_identity() {
+    fn visits_retain_stable_host_identity() {
         let mut out = Vec::new();
-        append_hives(&[site(1)], ButterflyFrame::at(2., 24), &mut out);
-        assert_eq!(out[0].kind, ParticleRenderKind::Hive);
-        assert!(out[0].kind.is_model());
         let mut bees = Bees::default();
         for _ in 0..70 {
             bees.update(0.05, &[site(1)], &[flower()], true);

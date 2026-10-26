@@ -208,17 +208,13 @@ pub enum ParticleRenderKind {
     Butterfly,
     Firefly,
     Bee,
-    Hive,
     WaterDroplet,
     TerrainVoxel,
 }
 
 impl ParticleRenderKind {
     pub(crate) fn is_model(self) -> bool {
-        matches!(
-            self,
-            Self::Butterfly | Self::Firefly | Self::Bee | Self::Hive
-        )
+        matches!(self, Self::Butterfly | Self::Firefly | Self::Bee)
     }
 }
 

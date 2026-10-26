@@ -16,8 +16,7 @@ pub const FIREFLY_POSES: u32 = 4;
 mod bees;
 pub const BEE_SOURCE_BASE: u32 = FIREFLY_SOURCE_BASE + FIREFLY_POSES;
 pub const BEE_POSES: u32 = 4;
-pub const HIVE_SOURCE: u32 = BEE_SOURCE_BASE + BEE_POSES;
-pub const FLOWER_SOURCE_BASE: u32 = HIVE_SOURCE + 1;
+pub const FLOWER_SOURCE_BASE: u32 = BEE_SOURCE_BASE + BEE_POSES;
 fn representatives() -> &'static [usize] {
     static IDS: LazyLock<Vec<usize>> = LazyLock::new(|| {
         models::flowers()
@@ -159,9 +158,6 @@ pub(super) fn source(shape: Shape) -> Source {
         triangles.extend(bees::bee(phase));
         ranges.push([first, triangles.len() as u32 - first, 2, phase]);
     }
-    let first = triangles.len() as u32;
-    triangles.extend(bees::hive());
-    ranges.push([first, triangles.len() as u32 - first, 2, 0]);
     let mut flower_parts = Vec::new();
     let mut flower_root_radius = 4f32;
     let mut flower_spawn_height = 0f32;
@@ -370,7 +366,7 @@ pub(super) fn source(shape: Shape) -> Source {
     for frame in 0..FIREFLY_POSES {
         cache_bounds[(FIREFLY_SOURCE_BASE + frame) as usize] = Some((Vec3::ZERO, 1.0));
     }
-    for source in BEE_SOURCE_BASE..=HIVE_SOURCE {
+    for source in BEE_SOURCE_BASE..FLOWER_SOURCE_BASE {
         cache_bounds[source as usize] = Some((Vec3::ZERO, 1.0));
     }
     for (source, bounds) in sprinkler_bounds {

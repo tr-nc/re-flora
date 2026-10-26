@@ -45,11 +45,7 @@ impl GardenSnapshot {
         self.fences.validate(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)?;
         self.carried_soil.validate()?;
         self.economy.validate()?;
-        self.hives.validate(
-            CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
-            |id| self.trees.contains_tree(id),
-            |id| self.fences.contains_post(id),
-        )?;
+        self.hives.validate(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)?;
         anyhow::ensure!(
             self.economy
                 .harvest_receipts()
@@ -396,6 +392,7 @@ impl App {
             metadata.chunk_byte_len()?,
             metadata.chunk_count()? * metadata.chunk_byte_len()?
         );
+        self.update_garden_fence_anchors()?;
         self.update_hive_anchors()?;
         let mut writer = TerrainSnapshotWriter::create(path, metadata)?;
         let garden = GardenSnapshot {

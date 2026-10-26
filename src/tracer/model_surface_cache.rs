@@ -517,7 +517,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<Entry>(), 32);
     }
     #[test]
-    fn garden_insect_and_hive_cache_preserves_each_authored_material() {
+    fn garden_insect_cache_preserves_each_authored_material() {
         let source = super::super::model_geometry::source(crate::flora::models::Shape::default());
         let data = bake(
             &source,
@@ -537,12 +537,7 @@ mod tests {
             assert_eq!(entry.layout[3], 1);
             let samples =
                 &data.samples[entry.layout[0] as usize..entry.layout[0] as usize + 8 * 8 * 8];
-            let materials = if id == super::super::model_geometry::HIVE_SOURCE {
-                4
-            } else {
-                3
-            };
-            for material in 0..materials {
+            for material in 0..3 {
                 assert!(samples
                     .iter()
                     .any(|s| s.position[3] > 0. && s.normal[3] == material as f32));

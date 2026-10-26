@@ -262,7 +262,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Debug",
         id: "butterfly_cache_enabled",
         kind: "bool",
-        label: "Insects / bee houses: use model pre-cache",
+        label: "Insects: use model pre-cache",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -1406,6 +1406,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Bees",
+        id: "hive_style",
+        kind: "choice",
+        label: "Hive style (new placements)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Bees",
         id: "bee_size_scale",
         kind: "float",
         label: "Size scale",
@@ -1426,7 +1432,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Butterflies",
         id: "butterfly_pixel_resolution",
         kind: "uint",
-        label: "Insects / bee houses: pre-cache resolution (N x N)",
+        label: "Insects: pre-cache resolution (N x N)",
     },
     GeneratedGuiParamDescriptor {
         section: "Butterflies",
@@ -1950,6 +1956,7 @@ pub struct GuiAdjustables {
     pub leaves_tip_color: crate::gui_adjustables::ColorParam,
     pub terrain_harvest_particles_enabled: crate::gui_adjustables::BoolParam,
     pub terrain_harvest_flyback_speed: crate::gui_adjustables::FloatParam,
+    pub hive_style: crate::gui_adjustables::ChoiceParam,
     pub bee_size_scale: crate::gui_adjustables::FloatParam,
     pub bee_animation_fps: crate::gui_adjustables::UintParam,
     pub butterflies_enabled: crate::gui_adjustables::BoolParam,
@@ -2245,6 +2252,7 @@ impl GuiAdjustables {
         let mut leaves_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut terrain_harvest_particles_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut terrain_harvest_flyback_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut hive_style_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut bee_size_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut bee_animation_fps_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut butterflies_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
@@ -3829,6 +3837,11 @@ impl GuiAdjustables {
                             terrain_harvest_flyback_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "hive_style" => {
+                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
+                            hive_style_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
+                        }
+                    }
                     "bee_size_scale" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -4405,6 +4418,7 @@ impl GuiAdjustables {
             leaves_tip_color: leaves_tip_color_field.expect("Missing parameter: leaves_tip_color"),
             terrain_harvest_particles_enabled: terrain_harvest_particles_enabled_field.expect("Missing parameter: terrain_harvest_particles_enabled"),
             terrain_harvest_flyback_speed: terrain_harvest_flyback_speed_field.expect("Missing parameter: terrain_harvest_flyback_speed"),
+            hive_style: hive_style_field.expect("Missing parameter: hive_style"),
             bee_size_scale: bee_size_scale_field.expect("Missing parameter: bee_size_scale"),
             bee_animation_fps: bee_animation_fps_field.expect("Missing parameter: bee_animation_fps"),
             butterflies_enabled: butterflies_enabled_field.expect("Missing parameter: butterflies_enabled"),
@@ -4720,6 +4734,7 @@ pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
         "scene_pixel_resolve_mode" => Some(&adjustables.scene_pixel_resolve_mode),
         "sprinkler_design" => Some(&adjustables.sprinkler_design),
         "sprinkler_placement_type" => Some(&adjustables.sprinkler_placement_type),
+        "hive_style" => Some(&adjustables.hive_style),
         _ => None,
     }
 }
@@ -5049,6 +5064,7 @@ pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
         "scene_pixel_resolve_mode" => Some(&mut adjustables.scene_pixel_resolve_mode),
         "sprinkler_design" => Some(&mut adjustables.sprinkler_design),
         "sprinkler_placement_type" => Some(&mut adjustables.sprinkler_placement_type),
+        "hive_style" => Some(&mut adjustables.hive_style),
         _ => None,
     }
 }

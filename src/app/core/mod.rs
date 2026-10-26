@@ -2529,7 +2529,7 @@ impl App {
                 let mut clicked_edit_material = None;
                 let mut shop_action = None;
                 let planting_summary = if self.player_tools.selected_tool() == PlayerTool::Hive {
-                    "Bee house · mount on a tree/pole · right-click to remove".into()
+                    "Bee house · plant on ground · right-click hive/post to remove".into()
                 } else {
                     self.garden_economy
                         .stock_summary(selected_variety, infinite_materials)
@@ -3230,6 +3230,9 @@ impl App {
 
                 if let Err(error) = self.update_mower(frame_delta_time) {
                     log::error!("[MOWER] update failed: {error:#}");
+                }
+                if let Err(error) = self.update_garden_fence_anchors() {
+                    log::warn!("[GARDEN_FENCE] anchor reconciliation failed: {error:#}");
                 }
                 if let Err(error) = self.update_hive_anchors() {
                     log::warn!("[GARDEN_HOSTS] anchor reconciliation failed: {error:#}");

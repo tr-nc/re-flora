@@ -62,17 +62,6 @@ impl Post {
             self.radius
         }
     }
-    fn owns(&self, p: UVec3) -> bool {
-        if p.y < self.base[1] || p.y - self.base[1] >= self.height {
-            return false;
-        }
-        let y = p.y - self.base[1];
-        let c = self.center(y).as_uvec3();
-        let dx = p.x.abs_diff(c.x);
-        let dz = p.z.abs_diff(c.z);
-        let r = self.radius_at(y);
-        dx <= r && dz <= r && dx * dx + dz * dz <= r * r
-    }
     fn cells(&self) -> BTreeSet<[u32; 3]> {
         let mut cells = BTreeSet::new();
         for y in 0..self.height {
@@ -103,9 +92,6 @@ impl Default for FenceSnapshot {
     }
 }
 impl FenceSnapshot {
-    pub(super) fn contains_post(&self, id: u32) -> bool {
-        self.posts.iter().any(|p| p.id == id)
-    }
     pub(super) fn validate(&self, world: UVec3) -> Result<()> {
         ensure!(
             self.posts.len() <= MAX_POSTS && self.next_id > 0,
@@ -142,19 +128,6 @@ pub(super) struct GardenFence {
     dirty: HashSet<u32>,
 }
 impl GardenFence {
-    pub(super) fn post_at(&self, cell: UVec3) -> Option<u32> {
-        self.saved.posts.iter().find(|p| p.owns(cell)).map(|p| p.id)
-    }
-    pub(super) fn post_owns(&self, id: u32, cell: UVec3) -> bool {
-        self.saved.posts.iter().any(|p| p.id == id && p.owns(cell))
-    }
-    pub(super) fn review_post_cap(&self, id: u32) -> Option<UVec3> {
-        self.saved.posts.iter().find(|p| p.id == id).map(Post::top)
-    }
-    pub(super) fn review_post_contact(&self, id: u32) -> Option<Vec3> {
-        let p = self.saved.posts.iter().find(|p| p.id == id)?;
-        Some((p.center(p.height / 2).as_vec3() + Vec3::new(0.5, 0.5, p.radius as f32 + 1.)) / 256.)
-    }
     pub(super) fn restore(&mut self, saved: FenceSnapshot) {
         self.dirty = saved.posts.iter().map(|p| p.id).collect();
         self.saved = saved;
@@ -216,7 +189,7 @@ fn rope_cells(a: Vec3, b: Vec3, world: UVec3) -> Result<BTreeSet<[u32; 3]>> {
     }
     Ok(cells)
 }
-fn stamp(cells: &BTreeSet<[u32; 3]>, material: u32) -> Result<VoxelEdit> {
+pub(super) fn stamp(cells: &BTreeSet<[u32; 3]>, material: u32) -> Result<VoxelEdit> {
     let mut columns = BTreeMap::<(u32, u32), Vec<u32>>::new();
     for &[x, y, z] in cells {
         columns.entry((x, z)).or_default().push(y);
