@@ -11,6 +11,7 @@ use anyhow::{ensure, Context, Result};
 use glam::{IVec3, UVec3, Vec3};
 
 const FOOTING_HEIGHT: i32 = 6;
+const PLACEMENT_SCALE: f32 = 0.5;
 
 #[derive(Clone, Copy)]
 struct Part {
@@ -211,10 +212,7 @@ impl App {
         let plan = Plan::new(
             hit,
             self.world_chunk_dim * super::VOXEL_DIM_PER_CHUNK,
-            self.debug_settings
-                .adjustables
-                .stone_lantern_placement_scale
-                .value,
+            PLACEMENT_SCALE,
         )?;
         let dim = plan.bound.max() - plan.bound.min();
         let before = self
@@ -233,15 +231,12 @@ impl App {
         let Ok(mode) = std::env::var("RE_FLORA_LANTERN_REVIEW") else {
             return Ok(());
         };
-        let scale = if matches!(mode.as_str(), "small" | "load-small") {
-            0.5
-        } else {
+        // Keep an explicit legacy-load fixture for previously stamped 1x terrain.
+        let scale = if mode == "load-original" {
             1.
+        } else {
+            PLACEMENT_SCALE
         };
-        self.debug_settings
-            .adjustables
-            .stone_lantern_placement_scale
-            .value = scale;
         self.contree_builder.flush_cpu_chunk_cache_jobs();
         ensure!(
             self.contree_builder.cpu_chunk_cache_jobs_idle(),
@@ -343,7 +338,10 @@ impl App {
                 removed.iter().all(|b| b & VOXEL_TYPE_MASK == 0),
                 "lantern light core was not editable"
             );
-            log::info!("[STONE_LANTERN_REVIEW] core_removed=150 ordinary_terrain_edit=true");
+            log::info!(
+                "[STONE_LANTERN_REVIEW] core_removed={} ordinary_terrain_edit=true",
+                removed.len()
+            );
         }
         log::info!("[STONE_LANTERN_REVIEW] verified=true mode={mode} scale={scale} stone={stone} emissive={light} open_windows=true physical_roof_ray=true");
         Ok(())

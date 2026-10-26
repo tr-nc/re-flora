@@ -146,6 +146,11 @@ known limitations; partially implemented items remain open.
 
 ### Delivery log
 
+- Player follow-up (2026-10-27): removed the lantern size slider after approval
+  of 0.5×. New placements now use a fixed half-size constant; existing stamped
+  lanterns remain unchanged. Legacy saved scale values and the empty placement
+  section are retired on load/Save. The instant-mature tree checkbox is retained.
+
 - Player follow-up (2026-10-27): added saved **Stone lantern scale (new lanterns)**
   in Construction Placement, range 0.5–2, default 1. Only newly stamped terrain
   uses the preset; geometry, window clearance and foundation allowance scale

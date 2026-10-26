@@ -79,7 +79,8 @@ impl GuiConfigLoader {
         Self::retire_cloud_settings(&mut config);
         for section in &mut config.section {
             section.param.retain(|param| {
-                param.id != "tree_leaf_recorded_mix"
+                param.id != "stone_lantern_placement_scale"
+                    && param.id != "tree_leaf_recorded_mix"
                     && !param.id.starts_with("tree_rustle_")
                     && param.id != "grass_natural_bend_min_voxels"
                     && param.id != "flora_bend_height_power"
@@ -102,9 +103,12 @@ impl GuiConfigLoader {
                     && !RETIRED_FLORA_COLOR_PARAMS.contains(&param.id.as_str())
             });
         }
-        config
-            .section
-            .retain(|section| section.name != "FloraVariation" || !section.param.is_empty());
+        config.section.retain(|section| {
+            !matches!(
+                section.name.as_str(),
+                "FloraVariation" | "Construction Placement"
+            ) || !section.param.is_empty()
+        });
         for id in [
             "low_wall_kind",
             "low_wall_width",
@@ -349,7 +353,6 @@ impl GuiConfigLoader {
             });
         }
         Self::add_missing_section_params(&mut config, "Tree Planting");
-        Self::add_missing_section_params(&mut config, "Construction Placement");
         Self::add_missing_section_params(&mut config, "Terrain Material");
         Self::add_missing_section_params(&mut config, "Climbing Plants");
         // Old saves gain new flower controls from the declarations, without
@@ -1496,9 +1499,23 @@ mod tests {
     fn placement_preferences_upgrade_old_settings_and_preserve_saved_choices() {
         let mut config: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).unwrap();
-        config
-            .section
-            .retain(|section| section.name != "Construction Placement");
+        config.section.push(
+            toml::from_str(
+                r#"
+name = "Construction Placement"
+[[param]]
+id = "stone_lantern_placement_scale"
+kind = "float"
+label = "Stone lantern scale (new lanterns)"
+type = "Float"
+[param.data]
+value = 2
+min = 0.5
+max = 2
+"#,
+            )
+            .unwrap(),
+        );
         for section in &mut config.section {
             section
                 .param
@@ -1513,14 +1530,14 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
         let defaults = crate::app::gui_config::GuiAdjustables::from_config(&loaded);
         assert!(defaults.tree_planting_instant_mature.value);
-        assert_eq!(defaults.stone_lantern_placement_scale.value, 1.);
+        assert!(!loaded
+            .section
+            .iter()
+            .any(|s| s.name == "Construction Placement"));
         for p in loaded.section.iter_mut().flat_map(|s| &mut s.param) {
             match (&*p.id, &mut p.value) {
                 ("tree_planting_instant_mature", super::GuiParamValue::Bool { value }) => {
                     *value = false
-                }
-                ("stone_lantern_placement_scale", super::GuiParamValue::Float { value, .. }) => {
-                    *value = 0.5
                 }
                 _ => {}
             }
@@ -1529,7 +1546,14 @@ mod tests {
         let restored = GuiConfigLoader::load_from_path(&path);
         let fields = crate::app::gui_config::GuiAdjustables::from_config(&restored);
         assert!(!fields.tree_planting_instant_mature.value);
-        assert_eq!(fields.stone_lantern_placement_scale.value, 0.5);
+        assert!(!restored
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .any(|p| p.id == "stone_lantern_placement_scale"));
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("stone_lantern_placement_scale"));
         assert_eq!(restored.tree.desc, tree);
     }
 

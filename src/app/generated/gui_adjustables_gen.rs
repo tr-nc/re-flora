@@ -1555,12 +1555,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Apple density (new trees)",
     },
     GeneratedGuiParamDescriptor {
-        section: "Construction Placement",
-        id: "stone_lantern_placement_scale",
-        kind: "float",
-        label: "Stone lantern scale (new lanterns)",
-    },
-    GeneratedGuiParamDescriptor {
         section: "Material Supply",
         id: "infinite_materials",
         kind: "bool",
@@ -2023,7 +2017,6 @@ pub struct GuiAdjustables {
     pub tree_planting_instant_mature: crate::gui_adjustables::BoolParam,
     pub tree_planting_scale: crate::gui_adjustables::FloatParam,
     pub tree_planting_apple_density: crate::gui_adjustables::FloatParam,
-    pub stone_lantern_placement_scale: crate::gui_adjustables::FloatParam,
     pub infinite_materials: crate::gui_adjustables::BoolParam,
     pub soil_deposition_batch_size: crate::gui_adjustables::UintParam,
     pub soil_deposition_rate: crate::gui_adjustables::FloatParam,
@@ -2326,7 +2319,6 @@ impl GuiAdjustables {
         let mut tree_planting_instant_mature_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut tree_planting_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_planting_apple_density_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut stone_lantern_placement_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut infinite_materials_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut soil_deposition_batch_size_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut soil_deposition_rate_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -4046,13 +4038,6 @@ impl GuiAdjustables {
                             tree_planting_apple_density_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "stone_lantern_placement_scale" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            stone_lantern_placement_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
                     "infinite_materials" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             infinite_materials_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -4544,7 +4529,6 @@ impl GuiAdjustables {
             tree_planting_instant_mature: tree_planting_instant_mature_field.expect("Missing parameter: tree_planting_instant_mature"),
             tree_planting_scale: tree_planting_scale_field.expect("Missing parameter: tree_planting_scale"),
             tree_planting_apple_density: tree_planting_apple_density_field.expect("Missing parameter: tree_planting_apple_density"),
-            stone_lantern_placement_scale: stone_lantern_placement_scale_field.expect("Missing parameter: stone_lantern_placement_scale"),
             infinite_materials: infinite_materials_field.expect("Missing parameter: infinite_materials"),
             soil_deposition_batch_size: soil_deposition_batch_size_field.expect("Missing parameter: soil_deposition_batch_size"),
             soil_deposition_rate: soil_deposition_rate_field.expect("Missing parameter: soil_deposition_rate"),
@@ -4765,7 +4749,6 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "butterfly_worm_noise_detail_weight" => Some(&adjustables.butterfly_worm_noise_detail_weight),
         "tree_planting_scale" => Some(&adjustables.tree_planting_scale),
         "tree_planting_apple_density" => Some(&adjustables.tree_planting_apple_density),
-        "stone_lantern_placement_scale" => Some(&adjustables.stone_lantern_placement_scale),
         "soil_deposition_rate" => Some(&adjustables.soil_deposition_rate),
         "soil_deposition_spread_radius" => Some(&adjustables.soil_deposition_spread_radius),
         "soil_deposition_repose_slope" => Some(&adjustables.soil_deposition_repose_slope),
@@ -5102,7 +5085,6 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "butterfly_worm_noise_detail_weight" => Some(&mut adjustables.butterfly_worm_noise_detail_weight),
         "tree_planting_scale" => Some(&mut adjustables.tree_planting_scale),
         "tree_planting_apple_density" => Some(&mut adjustables.tree_planting_apple_density),
-        "stone_lantern_placement_scale" => Some(&mut adjustables.stone_lantern_placement_scale),
         "soil_deposition_rate" => Some(&mut adjustables.soil_deposition_rate),
         "soil_deposition_spread_radius" => Some(&mut adjustables.soil_deposition_spread_radius),
         "soil_deposition_repose_slope" => Some(&mut adjustables.soil_deposition_repose_slope),

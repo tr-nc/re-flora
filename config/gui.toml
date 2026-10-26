@@ -2949,20 +2949,6 @@ min = 0
 max = 1
 
 [[section]]
-name = "Construction Placement"
-
-[[section.param]]
-id = "stone_lantern_placement_scale"
-kind = "float"
-label = "Stone lantern scale (new lanterns)"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = 0.5
-max = 2
-
-[[section]]
 name = "Material Supply"
 
 [[section.param]]

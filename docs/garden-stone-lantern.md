@@ -21,7 +21,28 @@ existing Edit tool can carve or remove the lantern, including its light core.
 The light is currently always lit, using existing emissive material controls and
 the global light budget. Construction resource pricing is not implemented here.
 
-## Size preset (2026-10-27)
+## Fixed half-size placement (2026-10-27 follow-up)
+
+The player approved **0.5×** and requested removal of the size slider.
+All new lanterns now use that fixed scale: **15×25×15 voxels**, with 1,381 Rock
+and 27 Emissive cells. Existing terrain lanterns retain their saved size.
+There is no remaining Debug size control; old saved slider values are discarded
+on load and removed on explicit Save, without rewriting files during loading.
+The separate default-on instant-mature tree checkbox remains available.
+
+The normal placement, clearance, collision, lighting and terrain-save paths are
+unchanged. Native review modes `1`, `load` and `edit` now exercise the fixed
+half-size lantern; `small`/`load-small` remain compatible aliases.
+`load-original` checks an existing historical 1× fixture without resizing it.
+
+Follow-up checks passed: three lantern tests, legacy-setting retirement/tree-toggle
+persistence and exhaustive generic Save tests; formatting, cargo check and Release
+build. Native default placement/save/reload confirms 1,381 stone/27 emissive cells,
+open window and physical roof hit. Native editing removes all 27 core cells;
+ordinary hidden/muted smoke and run-log inspection show no ERROR/panic/VUID and
+shutdown `failures=0`. Full-suite and subjective acceptance were not rerun.
+
+## Historical size preset (introduced then removed on 2026-10-27)
 
 **R → Construction Placement → Stone lantern scale (new lanterns)**, or search
 **new lanterns**. Range **0.5–2**, default **1** preserves the previous size.
@@ -40,7 +61,8 @@ migration and the exhaustive generic settings save/reload test pass. Hidden
 Release `RE_FLORA_LANTERN_REVIEW=small` and `load-small` runs saved/reloaded
 the actual half-size terrain lantern: **1,381 Rock / 27 Emissive voxels**, open
 window and physical roof ray verified. Half size has a 15×25×15 voxel bound.
-The same review's `1`/`load` modes retain the original 1× fixture.
+At that stage the review's `1`/`load` modes retained the original 1× fixture;
+the fixed-size follow-up above supersedes those mode meanings.
 Inspected `target/lantern-size-control.png`; check/Release/hidden smoke pass.
 No manual visual approval or new performance claim; no world-save format changes.
 
@@ -62,7 +84,8 @@ No manual visual approval or new performance claim; no world-save format changes
 - Walking into the object has not been manually playtested. The physical query
   and normal collision publication path were checked, not human movement feel.
 
-Reproduction (use `env -u WAYLAND_DISPLAY` on this machine if needed):
+Current reproduction uses the fixed half-size lantern (use `env -u WAYLAND_DISPLAY`
+on this machine if needed); the original-size screenshots above remain historical:
 
 ```sh
 RE_FLORA_LANTERN_REVIEW=1 cargo run --release -- --hidden --mute \
