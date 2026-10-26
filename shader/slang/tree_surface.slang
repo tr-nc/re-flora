@@ -8,6 +8,9 @@ public float3 treeSurfacePosition(uint vertex) {
 public float3 treeSurfaceNormal(uint vertex) {
     return tree_scene_vertices[vertex*2u+1u].xyz;
 }
+public float treeSurfaceBarkStyle(uint vertex) {
+    return tree_skin_rest[vertex*3u+1u].w - 1.0;
+}
 public float3 treeSurfaceRestCenter(uint vertex) {
     return tree_skin_rest[vertex*3u+1u].xyz;
 }

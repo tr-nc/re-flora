@@ -113,13 +113,22 @@ struct BuiltObjects {
 
 #[derive(Debug)]
 pub struct Tree {
+    exfoliating_bark: bool,
     built_objects: BuiltObjects,
 }
 
 impl Tree {
     pub fn new(desc: TreeDesc) -> Self {
-        let built_objects = Self::build(&desc.into_current());
-        Tree { built_objects }
+        let desc = desc.into_current();
+        let built_objects = Self::build(&desc);
+        Tree {
+            built_objects,
+            exfoliating_bark: desc.species.exfoliating_bark(),
+        }
+    }
+
+    pub(crate) fn bark_style(&self) -> u32 {
+        u32::from(self.exfoliating_bark)
     }
 
     pub fn trunks(&self) -> &[RoundCone] {
@@ -303,6 +312,15 @@ fn generate_leaf_sprays(
                 continue;
             }
 
+            if desc.species.palmate_foliage() {
+                // Five broad lobes and recessed sinuses in the flattened voxel spray.
+                // Keep all samples attached to the same twig for coherent wind response.
+                let angle = sample.y.atan2(sample.x);
+                let envelope = 0.72 + 0.28 * (5. * angle).cos();
+                if sample.x.hypot(sample.y) > envelope {
+                    continue;
+                }
+            }
             // A branch-oriented ellipsoid creates a readable spray instead of another
             // world-aligned ball. Individual positions remain independent render instances.
             let position = spray_center

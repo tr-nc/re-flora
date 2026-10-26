@@ -144,7 +144,7 @@ mod tests {
             vec![
                 PlantVariety::Tree(TreeSpecies::AppleTree),
                 PlantVariety::Tree(TreeSpecies::Pine),
-                PlantVariety::Tree(TreeSpecies::WeepingWillow)
+                PlantVariety::Tree(TreeSpecies::LondonPlane)
             ]
         );
         let authored = TreeDesc::default();
@@ -168,7 +168,7 @@ mod tests {
         assert!(selection.select_variety(selection.next_variety()));
         assert_eq!(
             selection.next_variety(),
-            PlantVariety::Tree(TreeSpecies::WeepingWillow)
+            PlantVariety::Tree(TreeSpecies::LondonPlane)
         );
         assert!(selection.select_type(PlantType::Flora));
         assert!(selection.select_type(PlantType::Tree));

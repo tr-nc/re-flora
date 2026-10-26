@@ -132,6 +132,7 @@ impl RasterTreeMesh {
         self.solid_cells
             .extend(fragment.mesh.solid_cells.iter().copied());
         self.trunk_collision.append(&fragment.mesh.trunk_collision);
+        self.bark_styles.insert(id, tree.bark_style());
         self.dependencies.include_region(origin, dim, cones);
         for (cell_index, &cell) in fragment.mesh.cells.keys().enumerate() {
             if self
@@ -230,6 +231,49 @@ mod tests {
         mesh.bind_compiled_fragments().unwrap();
         (mesh, hit)
     }
+    #[test]
+    fn bark_appearance_survives_uncached_fragments_without_recoloring_other_trees() {
+        let (_, bytes) = fixture();
+        for species in [
+            crate::tree_gen::TreeSpecies::AppleTree,
+            crate::tree_gen::TreeSpecies::LondonPlane,
+        ] {
+            let mut desc = species.default_desc();
+            desc.size = 20.;
+            desc.trunk_thickness = 1.; // fixture cells must actually lie inside both trunks
+            let tree = Arc::new(Tree::new(desc));
+            let mut mesh = RasterTreeMesh {
+                fragment_cache_bytes: CACHE_BUDGET,
+                ..Default::default()
+            };
+            mesh.append_cached_tree_region(
+                TreeSurfaceRegion {
+                    id: 2,
+                    tree: &tree,
+                    tree_origin: Vec3::ZERO,
+                    origin: UVec3::ZERO,
+                    dim: UVec3::splat(8),
+                    bytes: &bytes,
+                    cones: tree.trunks(),
+                },
+                &RasterTreeMesh::default(),
+            )
+            .unwrap();
+            mesh.finish().unwrap();
+            mesh.bind_compiled_fragments().unwrap();
+            assert!(
+                mesh.fragments.is_empty(),
+                "exercise cache exhaustion, not a cache hit"
+            );
+            let skin = mesh.gpu_skin().unwrap();
+            assert!(!skin.rest.is_empty());
+            assert!(skin
+                .rest
+                .chunks_exact(3)
+                .all(|v| v[1][3] == 1. + tree.bark_style() as f32));
+        }
+    }
+
     fn reference(tree: &Arc<Tree>, bytes: &[u8]) -> RasterTreeMesh {
         let mut mesh = RasterTreeMesh::default();
         mesh.append_region(UVec3::ZERO, UVec3::splat(8), bytes, tree.trunks())

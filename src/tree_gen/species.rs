@@ -12,7 +12,9 @@ pub enum TreeSpecies {
     #[default]
     AppleTree,
     Pine,
+    /// Decode-only legacy species; no longer offered for planting.
     WeepingWillow,
+    LondonPlane,
 }
 
 /// The single registration of a species' architecture, foliage, fruit and authoring defaults.
@@ -44,15 +46,16 @@ struct GardenDefaults {
 
 impl TreeSpecies {
     #[cfg(test)]
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::Conifer,
         Self::AppleTree,
         Self::Pine,
         Self::WeepingWillow,
+        Self::LondonPlane,
     ];
 
     /// Legacy identities remain loadable, but new gardens offer the finished species.
-    pub const PLANTABLE: [Self; 3] = [Self::AppleTree, Self::Pine, Self::WeepingWillow];
+    pub const PLANTABLE: [Self; 3] = [Self::AppleTree, Self::Pine, Self::LondonPlane];
 
     fn definition(self) -> &'static SpeciesDefinition {
         match self {
@@ -96,8 +99,24 @@ impl TreeSpecies {
                     fruit_down_variance: 4.,
                 }),
             },
+            Self::LondonPlane => &SpeciesDefinition {
+                label: "London Plane",
+                growth: rules::PLANE,
+                apples: false,
+                planting_size: 20.,
+                authoring: AuthoringDefaults::Garden(GardenDefaults {
+                    trunk_thickness: 0.31,
+                    leaf_size_level: 5,
+                    leaf_density: 0.018,
+                    spray_width: 1.05,
+                    spray_thickness: 0.70,
+                    spray_tip_offset: 0.10,
+                    fruit_down_offset: 14.,
+                    fruit_down_variance: 4.,
+                }),
+            },
             Self::WeepingWillow => &SpeciesDefinition {
-                label: "Weeping Willow",
+                label: "Weeping Willow (legacy)",
                 growth: rules::WILLOW,
                 apples: false,
                 planting_size: 20.,
@@ -129,6 +148,14 @@ impl TreeSpecies {
             self.growth_rule(legacy_axis_model).architecture,
             rules::Architecture::Recursive
         )
+    }
+
+    pub(crate) fn exfoliating_bark(self) -> bool {
+        self == Self::LondonPlane
+    }
+
+    pub(super) fn palmate_foliage(self) -> bool {
+        self == Self::LondonPlane
     }
 
     pub fn bears_apples(self) -> bool {

@@ -56,10 +56,9 @@ pub(super) fn spreading(desc: &TreeDesc, profile: &SpreadingCrown) -> AxisSkelet
 
     // Unequal scaffold levels, not a stack of identical umbrellas. The trunk remains
     // connected through the crown; spaces between leaf masses reveal the curved wood.
-    for station in [2, 3, 5, 6, 7] {
+    for &(station, count) in profile.stations {
         let u = station as f32 / 8.;
         let envelope = (1. - ((u - 0.53) / 0.72).powi(2)).max(0.).sqrt();
-        let count = if station == 3 { 3 } else { 2 };
         for limb in 0..count {
             let angle = phase
                 + station as f32 * GOLDEN_ANGLE

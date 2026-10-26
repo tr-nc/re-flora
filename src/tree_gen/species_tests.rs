@@ -59,8 +59,11 @@ fn garden_species_are_connected_deterministic_and_bounded_across_seeds_and_ages(
 }
 
 #[test]
-fn willow_has_pendant_shoots_while_apple_and_pine_keep_ascending_crowns() {
-    for species in TreeSpecies::PLANTABLE {
+fn legacy_willow_has_pendant_shoots_but_current_crowns_ascend() {
+    for species in TreeSpecies::PLANTABLE
+        .into_iter()
+        .chain([TreeSpecies::WeepingWillow])
+    {
         for seed in [7, 122, 907] {
             let mut desc = species.mature_desc(&TreeDesc::default());
             desc.branching.seed = seed;
@@ -91,6 +94,7 @@ fn foliage_rules_keep_tip_crowns_and_along_shoot_sprays_distinct() {
         TreeSpecies::AppleTree,
         TreeSpecies::Pine,
         TreeSpecies::WeepingWillow,
+        TreeSpecies::LondonPlane,
         TreeSpecies::Conifer,
     ] {
         for seed in [7, 122, 907] {
@@ -135,6 +139,42 @@ fn foliage_rules_keep_tip_crowns_and_along_shoot_sprays_distinct() {
             }
         }
     }
+}
+
+#[test]
+fn plane_has_a_clear_trunk_broad_crown_and_its_own_bark_without_apples() {
+    assert!(!TreeSpecies::PLANTABLE.contains(&TreeSpecies::WeepingWillow));
+    for seed in [0, 7, 122, 907, u64::MAX] {
+        let mut desc = TreeSpecies::LondonPlane.default_desc();
+        desc.branching.seed = seed;
+        assert!(!desc.species.bears_apples());
+        let tree = Tree::new(desc.clone());
+        assert_eq!(tree.bark_style(), 1);
+        let first_lateral_height = tree
+            .branches()
+            .iter()
+            .zip(tree.axis_segments())
+            .filter(|(_, m)| m.order == 1)
+            .map(|(b, _)| b.start.y)
+            .fold(f32::INFINITY, f32::min);
+        assert!(
+            first_lateral_height > 35.,
+            "do not grow willow skirts at ground level"
+        );
+        let mut low = Vec3::splat(f32::INFINITY);
+        let mut high = Vec3::splat(f32::NEG_INFINITY);
+        for leaf in tree.relative_leaf_placements() {
+            low = low.min(leaf.position);
+            high = high.max(leaf.position);
+        }
+        let span = high - low;
+        assert!(span.x.max(span.z) > tree.height_voxels() * 0.6);
+        assert!(Tree::new(desc.at_age(0.25)).height_voxels() < tree.height_voxels() * 0.5);
+    }
+    assert_eq!(
+        Tree::new(TreeSpecies::AppleTree.default_desc()).bark_style(),
+        0
+    );
 }
 
 #[test]

@@ -71,6 +71,7 @@ pub struct RasterTreeMesh {
     trunk_collision: collision::RestTrunkCollision,
     bindings: Vec<Option<(u32, SkinBinding)>>,
     binding_cache: BTreeMap<u32, TreeBindingCache>,
+    bark_styles: BTreeMap<u32, u32>,
     cpu_plan: Option<Arc<CpuDeformationPlan>>,
     fragments: BTreeMap<u32, Arc<fragments::TreeSurfaceFragment>>,
     fragment_cache_bytes: usize,
@@ -94,6 +95,7 @@ impl RasterTreeMesh {
             && self.solid_cells == other.solid_cells
             && self.trunk_collision == other.trunk_collision
             && self.bindings == other.bindings
+            && self.bark_styles == other.bark_styles
             && self.cell_vertex_indices == other.cell_vertex_indices
     }
 
@@ -222,6 +224,7 @@ impl RasterTreeMesh {
             "finish tree mesh before binding"
         );
         self.cpu_plan = None;
+        self.bark_styles.insert(tree_id, tree.bark_style());
         self.trunk_collision
             .include_tree(&self.solid_cells, tree, origin);
         let previous = previous
@@ -319,7 +322,9 @@ impl RasterTreeMesh {
                 .push([child, parent, binding.weight.to_bits(), 0]);
             result.rest.extend([
                 Vec3::from(vertex.position).extend(1.).to_array(),
-                Vec3::from(vertex.center).extend(1.).to_array(),
+                Vec3::from(vertex.center)
+                    .extend(1. + self.bark_styles.get(&tree).copied().unwrap_or(0) as f32)
+                    .to_array(),
                 Vec3::from(vertex.normal)
                     .extend(vertex.normal_confidence)
                     .to_array(),

@@ -106,7 +106,7 @@ mod tests {
         for species in [
             TreeSpecies::AppleTree,
             TreeSpecies::Pine,
-            TreeSpecies::WeepingWillow,
+            TreeSpecies::LondonPlane,
         ] {
             let mut authored = species.default_desc();
             authored.branching.seed = 907;
@@ -131,7 +131,7 @@ mod tests {
         for (species, expected_size) in [
             (TreeSpecies::AppleTree, 5.8 * 1.1),
             (TreeSpecies::Pine, 20.),
-            (TreeSpecies::WeepingWillow, 20.),
+            (TreeSpecies::LondonPlane, 20.),
         ] {
             let planted = planting.apply(species.default_desc());
             assert_eq!(planted.size, expected_size);

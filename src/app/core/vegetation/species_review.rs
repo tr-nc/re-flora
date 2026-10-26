@@ -20,10 +20,10 @@ impl TreeSpeciesReview {
         let species = match mode.as_str() {
             "apple" | "apple-walk" => vec![TreeSpecies::AppleTree],
             "pine" => vec![TreeSpecies::Pine],
-            "willow" => vec![TreeSpecies::WeepingWillow],
+            "plane" => vec![TreeSpecies::LondonPlane],
             "mixed" => TreeSpecies::PLANTABLE.to_vec(),
             _ => anyhow::bail!(
-                "RE_FLORA_TREE_SPECIES_REVIEW must be apple, apple-walk, pine, willow or mixed"
+                "RE_FLORA_TREE_SPECIES_REVIEW must be apple, apple-walk, pine, plane or mixed"
             ),
         };
         let seed = std::env::var("RE_FLORA_TREE_SPECIES_SEED")

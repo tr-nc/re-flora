@@ -132,9 +132,23 @@ pub(super) fn product_for(goods: PlantGoods) -> Option<&'static Product> {
 pub(super) struct GardenEconomy {
     pub coins: u32,
     pub apples: u32,
+    #[serde(deserialize_with = "decode_stock")]
     stock: BTreeMap<String, u32>,
     harvested: BTreeSet<HarvestKey>,
 }
+fn decode_stock<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<BTreeMap<String, u32>, D::Error> {
+    let mut stock = BTreeMap::<String, u32>::deserialize(d)?;
+    if let Some(old) = stock.remove("sapling/weeping_willow") {
+        let count = stock.entry("sapling/london_plane".into()).or_default();
+        *count = count
+            .checked_add(old)
+            .ok_or_else(|| serde::de::Error::custom("sapling stock overflow"))?;
+    }
+    Ok(stock)
+}
+
 impl Default for GardenEconomy {
     fn default() -> Self {
         Self {
@@ -272,6 +286,16 @@ impl GardenEconomy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn retired_willow_stock_becomes_plane_stock_without_losing_goods() {
+        let mut value = serde_json::to_value(GardenEconomy::default()).unwrap();
+        value["stock"] = serde_json::json!({"sapling/weeping_willow":2,"sapling/london_plane":3});
+        let saved: GardenEconomy = serde_json::from_value(value).unwrap();
+        saved.validate().unwrap();
+        assert_eq!(saved.count("sapling/london_plane"), 5);
+        assert_eq!(saved.count("sapling/weeping_willow"), 0);
+        assert!(!catalog().iter().any(|p| p.id.contains("willow")));
+    }
     #[test]
     fn trade_is_exact_and_rejections_leave_all_owned_state_unchanged() {
         let mut e = GardenEconomy::default();

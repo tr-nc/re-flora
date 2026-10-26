@@ -5,7 +5,7 @@ Requested scope (sequential, local commits only):
 - [x] Butterfly: faster flight/wingbeats/turning; occasional curved return approach;
   active landing beats; feeding mouth anchored to the current flower pose;
   relaxed paired-wing opening of roughly 10–60 degrees, not a frozen pose.
-- [ ] Replace the third plantable tree (weeping willow) with London plane
+- [x] Replace the third plantable tree (weeping willow) with London plane
   (法国梧桐; Platanus × hispanica / × acerifolia), informed by botanical sources;
   preserve old save readability; inspect real game renders.
 - [ ] Add a central-aim vacuum tool for nearby harvestable fruit and special
@@ -23,6 +23,32 @@ subjective approval of animated motion. No push, official packaging, external
 publication or unattended persistent garden/config writes are requested.
 
 ## Evidence
+
+### London plane
+
+- Research: [botanical references and translation](research/london-plane-and-carrot.md).
+  Third Grow/Tree and shop entry is now **London Plane**. Existing willow trees
+  are load-only legacy geometry; unplanted willow goods migrate to plane goods.
+- Unequal ascending branching, clear lower trunk, wider palmate-inspired foliage
+  masses, and cream/olive/brown rest-anchored exfoliating bark. Shared growth,
+  preview, wind, physical ownership and snapshots remain authoritative.
+- Inspected two native Release renders and enlarged the initially too-thin
+  foliage sprays. Final capture: `target/liveliness-plane-full.png`, seed 907,
+  206 axes / 35,699 leaf voxels / zero apples / 167.56-voxel height.
+  It is intentionally a stylized unpollarded plane, not a photo-real botanical model.
+- `cargo fmt --check`, `cargo check`, species tests, uncached bark-publication
+  test and `cargo build --release` passed. Actual game fixture verifies preview
+  equality, age rebuild, serialized restore, GPU pose/surface/lighting and
+  clean shutdown (`target/liveliness-plane{,-full}.log`).
+- Full test run: 1701 passed, 13 ignored, 8 failed. **All eight failures reproduced
+  on untouched starting commit `fe4d71ac`** in a detached temporary worktree:
+  seven old raster-tree fixtures assume former Apple dimensions; one saved
+  apple-size test expects 1.0. Baseline logs:
+  `target/liveliness-baseline-{raster,apple}.log`. Not hidden or “fixed” by
+  changing unrelated defaults. Temporary worktree was removed.
+- No new external assets or generated tracked files. Shader checks compile the
+  actual native rendering path; no claim of a new performance budget pass.
+
 
 ### Butterfly
 
