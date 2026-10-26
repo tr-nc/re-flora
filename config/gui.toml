@@ -1245,7 +1245,7 @@ label = "Sun Color (lighting + disk)"
 type = "Color"
 
 [section.param.data]
-value = "#FFF1E0"
+value = "#FFF3E4"
 
 [[section.param]]
 id = "sun_luminance"
@@ -1254,7 +1254,7 @@ label = "Sun Lighting Strength"
 type = "Float"
 
 [section.param.data]
-value = 2
+value = 1.5
 min = 0
 max = 10
 
@@ -1265,7 +1265,7 @@ label = "Sky Lighting Strength (1 = original)"
 type = "Float"
 
 [section.param.data]
-value = 0.5
+value = 1
 min = 0
 max = 4
 
@@ -1276,7 +1276,7 @@ label = "Sun Disk Brightness (appearance)"
 type = "Float"
 
 [section.param.data]
-value = 1.65
+value = 1
 min = 0
 max = 10
 
@@ -2693,7 +2693,10 @@ type = "Choice"
 
 [section.param.data]
 value = 0
-options = ["Artificial bee house", "Natural ochre nest"]
+options = [
+    "Artificial bee house",
+    "Natural ochre nest",
+]
 
 [[section.param]]
 id = "bee_size_scale"
