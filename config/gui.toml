@@ -109,26 +109,6 @@ continue_main_axis = false
 name = "Debug"
 
 [[section.param]]
-id = "gui_panel_outlines"
-kind = "bool"
-label = "GUI: panel outlines"
-type = "Bool"
-
-[section.param.data]
-value = false
-
-[[section.param]]
-id = "camera_orbit_max_elevation"
-kind = "float"
-label = "Orbit camera: maximum downward angle (Degrees)"
-type = "Float"
-
-[section.param.data]
-value = 60
-min = 5
-max = 87.7
-
-[[section.param]]
 id = "walk_ground_detail_height"
 kind = "float"
 label = "Player: small ground obstacle height (voxels)"

@@ -125,7 +125,6 @@ mod tests {
                         "Audio",
                         "Camera",
                         "Camera Snapshots",
-                        "Camera View",
                         "Soil Deposition",
                         "Terrain",
                         "Terrain & Plants",
@@ -149,7 +148,7 @@ mod tests {
         for shape in &output.shapes {
             collect(&shape.shape, &mut titles);
         }
-        assert_eq!(titles.len(), 10);
+        assert_eq!(titles.len(), 9);
         let mut sorted = titles.clone();
         sorted.sort_by_key(|title| title.to_ascii_lowercase());
         assert_eq!(titles, sorted);

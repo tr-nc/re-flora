@@ -2666,7 +2666,7 @@ impl App {
                     .update(&self.window_state.window(), |ctx| {
                         let mut style = (*ctx.global_style()).clone();
                         apply_gui_style(&mut style);
-                        ui_style::apply_panel_outline_preference(&mut style, self.debug_settings.adjustables.gui_panel_outlines.value);
+                        ui_style::apply_panel_outline_preference(&mut style, false);
                         ctx.set_global_style(style);
 
                         if let Some(transition) = self.splash_transition.as_mut() {

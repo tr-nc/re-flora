@@ -140,7 +140,6 @@ impl GuiConfigLoader {
         ] {
             Self::add_missing_param(&mut config, "Debug", id);
         }
-        Self::add_missing_param(&mut config, "Debug", "gui_panel_outlines");
         Self::restore_low_wall_controls(&mut config);
         for param in config
             .section
@@ -165,7 +164,7 @@ impl GuiConfigLoader {
                 }
             }
         }
-        for id in ["camera_orbit_max_elevation", "walk_ground_detail_height"] {
+        for id in ["walk_ground_detail_height"] {
             Self::add_missing_param(&mut config, "Debug", id);
         }
         Self::retire_tree_display_experiments(&mut config);
@@ -307,9 +306,15 @@ impl GuiConfigLoader {
         Self::migrate_flutter_amplitude(&mut config);
         Self::add_missing_param(&mut config, "Bees", "hive_size_scale");
         for section in &mut config.section {
-            section
-                .param
-                .retain(|p| !matches!(p.id.as_str(), "hive_style" | "bee_size_scale"));
+            section.param.retain(|p| {
+                !matches!(
+                    p.id.as_str(),
+                    "hive_style"
+                        | "bee_size_scale"
+                        | "gui_panel_outlines"
+                        | "camera_orbit_max_elevation"
+                )
+            });
         }
         // Retired controls are fixed render inputs, including when loading older saves.
         for section in &mut config.section {
@@ -1682,40 +1687,37 @@ max = 2
     }
 
     #[test]
-    fn panel_outline_setting_upgrades_old_saves_and_preserves_both_choices() {
-        for saved in [None, Some(false), Some(true)] {
+    fn fixed_appearance_preferences_retire_from_old_saves_without_writing() {
+        for id in [
+            "gui_panel_outlines",
+            "camera_orbit_max_elevation",
+            "hive_style",
+            "bee_size_scale",
+        ] {
             let mut config: GuiConfigFile =
                 toml::from_str(include_str!("../../config/gui.toml")).unwrap();
-            for section in &mut config.section {
-                if let Some(value) = saved {
-                    for param in &mut section.param {
-                        if param.id == "gui_panel_outlines" {
-                            param.value = super::GuiParamValue::Bool { value };
-                        }
-                    }
-                } else {
-                    section.param.retain(|p| p.id != "gui_panel_outlines");
-                }
-            }
-            let directory = tempfile::tempdir().unwrap();
-            let path = directory.path().join("gui.toml");
-            let original = toml::to_string_pretty(&config).unwrap();
-            std::fs::write(&path, &original).unwrap();
-            let loaded = GuiConfigLoader::load_from_path(&path);
-            assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
-            let fields: Vec<_> = loaded
+            let mut param = config
                 .section
                 .iter()
                 .flat_map(|s| &s.param)
-                .filter(|p| p.id == "gui_panel_outlines")
-                .collect();
-            assert_eq!(fields.len(), 1);
-            assert_eq!(fields[0].value.get_bool(), Some(saved.unwrap_or(true)));
+                .find(|p| p.id == "sun_luminance")
+                .unwrap()
+                .clone();
+            param.id = id.into();
+            config.section[0].param.push(param);
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("gui.toml");
+            let before = toml::to_string_pretty(&config).unwrap();
+            std::fs::write(&path, &before).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+            assert!(!loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .any(|p| p.id == id));
             GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
-            assert_eq!(
-                serde_json::to_value(&loaded).unwrap(),
-                serde_json::to_value(GuiConfigLoader::load_from_path(&path)).unwrap()
-            );
+            assert!(!std::fs::read_to_string(&path).unwrap().contains(id));
         }
     }
 
@@ -2299,45 +2301,6 @@ max = 2
                 GuiParamValue::Float { value: 1.5, .. }
             ));
         }
-    }
-
-    #[test]
-    fn orbit_limit_is_added_to_old_saves_without_writing_and_round_trips() {
-        use super::GuiParamValue;
-        let mut config: GuiConfigFile =
-            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
-        for section in &mut config.section {
-            section
-                .param
-                .retain(|p| p.id != "camera_orbit_max_elevation");
-        }
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("gui.toml");
-        let old = toml::to_string_pretty(&config).unwrap();
-        std::fs::write(&path, &old).unwrap();
-        let mut loaded = GuiConfigLoader::load_from_path(&path);
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
-        let param = loaded
-            .section
-            .iter_mut()
-            .flat_map(|s| &mut s.param)
-            .find(|p| p.id == "camera_orbit_max_elevation")
-            .unwrap();
-        if let GuiParamValue::Float { value, .. } = &mut param.value {
-            assert_eq!(*value, 45.);
-            *value = 60.;
-        } else {
-            panic!("orbit limit must be a saved float");
-        }
-        GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
-        let reloaded = GuiConfigLoader::load_from_path(&path);
-        let param = reloaded
-            .section
-            .iter()
-            .flat_map(|s| &s.param)
-            .find(|p| p.id == "camera_orbit_max_elevation")
-            .unwrap();
-        assert!(matches!(param.value, GuiParamValue::Float { value, .. } if value == 60.));
     }
 
     #[test]

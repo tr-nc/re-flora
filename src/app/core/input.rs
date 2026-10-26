@@ -241,12 +241,8 @@ impl App {
         sim_time_seconds: f64,
     ) -> Vec<crate::gameplay::camera::FootstepEvent> {
         self.review_orbit_limit();
-        self.camera_control.set_orbit_elevation_limit(
-            self.debug_settings
-                .adjustables
-                .camera_orbit_max_elevation
-                .value,
-        );
+        self.camera_control
+            .set_orbit_elevation_limit(super::camera_control::ORBIT_CAMERA_ELEVATION_LIMIT_DEGREES);
         if let Some((position, focus)) = self
             .camera_control
             .orbit_limit_correction(self.tracer.camera_position())
@@ -528,12 +524,8 @@ impl App {
         };
         self.camera_control.orbit_limit_review = Some(frame + 1);
         let stage = (frame / 20).min(2) as usize;
-        let degrees = [45_f32, 25., 60.][stage];
+        let degrees = super::camera_control::ORBIT_CAMERA_ELEVATION_LIMIT_DEGREES;
         if frame.is_multiple_of(20) && frame <= 40 {
-            self.debug_settings
-                .adjustables
-                .camera_orbit_max_elevation
-                .value = degrees;
             let focus = self
                 .camera_control
                 .flora_showcase_center(self.tracer.camera_position());

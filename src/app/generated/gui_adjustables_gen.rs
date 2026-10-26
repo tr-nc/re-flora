@@ -26,18 +26,6 @@ pub struct GeneratedGuiParamDescriptor {
 pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "gui_panel_outlines",
-        kind: "bool",
-        label: "GUI: panel outlines",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
-        id: "camera_orbit_max_elevation",
-        kind: "float",
-        label: "Orbit camera: maximum downward angle (Degrees)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "walk_ground_detail_height",
         kind: "float",
         label: "Player: small ground obstacle height (voxels)",
@@ -1702,8 +1690,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
 
 #[allow(dead_code)]
 pub struct GuiAdjustables {
-    pub gui_panel_outlines: crate::gui_adjustables::BoolParam,
-    pub camera_orbit_max_elevation: crate::gui_adjustables::FloatParam,
     pub walk_ground_detail_height: crate::gui_adjustables::FloatParam,
     pub low_wall_kind: crate::gui_adjustables::ChoiceParam,
     pub low_wall_width: crate::gui_adjustables::FloatParam,
@@ -1994,8 +1980,6 @@ impl GuiAdjustables {
     pub fn from_config(config: &crate::app::gui_config_model::GuiConfigFile) -> Self {
         use crate::app::gui_config_model::{GuiParamKind, GuiParamValue};
 
-        let mut gui_panel_outlines_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut camera_orbit_max_elevation_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut walk_ground_detail_height_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut low_wall_kind_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut low_wall_width_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2277,18 +2261,6 @@ impl GuiAdjustables {
         for section in &config.section {
             for param in &section.param {
                 match param.id.as_str() {
-                    "gui_panel_outlines" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            gui_panel_outlines_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "camera_orbit_max_elevation" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            camera_orbit_max_elevation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
                     "walk_ground_detail_height" => {
                         if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0.0);
@@ -4130,8 +4102,6 @@ impl GuiAdjustables {
         }
 
         GuiAdjustables {
-            gui_panel_outlines: gui_panel_outlines_field.expect("Missing parameter: gui_panel_outlines"),
-            camera_orbit_max_elevation: camera_orbit_max_elevation_field.expect("Missing parameter: camera_orbit_max_elevation"),
             walk_ground_detail_height: walk_ground_detail_height_field.expect("Missing parameter: walk_ground_detail_height"),
             low_wall_kind: low_wall_kind_field.expect("Missing parameter: low_wall_kind"),
             low_wall_width: low_wall_width_field.expect("Missing parameter: low_wall_width"),
@@ -4416,7 +4386,6 @@ impl GuiAdjustables {
 #[allow(dead_code)]
 pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::FloatParam> {
     match id {
-        "camera_orbit_max_elevation" => Some(&adjustables.camera_orbit_max_elevation),
         "walk_ground_detail_height" => Some(&adjustables.walk_ground_detail_height),
         "low_wall_width" => Some(&adjustables.low_wall_width),
         "low_wall_height" => Some(&adjustables.low_wall_height),
@@ -4681,7 +4650,6 @@ pub fn get_string_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
 #[allow(dead_code)]
 pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str) -> Option<&'a crate::gui_adjustables::BoolParam> {
     match id {
-        "gui_panel_outlines" => Some(&adjustables.gui_panel_outlines),
         "pavement_retract_stroke" => Some(&adjustables.pavement_retract_stroke),
         "pavement_smooth_curves" => Some(&adjustables.pavement_smooth_curves),
         "stone_place_slab" => Some(&adjustables.stone_place_slab),
@@ -4742,7 +4710,6 @@ pub fn get_color_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
 #[allow(dead_code)]
 pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::FloatParam> {
     match id {
-        "camera_orbit_max_elevation" => Some(&mut adjustables.camera_orbit_max_elevation),
         "walk_ground_detail_height" => Some(&mut adjustables.walk_ground_detail_height),
         "low_wall_width" => Some(&mut adjustables.low_wall_width),
         "low_wall_height" => Some(&mut adjustables.low_wall_height),
@@ -5007,7 +4974,6 @@ pub fn get_string_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
 #[allow(dead_code)]
 pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, id: &str) -> Option<&'a mut crate::gui_adjustables::BoolParam> {
     match id {
-        "gui_panel_outlines" => Some(&mut adjustables.gui_panel_outlines),
         "pavement_retract_stroke" => Some(&mut adjustables.pavement_retract_stroke),
         "pavement_smooth_curves" => Some(&mut adjustables.pavement_smooth_curves),
         "stone_place_slab" => Some(&mut adjustables.stone_place_slab),

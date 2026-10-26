@@ -1003,7 +1003,6 @@ mod section_order_tests {
             "Atmos",
             "Camera",
             "Camera Snapshots",
-            "Camera View",
             "Soil Deposition",
             "Terrain",
             "Terrain & Plants",
@@ -1023,6 +1022,8 @@ mod section_order_tests {
             "Starlight",
             "Climbing Plants",
             "Environment Probes",
+            "Camera View",
+            "GUI Appearance",
         ] {
             assert!(
                 !original.iter().any(|name| name == title),

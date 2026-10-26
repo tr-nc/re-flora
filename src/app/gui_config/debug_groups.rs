@@ -14,13 +14,6 @@ pub(super) struct ControlGroup {
 const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
-        title: "GUI Appearance",
-        description: "Show panel outlines. Backgrounds, shadows, input controls and selection indicators are unchanged. The text toolbar is always borderless. Save remembers this preference.",
-        initially_open: false,
-        params: &["gui_panel_outlines"],
-    },
-    ControlGroup {
-        parent: None,
         title: "Moisture Appearance",
         description: "Grass darkens by up to 25% in linear material color as supporting soil becomes moist. This is root/soil moisture, not water measured on each blade. Manual watering, transfer, drying and restored soil all use the same atlas. Unchecked preserves original grass color; growth and other plants are unchanged. Saved with Save.",
         initially_open: false,
@@ -32,13 +25,6 @@ const GROUPS: &[ControlGroup] = &[
         description: "Cross low, narrow ground detail above a nearby supported patch. Height is measured from real surrounding terrain, not accumulated from previous steps. Default 3 voxels; capped at the player's 4-voxel radius. Normal 12-voxel steps, body clearance, jumping and mower movement are unchanged. Changes apply immediately; saved with Save.",
         initially_open: false,
         params: &["walk_ground_detail_height"],
-    },
-    ControlGroup {
-        parent: None,
-        title: "Camera View",
-        description: "Limit the orbit/edit camera's downward viewing angle: 0 is horizontal, 90 is directly overhead. Live changes retain the focus and distance. Walking and free-flight look angles are unchanged. Saved with the unified Save button.",
-        initially_open: false,
-        params: &["camera_orbit_max_elevation"],
     },
     ControlGroup {
         parent: None,
@@ -613,7 +599,6 @@ mod tests {
                         "Atmos",
                         "Audio",
                         "Camera",
-                        "Camera View",
                         "Material Supply",
                         "Soil Deposition",
                         "Stone",
@@ -637,7 +622,7 @@ mod tests {
         for shape in &output.shapes {
             collect(&shape.shape, &mut titles);
         }
-        assert_eq!(titles.len(), 10);
+        assert_eq!(titles.len(), 9);
         let mut sorted = titles.clone();
         sorted.sort_by_key(|title| title.to_ascii_lowercase());
         assert_eq!(

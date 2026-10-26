@@ -24,6 +24,7 @@ const ORBIT_CAMERA_DELTA_SNAP_DISTANCE: f32 = 0.00001;
 const ORBIT_CAMERA_KEYBOARD_PAN_UNITS_PER_SECOND_AT_UNIT_DISTANCE: f32 = 0.9;
 const ORBIT_CAMERA_KEYBOARD_PAN_FAR_ZOOM_BOOST_START: f32 = 0.95;
 const ORBIT_CAMERA_KEYBOARD_PAN_FAR_ZOOM_MAX_MULTIPLIER: f32 = 1.6;
+pub(super) const ORBIT_CAMERA_ELEVATION_LIMIT_DEGREES: f32 = 60.0;
 const ORBIT_CAMERA_MAX_ELEVATION_RAD: f32 = std::f32::consts::FRAC_PI_2 - 0.04;
 const MOUSE_WHEEL_DOLLY_SECONDS_PER_LINE: f32 = 0.16;
 const MOUSE_WHEEL_DOLLY_INTERPOLATION_RATE: f32 = 16.0;
@@ -244,7 +245,7 @@ impl Default for CameraControlRuntime {
     fn default() -> Self {
         Self {
             mode: CameraControlMode::default(),
-            max_orbit_elevation: ORBIT_CAMERA_MAX_ELEVATION_RAD,
+            max_orbit_elevation: ORBIT_CAMERA_ELEVATION_LIMIT_DEGREES.to_radians(),
             walk_entry_pending: false,
             zoom_transition: None,
             zoom_review: (std::env::var("RE_FLORA_CAMERA_ZOOM_REVIEW").as_deref() == Ok("1"))
