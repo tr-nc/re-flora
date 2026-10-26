@@ -1090,15 +1090,6 @@ max = 20
 name = "Wind"
 
 [[section.param]]
-id = "tree_leaf_recorded_mix"
-kind = "bool"
-label = "Tree leaves: recorded breeze / strong wind"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
 id = "canopy_audio_sample_budget"
 kind = "uint"
 label = "Canopy Audio Samples / Tree"
@@ -1146,94 +1137,6 @@ max = 1
 id = "tree_wind_response_max_strength"
 kind = "float"
 label = "Tree Wind Response Max"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = 0
-max = 1
-
-[[section.param]]
-id = "tree_rustle_gustiness"
-kind = "float"
-label = "Tree Rustle Gustiness"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = 0
-max = 1
-
-[[section.param]]
-id = "tree_rustle_leaf_density"
-kind = "float"
-label = "Tree Rustle Leaf Density"
-type = "Float"
-
-[section.param.data]
-value = 2.3
-min = 0
-max = 3
-
-[[section.param]]
-id = "tree_rustle_dryness"
-kind = "float"
-label = "Tree Rustle Dryness"
-type = "Float"
-
-[section.param.data]
-value = 0.4
-min = 0
-max = 1
-
-[[section.param]]
-id = "tree_rustle_branch"
-kind = "float"
-label = "Tree Rustle Branch Creak"
-type = "Float"
-
-[section.param.data]
-value = 0.2
-min = 0
-max = 1
-
-[[section.param]]
-id = "tree_rustle_air"
-kind = "float"
-label = "Tree Rustle Air"
-type = "Float"
-
-[section.param.data]
-value = 0.8
-min = 0
-max = 1.5
-
-[[section.param]]
-id = "tree_rustle_leaf_body"
-kind = "float"
-label = "Tree Rustle Leaf Body"
-type = "Float"
-
-[section.param.data]
-value = 1
-min = 0
-max = 1.5
-
-[[section.param]]
-id = "tree_rustle_crackle"
-kind = "float"
-label = "Tree Rustle Crackle"
-type = "Float"
-
-[section.param.data]
-value = 0.37
-min = 0
-max = 1
-
-[[section.param]]
-id = "tree_rustle_brightness"
-kind = "float"
-label = "Tree Rustle Brightness"
 type = "Float"
 
 [section.param.data]

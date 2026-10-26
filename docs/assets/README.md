@@ -32,7 +32,7 @@ provenance/manifest 等说明通过证据链接关联。扩展名集合在 `scri
 
 程序生成的树、地形、石材、原生启动屏和树叶声等，不一定有独立素材文件。
 例如 `src/stone_models.rs` 生成游戏石材；文档目录的 OBJ 是导出样本，不是游戏读取的模型。
-`src/audio/tree_rustle.rs` 保留原合成树叶声；可保存的 A/B 开关另启用八条轻风/强风树叶录音的运行时处理版。
+树叶风声现固定使用八条轻风/强风录音的运行时处理版（`src/audio/recorded_tree_leaves.rs`）；2026-10-27 已移除 A/B 开关和旧常驻合成路径。踢树的一次性叶片声仍由私有的 `src/audio/tree_kick_rustle/synthesis.rs` 生成，不是可切回的风声模式。
 
 ## 分仓优先级
 

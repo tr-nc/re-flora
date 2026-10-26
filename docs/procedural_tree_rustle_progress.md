@@ -1,5 +1,9 @@
 # Procedural Tree Rustle Progress
 
+> The ambient procedural implementation and A/B controls were retired on 2026-10-27.
+> Canopy wind now uses [recorded layers only](reports/recorded-tree-leaf-audio.md).
+> Shared DSP survives privately for finite kick cues, not as an ambient fallback.
+
 > Historical prototype/tuning record. The non-runtime `docs/audio/wind_ref.wav`
 > was subsequently deleted at the owner's request to keep only runtime SFX.
 > Measurements below describe the former reference, not a bundled file.

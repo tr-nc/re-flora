@@ -48,7 +48,7 @@ cc5772164930744415b20b3b4cbcd9a2dc215e9cdf13651c61e46ed3a1f5d67d  leaves-breeze-
 ## Intended use and review status
 
 - Intended sound: a small localized cluster of leaves under steady light airflow, **not** a forest-wide ambient wind bed.
-- The planned game use is positional audio with gentle/strong leaf textures mixed according to live wind strength. These four files supply the **gentle-breeze group** of the saved recorded-leaf A/B experiment. The unchecked mode retains procedural foliage audio.
+- The game uses positional audio with gentle/strong leaf textures mixed according to live wind strength. These four files supply the **gentle-breeze group**. Since 2026-10-27 the recordings are the only ambient tree-leaf implementation; the old A/B switch and procedural ambient path are removed.
 - Preserve the original stereo downloads. Any later mono/positional preparation, level matching, filtering or seam repair must be recorded as a derivative in this bundle.
 - Verified: all four decode successfully, match their downloads exactly, and have the frame count/sample format above.
 - Not verified: audible seam quality, steadiness, lack of ambience, suitability of each take, or in-game spatial/loudness balance. Loop mode and prompt wording describe the generation request, not guaranteed audio quality. A listening pass is still required.
@@ -70,9 +70,8 @@ python3 scripts/prepare_tree_leaf_loops.py --check
 
 Each active canopy generation chooses one take here and one strong-wind take independently,
 with independent random phases held stable until that source is replaced. Live local wind
-crossfades the two inside one spatial Voice. Re-entering the A/B mode preserves the selection
-and advances its offset rather than rerolling. Existing Tree leaves mixer and Tree Wind Volume
-control both modes. See [implementation/validation](../../../docs/reports/recorded-tree-leaf-audio.md).
+crossfades the two inside one spatial Voice without restarting playback. Existing Tree leaves
+mixer and Tree Wind Volume remain the saved loudness controls. See [implementation/validation](../../../docs/reports/recorded-tree-leaf-audio.md).
 
 Signal preparation and automated PCM/lifecycle checks do **not** establish human listening
 approval, perceptual loudness matching against procedural audio, or a new license.

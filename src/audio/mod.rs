@@ -47,9 +47,6 @@ pub use spatial_sound_manager::SpatialSoundManager;
 mod tree_audio_source;
 pub use tree_audio_source::CanopyAudioVoice;
 
-mod tree_rustle;
-pub use tree_rustle::{TreeRustleControl, TreeRustleFactory, TreeRustleParams};
-
 mod tree_kick_rustle;
 pub(crate) use tree_kick_rustle::KickRustleTuning;
 

@@ -1,14 +1,13 @@
-//! Asset selection and phase ownership for the optional recorded canopy texture.
+//! Asset selection and phase ownership for recorded canopy wind audio.
 use super::{CanopyAudioGenerationKey, SpatialSoundManager};
 use anyhow::Result;
 use petalsonic::{LoopBlendControl, ResidentClip};
 use rand::{rngs::SmallRng, RngExt, SeedableRng};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-// Derivatives are RMS-matched to -30 dBFS. Replace the procedural +36 dB makeup
-// with +12 dB, yielding a -18 dBFS full-wind reference before existing tree/mixer gains.
-pub(super) const GAIN_ADJUST_DB: f32 =
-    12.0 - super::tree_audio_manager::PROCEDURAL_RUSTLE_MAKEUP_GAIN_DB;
+// Derivatives are RMS-matched to -30 dBFS. +12 dB makeup yields a -18 dBFS
+// full-wind reference before existing tree/mixer gains.
+pub(super) const MAKEUP_GAIN_DB: f32 = 12.0;
 
 pub(super) struct RecordedLeafBank {
     breeze: Vec<ResidentClip>,

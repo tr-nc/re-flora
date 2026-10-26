@@ -1,4 +1,4 @@
-use petalsonic::ResidentClip;
+//! Private PCM synthesis for finite kick leaf-contact cues, not ambient wind loops.
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -7,7 +7,7 @@ const MAX_GRAINS: usize = 96;
 const MAX_CREAKS: usize = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TreeRustleParams {
+pub(super) struct TreeRustleParams {
     /// Extra procedural wind wander on top of the app wind sources.
     pub gustiness: f32,
     pub leaf_density: f32,
@@ -20,6 +20,7 @@ pub struct TreeRustleParams {
 }
 
 impl TreeRustleParams {
+    #[cfg(test)]
     pub fn dense() -> Self {
         Self {
             gustiness: 0.0,
@@ -48,7 +49,7 @@ impl TreeRustleParams {
 }
 
 #[derive(Debug)]
-pub struct TreeRustleControl {
+pub(super) struct TreeRustleControl {
     wind_response_bits: AtomicU32,
     gustiness_bits: AtomicU32,
     leaf_density_bits: AtomicU32,
@@ -60,6 +61,7 @@ pub struct TreeRustleControl {
     brightness_bits: AtomicU32,
 }
 
+#[cfg(test)]
 impl Default for TreeRustleControl {
     fn default() -> Self {
         Self::new()
@@ -67,6 +69,7 @@ impl Default for TreeRustleControl {
 }
 
 impl TreeRustleControl {
+    #[cfg(test)]
     pub fn new() -> Self {
         Self::with_params(TreeRustleParams::dense())
     }
@@ -94,6 +97,7 @@ impl TreeRustleControl {
         load_clamped(&self.wind_response_bits, 0.0, 1.0)
     }
 
+    #[cfg(test)]
     pub fn set_params(&self, params: TreeRustleParams) {
         let params = params.clamped();
         store_clamped(&self.gustiness_bits, params.gustiness, 0.0, 1.0);
@@ -119,7 +123,7 @@ impl TreeRustleControl {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn set_crackle(&self, crackle: f32) {
         store_clamped(&self.crackle_bits, crackle, 0.0, 1.0);
     }
@@ -130,7 +134,7 @@ impl TreeRustleControl {
     }
 }
 
-pub struct TreeRustleFactory {
+pub(super) struct TreeRustleFactory {
     seed: u64,
     control: Arc<TreeRustleControl>,
 }
@@ -138,12 +142,6 @@ pub struct TreeRustleFactory {
 impl TreeRustleFactory {
     pub fn new(seed: u64, control: Arc<TreeRustleControl>) -> Self {
         Self { seed, control }
-    }
-
-    #[allow(dead_code)]
-    pub fn dense(seed: u64, control: Arc<TreeRustleControl>) -> Self {
-        control.set_params(TreeRustleParams::dense());
-        Self::new(seed, control)
     }
 
     /// Finite excited texture, reused from the existing leaf-contact synthesis. The
@@ -167,11 +165,8 @@ impl TreeRustleFactory {
             voice.render_mono(block);
         }
         for (index, sample) in samples.iter_mut().enumerate() {
-            *sample *= super::tree_kick_rustle::excitation_envelope(
-                index as f32 / sample_rate as f32,
-                duration,
-                frequency,
-            );
+            *sample *=
+                super::excitation_envelope(index as f32 / sample_rate as f32, duration, frequency);
         }
         // Fixed peak headroom, independent of the wind-loop makeup gain. Loudness is
         // the saved one-shot volume, not an unbounded multiple of wind or kick energy.
@@ -186,39 +181,6 @@ impl TreeRustleFactory {
             *last = 0.;
         }
         samples
-    }
-
-    /// Render a loopable immutable rustle clip outside PetalSonic's realtime path.
-    pub fn render_resident_clip(
-        &self,
-        sample_rate: u32,
-        duration_seconds: f32,
-    ) -> Result<ResidentClip, petalsonic::PetalSonicError> {
-        const BLOCK_FRAMES: usize = 1_024;
-        const WARMUP_SECONDS: f32 = 1.0;
-        const LOOP_CROSSFADE_SECONDS: f32 = 0.25;
-
-        self.control.set_wind_response(1.0);
-        let mut voice = TreeRustleVoice::new(sample_rate, self.seed, self.control.clone());
-        let mut warmup = vec![0.0; (sample_rate as f32 * WARMUP_SECONDS) as usize];
-        for block in warmup.chunks_mut(BLOCK_FRAMES) {
-            voice.render_mono(block);
-        }
-
-        let output_frames = (sample_rate as f32 * duration_seconds.max(1.0)) as usize;
-        let crossfade_frames = (sample_rate as f32 * LOOP_CROSSFADE_SECONDS) as usize;
-        let mut samples = vec![0.0; output_frames + crossfade_frames];
-        for block in samples.chunks_mut(BLOCK_FRAMES) {
-            voice.render_mono(block);
-        }
-
-        for index in 0..crossfade_frames {
-            let blend = index as f32 / crossfade_frames.max(1) as f32;
-            samples[index] =
-                samples[output_frames + index] * (1.0 - blend) + samples[index] * blend;
-        }
-        samples.truncate(output_frames);
-        ResidentClip::from_mono_pcm(samples, sample_rate)
     }
 }
 
@@ -777,18 +739,6 @@ mod tests {
     }
 
     #[test]
-    fn predecoded_rustle_clip_has_the_requested_resident_shape() {
-        let control = Arc::new(TreeRustleControl::new());
-        let clip = TreeRustleFactory::new(42, control)
-            .render_resident_clip(8_000, 1.0)
-            .unwrap();
-
-        assert_eq!(clip.sample_rate(), 8_000);
-        assert_eq!(clip.channels(), 1);
-        assert_eq!(clip.total_frames(), 8_000);
-    }
-
-    #[test]
     fn excited_leaf_pcm_is_finite_repeatable_variant_safe_and_has_no_click_edges() {
         let factory = |seed| {
             TreeRustleFactory::new(
@@ -811,59 +761,6 @@ mod tests {
         assert!(first.iter().all(|v| v.is_finite() && v.abs() <= 0.350001));
         let energy = |samples: &[f32]| samples.iter().map(|v| v * v).sum::<f32>();
         assert!(energy(&first[0..3000]) > energy(&first[9000..12000]) * 10.);
-    }
-
-    #[test]
-    #[ignore = "release-mode microbenchmark for procedural rustle DSP cost"]
-    fn render_perf_eight_voices() {
-        const SAMPLE_RATE: usize = 48_000;
-        const BLOCK_FRAMES: usize = 1024;
-        const BLOCKS: usize = 4096;
-        const VOICES: usize = 8;
-
-        let controls: Vec<_> = (0..VOICES)
-            .map(|_| Arc::new(TreeRustleControl::new()))
-            .collect();
-        for control in &controls {
-            control.set_crackle(0.40);
-        }
-        let mut voices: Vec<_> = controls
-            .iter()
-            .enumerate()
-            .map(|(index, control)| {
-                TreeRustleVoice::new(
-                    SAMPLE_RATE as u32,
-                    42 + index as u64 * 7919,
-                    control.clone(),
-                )
-            })
-            .collect();
-        let mut scratch = vec![0.0; BLOCK_FRAMES];
-        let mut checksum = 0.0f32;
-
-        let start = std::time::Instant::now();
-        for block in 0..BLOCKS {
-            let gust_phase = block as f32 * 0.017;
-            let wind = 0.35 + 0.60 * (0.5 + 0.5 * gust_phase.sin());
-            for (voice, control) in voices.iter_mut().zip(&controls) {
-                control.set_wind_response(wind);
-                voice.render_mono(&mut scratch);
-                checksum += scratch[block % BLOCK_FRAMES];
-            }
-        }
-        let elapsed = start.elapsed();
-        let audio_seconds = BLOCKS as f64 * BLOCK_FRAMES as f64 / SAMPLE_RATE as f64;
-        let elapsed_us = elapsed.as_secs_f64() * 1_000_000.0;
-        let us_per_block_all_voices = elapsed_us / BLOCKS as f64;
-        let us_per_block_per_voice = us_per_block_all_voices / VOICES as f64;
-        let realtime_cpu_percent = elapsed.as_secs_f64() / audio_seconds * 100.0;
-
-        println!(
-            "[TREE_RUSTLE_PERF] voices={VOICES} blocks={BLOCKS} block_frames={BLOCK_FRAMES} audio_seconds={audio_seconds:.2} elapsed_ms={:.3} us_per_block_all_voices={us_per_block_all_voices:.3} us_per_block_per_voice={us_per_block_per_voice:.3} realtime_cpu_percent={realtime_cpu_percent:.3} checksum={checksum:.6}",
-            elapsed.as_secs_f64() * 1000.0,
-        );
-
-        assert!(checksum.is_finite());
     }
 
     #[test]

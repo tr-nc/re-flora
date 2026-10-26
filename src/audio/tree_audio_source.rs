@@ -17,8 +17,7 @@ pub struct CanopyAudioVoice {
     pub uuid: Uuid,
     pub key: CanopyAudioGenerationKey,
     pub descriptor: CanopyAcousticDescriptor,
-    pub phase: f32,
-    pub(super) recorded_blend: Option<petalsonic::LoopBlendControl>,
+    pub(super) recorded_blend: petalsonic::LoopBlendControl,
     wind_volume_db: f32,
     lifecycle_power: f32,
     target_response: f32,
@@ -34,7 +33,7 @@ impl CanopyAudioVoice {
         uuid: Uuid,
         key: CanopyAudioGenerationKey,
         descriptor: CanopyAcousticDescriptor,
-        phase: f32,
+        recorded_blend: petalsonic::LoopBlendControl,
         wind_volume_db: f32,
         wind_response_curve: WindResponseCurve,
     ) -> Self {
@@ -42,8 +41,7 @@ impl CanopyAudioVoice {
             uuid,
             key,
             descriptor,
-            phase: phase.clamp(0.0, 1.0),
-            recorded_blend: None,
+            recorded_blend,
             wind_volume_db,
             lifecycle_power: 0.0,
             target_response: 0.0,
@@ -195,9 +193,7 @@ impl CanopyAudioVoice {
             Self::response_volume_db(self.wind_volume_db, self.lifecycle_power, response);
 
         self.current_response = response;
-        if let Some(blend) = &self.recorded_blend {
-            blend.set(response);
-        }
+        self.recorded_blend.set(response);
         if (target_volume_db - self.current_volume_db).abs() <= VOLUME_EPSILON {
             return Ok(());
         }
@@ -236,7 +232,7 @@ mod tests {
             uuid::Uuid::nil(),
             CanopyAudioGenerationKey::new(1, 1),
             CanopyAcousticDescriptor::build(1, glam::Vec3::ZERO, 1, &[], &[]),
-            0.0,
+            petalsonic::LoopBlendControl::default(),
             0.0,
             WindResponseCurve {
                 min_strength: 0.0,

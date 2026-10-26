@@ -21,10 +21,6 @@ pub(crate) enum AudioTelemetryOwnershipError {
     EmitterAlreadyOwned { emitter: Emitter },
     #[error("audio telemetry PlayCommandId {play_command_id:?} is already owned")]
     PlayCommandAlreadyOwned { play_command_id: PlayCommandId },
-    #[error("audio telemetry emitter {emitter} has no owner")]
-    UnknownEmitter { emitter: Emitter },
-    #[error("audio telemetry emitter {emitter} is not canopy-owned")]
-    NotCanopyOwned { emitter: Emitter },
 }
 
 #[derive(Debug)]
@@ -110,26 +106,6 @@ impl AudioTelemetryRouter {
         self.footstep_commands
             .insert(play_command_id, (emitter, event_seq));
         Ok(())
-    }
-
-    pub(crate) fn claim_canopy_replacement(
-        &mut self,
-        old_emitter: Emitter,
-        new_emitter: Emitter,
-    ) -> Result<(), AudioTelemetryOwnershipError> {
-        let Some(AudioTelemetryOwner::Canopy(generation)) = self.owners.get(&old_emitter).copied()
-        else {
-            return Err(if self.owners.contains_key(&old_emitter) {
-                AudioTelemetryOwnershipError::NotCanopyOwned {
-                    emitter: old_emitter,
-                }
-            } else {
-                AudioTelemetryOwnershipError::UnknownEmitter {
-                    emitter: old_emitter,
-                }
-            });
-        };
-        self.claim_canopy(new_emitter, generation)
     }
 
     pub(crate) fn release(&mut self, emitter: Emitter) {
@@ -400,15 +376,13 @@ mod tests {
     }
 
     #[test]
-    fn ownership_replacement_and_release_control_late_attribution() {
+    fn ownership_and_release_control_late_attribution() {
         let (world, old_canopy, new_canopy, footstep) = emitters();
         let generation = CanopyAudioGenerationKey::new(7, 11);
         let command = PlayCommandId((1 << 63) + 31);
         let mut router = AudioTelemetryRouter::default();
         router.claim_canopy(old_canopy, generation).unwrap();
-        router
-            .claim_canopy_replacement(old_canopy, new_canopy)
-            .unwrap();
+        router.claim_canopy(new_canopy, generation).unwrap();
         router.release(old_canopy);
         router.claim_local_footstep(footstep, 31, command).unwrap();
 

@@ -1,24 +1,14 @@
 use crate::audio::{
     CanopyAcousticDescriptor, CanopyAcousticObservation, CanopyAudioLifecycle,
     CanopyAudioTelemetrySnapshot, CanopyAudioTreeTelemetry, CanopyDistributedEmitterAdapter,
-    SpatialSoundManager, TreeRustleControl, TreeRustleFactory, TreeRustleParams,
+    SpatialSoundManager,
 };
 use crate::wind_field::WindFieldFrame;
 use crate::wind_response::WindResponseCurve;
 use anyhow::Result;
-use petalsonic::ResidentClip;
-use std::sync::Arc;
 use uuid::Uuid;
 
-// The old tree loop asset was baked with a large pregain
-// (`tree_sound_48k_pregain_40db.wav`). The procedural generator is tuned at
-// reference-like raw levels, so add runtime makeup gain before the normal tree
-// volume and normalized canopy sample weights are applied.
-pub(super) const PROCEDURAL_RUSTLE_MAKEUP_GAIN_DB: f32 = 36.0;
 const CANOPY_LAYOUT_CROSSFADE_SECONDS: f32 = 0.35;
-const TREE_RUSTLE_SAMPLE_RATE: u32 = 48_000;
-const TREE_RUSTLE_LOOP_SECONDS: f32 = 12.0;
-const TREE_RUSTLE_CLIP_SEED: u64 = 0x94d0_49bb_1331_11eb;
 
 /// Coordinates immutable weighted canopy descriptors, generation lifetime, and rustle content.
 ///
@@ -27,8 +17,6 @@ const TREE_RUSTLE_CLIP_SEED: u64 = 0x94d0_49bb_1331_11eb;
 pub struct TreeAudioManager {
     wind_volume_db: f32,
     wind_response_curve: WindResponseCurve,
-    rustle_params: TreeRustleParams,
-    rustle_clip: ResidentClip,
     lifecycle: CanopyAudioLifecycle,
     emitter_adapter: CanopyDistributedEmitterAdapter,
     kick_rustle: super::tree_kick_rustle::KickRustlePlayer,
@@ -64,8 +52,7 @@ impl TreeAudioManager {
         let snapshot = self.lifecycle.snapshot(time_seconds)?;
         self.emitter_adapter.synchronize(
             &snapshot,
-            &self.rustle_clip,
-            Self::base_volume_db(self.wind_volume_db),
+            self.wind_volume_db,
             self.wind_response_curve,
             time_seconds,
         )?;
@@ -76,19 +63,15 @@ impl TreeAudioManager {
         spatial_sound_manager: SpatialSoundManager,
         wind_response_curve: WindResponseCurve,
         wind_volume_db: f32,
-        rustle_params: TreeRustleParams,
     ) -> Result<Self> {
-        let rustle_clip = Self::render_rustle_clip(rustle_params)?;
         Ok(Self {
             wind_volume_db,
             wind_response_curve,
-            rustle_params,
-            rustle_clip,
             lifecycle: CanopyAudioLifecycle::new(CANOPY_LAYOUT_CROSSFADE_SECONDS),
             kick_rustle: super::tree_kick_rustle::KickRustlePlayer::new(
                 spatial_sound_manager.clone(),
             ),
-            emitter_adapter: CanopyDistributedEmitterAdapter::new(spatial_sound_manager),
+            emitter_adapter: CanopyDistributedEmitterAdapter::new(spatial_sound_manager)?,
         })
     }
 
@@ -102,8 +85,7 @@ impl TreeAudioManager {
         let snapshot = self.lifecycle.snapshot(time_seconds)?;
         self.emitter_adapter.synchronize(
             &snapshot,
-            &self.rustle_clip,
-            Self::base_volume_db(self.wind_volume_db),
+            self.wind_volume_db,
             self.wind_response_curve,
             time_seconds,
         )
@@ -116,8 +98,7 @@ impl TreeAudioManager {
         let snapshot = self.lifecycle.snapshot(time_seconds)?;
         self.emitter_adapter.synchronize(
             &snapshot,
-            &self.rustle_clip,
-            Self::base_volume_db(self.wind_volume_db),
+            self.wind_volume_db,
             self.wind_response_curve,
             time_seconds,
         )?;
@@ -183,8 +164,7 @@ impl TreeAudioManager {
         }
 
         self.wind_volume_db = wind_volume_db;
-        self.emitter_adapter
-            .set_base_volume_db(Self::base_volume_db(self.wind_volume_db))
+        self.emitter_adapter.set_base_volume_db(self.wind_volume_db)
     }
 
     pub fn set_wind_response_curve(&mut self, wind_response_curve: WindResponseCurve) {
@@ -197,24 +177,8 @@ impl TreeAudioManager {
             .set_wind_response_curve(self.wind_response_curve);
     }
 
-    pub(crate) fn recorded_mix_diagnostics(&self) -> (usize, usize, f32, f32) {
+    pub(crate) fn recorded_mix_diagnostics(&self) -> (usize, f32, f32) {
         self.emitter_adapter.recorded_mix_diagnostics()
-    }
-
-    pub fn set_recorded_mix(&mut self, enabled: bool) -> Result<()> {
-        self.emitter_adapter.set_recorded_mix(enabled)
-    }
-
-    pub fn set_rustle_params(&mut self, rustle_params: TreeRustleParams) -> Result<()> {
-        if rustle_params == self.rustle_params {
-            return Ok(());
-        }
-
-        let rustle_clip = Self::render_rustle_clip(rustle_params)?;
-        self.emitter_adapter.replace_rustle_clip(&rustle_clip)?;
-        self.rustle_params = rustle_params;
-        self.rustle_clip = rustle_clip;
-        Ok(())
     }
 
     pub(crate) fn kick_rustle_voice_count(&self) -> usize {
@@ -262,8 +226,7 @@ impl TreeAudioManager {
         let snapshot = self.lifecycle.snapshot(time_seconds)?;
         self.emitter_adapter.synchronize(
             &snapshot,
-            &self.rustle_clip,
-            Self::base_volume_db(self.wind_volume_db),
+            self.wind_volume_db,
             self.wind_response_curve,
             time_seconds,
         )?;
@@ -273,17 +236,6 @@ impl TreeAudioManager {
             wind_audio_attack_decay,
             wind_audio_release_decay,
         )
-    }
-
-    fn render_rustle_clip(params: TreeRustleParams) -> Result<ResidentClip> {
-        let control = Arc::new(TreeRustleControl::with_params(params));
-        TreeRustleFactory::new(TREE_RUSTLE_CLIP_SEED, control)
-            .render_resident_clip(TREE_RUSTLE_SAMPLE_RATE, TREE_RUSTLE_LOOP_SECONDS)
-            .map_err(Into::into)
-    }
-
-    fn base_volume_db(volume_db: f32) -> f32 {
-        volume_db + PROCEDURAL_RUSTLE_MAKEUP_GAIN_DB
     }
 }
 
@@ -296,6 +248,7 @@ mod tests {
         AcousticHit, AcousticRay, AcousticRayQuerySnapshot, AcousticSceneSnapshot,
         EnvironmentalAcousticsBudget,
     };
+    use std::sync::Arc;
 
     struct NoAcousticHits;
 
@@ -337,7 +290,6 @@ mod tests {
                 power: 1.0,
             },
             -15.0,
-            TreeRustleParams::dense(),
         )
         .unwrap()
     }
@@ -353,11 +305,6 @@ mod tests {
             }],
             &[],
         )
-    }
-
-    #[test]
-    fn base_volume_keeps_procedural_rustle_makeup_without_leaf_count_gain() {
-        assert_eq!(TreeAudioManager::base_volume_db(-15.0), 21.0);
     }
 
     #[test]

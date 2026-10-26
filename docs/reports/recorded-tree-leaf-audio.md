@@ -1,6 +1,70 @@
 # Recorded tree-leaf audio — implementation and validation
 
-## 2026-10-26 default activation
+## 2026-10-27 recorded-only follow-up
+
+The player requested removal of **Tree leaves: recorded breeze / strong wind** and
+the old ambient implementation. Recorded breeze/strong-wind blending is now the
+only canopy-wind source, not a default that can be switched back.
+
+- Removed the checkbox and eight `tree_rustle_*` synthesis controls, their generated
+  adjustables, the procedural resident-loop renderer, mode-switch/replacement
+  plumbing and obsolete phase/gain state.
+- Each adapter requires a loaded recording bank; each canopy Voice requires a blend
+  control. Missing recordings report a load error, never a procedural fallback.
+  Independent take/phase choices, one Voice per generation, local-wind blend,
+  generation crossfades, mixer/mute controls and **+12 dB** makeup are unchanged.
+- Old settings with either checkbox value load without rewriting the file. The
+  loader discards retired fields; explicit Save removes them. Saved leaf-channel
+  enable/scale, wind volume/response and kick settings remain independent.
+- The finite **kick** leaf-contact cue is not ambient wind. Its shared synthesis
+  is now private to `src/audio/tree_kick_rustle/synthesis.rs`; the ambient manager
+  cannot select that implementation. Kicking, cicadas and other sound categories
+  retain their behavior.
+- No WAV, derivative recipe or license changed. Save the garden and restart the
+  existing game to use the rebuilt Release binary; no visible session was stopped.
+
+### Follow-up verification
+
+- `cargo fmt --check`, `cargo check`, `cargo build --release`: passed.
+- `cargo test audio:: -- --nocapture`: **75 passed, 5 opt-in tests ignored**.
+- `cargo test recorded_tree_wind`: two settings/schema tests passed, including
+  both legacy true/false values, read-without-write and explicit save/reload.
+- `cargo test every_declared_generic_setting_saves_its_live_value`: passed.
+- Explicit opt-in tests `recorded_leaf_mix_keeps` and
+  `kick_rustle_has_exact_tree_placement`: both passed with
+  `-- --ignored --nocapture`. Eight canopy generations retain their source IDs
+  across five volume changes and calm/weak/strong wind; recorded gain, geometry
+  crossfade/retirement and the independent bounded kick cue remain valid.
+- `python3 scripts/prepare_tree_leaf_loops.py --check`: all eight derivatives match.
+- Asset bundle notes/catalog now describe recorded-only use; inventory tables were
+  regenerated, not hand-edited. The inventory checker already reported **30 existing
+  unclassified files** before these note changes; it still exits 1 for those same
+  entries (now without stale-table errors). No unrelated asset/rights audit is
+  claimed. Inventory script unit tests and the unchanged offline report verifier pass.
+- Native Release verification:
+
+  ```sh
+  env -u WAYLAND_DISPLAY RE_FLORA_TREE_LEAF_AUDIO_REVIEW=1 RUST_LOG=info \
+    cargo run --release -- --canopy-audio-budget-diagnostic \
+    --hidden --mute --auto-exit 18
+  env -u WAYLAND_DISPLAY RUST_LOG=info \
+    cargo run --release -- --hidden --mute --auto-exit 0.5
+  cargo run --release -- --tail-latest-log 200
+  ```
+
+  Five canopies remained recorded-only through six stages: calm, continued calm,
+  weak, strong, release-to-calm, strong again. Observed blends:
+  **0 / 0 / 0.266667 / 1 / 0.002635 / 1** (the release stage retains normal
+  smoothing). Review and ordinary startup log `recorded_only=true`; both shut
+  down with `failures=0`, without ERROR/panic/VUID.
+  Logs: `target/re-flora-logs/re-flora-20261027-000247.477-506363.log` and
+  `target/re-flora-logs/re-flora-20261027-000336.462-506469.log`.
+
+These are correctness checks, not listening approval or performance measurements.
+The repository-wide suite was not rerun; its documented baseline failures are not
+claimed fixed. The earlier offline report remains a historical delivery snapshot.
+
+## Historical: 2026-10-26 default activation
 
 The recorded breeze / strong-wind pair is now enabled in the shipped local
 configuration. Normal startup was verified with `recorded_mix=true`; the legacy
@@ -21,7 +85,7 @@ The following sections describe the original comparison implementation/history.
 Date: 2026-10-24. Research and first-party references:
 [recorded-tree-leaf-audio.md](../research/recorded-tree-leaf-audio.md).
 
-## Try-out
+## Historical A/B try-out (retired)
 
 In **Debug → Wind → Response → Sound**, enable
 **Tree leaves: recorded breeze / strong wind (A/B)**. Searching for `recorded breeze`

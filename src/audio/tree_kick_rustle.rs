@@ -1,10 +1,8 @@
 //! Finite leaf-contact excitation, separate from ambient wind and acoustic transport.
 //! Clips are prepared off the realtime callback and before the next K event.
 use super::mixer::AudioCategory;
-use super::{
-    CanopyAcousticDescriptor, CanopyDistributedEmitterAdapter, SpatialSoundManager,
-    TreeRustleControl, TreeRustleFactory, TreeRustleParams,
-};
+use super::{CanopyAcousticDescriptor, CanopyDistributedEmitterAdapter, SpatialSoundManager};
+mod synthesis;
 use anyhow::{ensure, Result};
 use glam::Vec3;
 use petalsonic::ResidentClip;
@@ -13,6 +11,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use synthesis::{TreeRustleControl, TreeRustleFactory, TreeRustleParams};
 use uuid::Uuid;
 
 const SAMPLE_RATE: u32 = 48_000;

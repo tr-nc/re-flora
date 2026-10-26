@@ -79,7 +79,9 @@ impl GuiConfigLoader {
         Self::retire_cloud_settings(&mut config);
         for section in &mut config.section {
             section.param.retain(|param| {
-                param.id != "grass_natural_bend_min_voxels"
+                param.id != "tree_leaf_recorded_mix"
+                    && !param.id.starts_with("tree_rustle_")
+                    && param.id != "grass_natural_bend_min_voxels"
                     && param.id != "flora_bend_height_power"
                     && param.id != "apple_directional_lighting"
                     && param.id != "apple_light_bands"
@@ -1401,6 +1403,94 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn recorded_tree_wind_retires_both_legacy_choices_without_changing_live_audio_settings() {
+        use crate::app::gui_config_model::{GuiParam, GuiParamKind, GuiParamValue};
+        for legacy_enabled in [false, true] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            config.audio_mix.leaves.enabled = false;
+            config.audio_mix.leaves.scale = 2.5;
+            for param in config
+                .section
+                .iter_mut()
+                .flat_map(|section| &mut section.param)
+            {
+                if let GuiParamValue::Float { value, .. } = &mut param.value {
+                    match param.id.as_str() {
+                        "tree_wind_volume_db" => *value = -17.0,
+                        "wind_audio_attack_decay" => *value = 0.75,
+                        "wind_audio_release_decay" => *value = 0.25,
+                        "tree_kick_rustle_brightness" => *value = 0.5,
+                        _ => {}
+                    }
+                }
+            }
+            let wind = config
+                .section
+                .iter_mut()
+                .find(|section| section.name == "Wind")
+                .unwrap();
+            wind.param.push(GuiParam {
+                id: "tree_leaf_recorded_mix".into(),
+                kind: GuiParamKind::Bool,
+                label: "Tree leaves: recorded breeze / strong wind".into(),
+                enabled_if: None,
+                value: GuiParamValue::Bool {
+                    value: legacy_enabled,
+                },
+            });
+            for suffix in [
+                "gustiness",
+                "leaf_density",
+                "dryness",
+                "branch",
+                "air",
+                "leaf_body",
+                "crackle",
+                "brightness",
+            ] {
+                wind.param.push(GuiParam {
+                    id: format!("tree_rustle_{suffix}"),
+                    kind: GuiParamKind::Float,
+                    label: format!("Tree Rustle {suffix}"),
+                    enabled_if: None,
+                    value: GuiParamValue::Float {
+                        value: 0.5,
+                        min: Some(0.0),
+                        max: Some(3.0),
+                    },
+                });
+            }
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("gui.toml");
+            let original = toml::to_string_pretty(&config).unwrap();
+            std::fs::write(&path, &original).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            let restored = GuiConfigLoader::load_from_path(&path);
+            for candidate in [&loaded, &restored] {
+                assert!(!candidate
+                    .section
+                    .iter()
+                    .flat_map(|section| &section.param)
+                    .any(|param| param.id == "tree_leaf_recorded_mix"
+                        || param.id.starts_with("tree_rustle_")));
+                assert_eq!(candidate.audio_mix, config.audio_mix);
+                let fields = crate::app::gui_config::GuiAdjustables::from_config(candidate);
+                assert_eq!(fields.tree_wind_volume_db.value, -17.0);
+                assert_eq!(fields.wind_audio_attack_decay.value, 0.75);
+                assert_eq!(fields.wind_audio_release_decay.value, 0.25);
+                assert_eq!(fields.tree_kick_rustle_brightness.value, 0.5);
+                assert_eq!(fields.canopy_audio_sample_budget.value, 16);
+            }
+            let saved = std::fs::read_to_string(&path).unwrap();
+            assert!(!saved.contains("tree_leaf_recorded_mix"));
+            assert!(!saved.contains("tree_rustle_"));
+        }
+    }
+
     #[test]
     fn tree_planting_controls_upgrade_old_settings_without_touching_tree_authoring() {
         let mut config: GuiConfigFile =

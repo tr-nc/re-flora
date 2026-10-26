@@ -4,8 +4,8 @@
 引用/许可人工审阅基线：`f9d0f2f41c8bdf95ea91da79601a51be4c1e51dd`；审阅日期：2026-10-24。
 文件数量、字节数与哈希来自当前 Git 跟踪文件的工作树内容，不代表自动重新审核过代码或许可。
 
-共 **636** 个登记文件/容器，**91.549 MiB**；
-其中 `assets/` **545** 个，外部 **91** 个。
+共 **666** 个登记文件/容器，**126.568 MiB**；
+其中 `assets/` **546** 个，外部 **120** 个。
 随包说明也计文件；HTML 按容器计一个，不展开内嵌媒体；未按哈希去重。
 
 ## 使用状态（逐文件口径）
@@ -17,6 +17,7 @@
 | 仅 selected loop 运行时预加载；original 为不加载的编辑参考 | 2 |
 | 八条 runtime 单声道循环预加载；原始立体声下载只保留作制作参考 | 18 |
 | 当前制作源，非游戏直接输入 | 2 |
+| 待审计 | 29 |
 | 文档/验收展示 | 3 |
 | 文档证据，非游戏输入 | 18 |
 | 条件加载：主图标缺失时 | 7 |
@@ -32,7 +33,7 @@
 | 运行时加载全部切片 | 384 |
 | 运行时预加载 / 事件播放 | 70 |
 | 运行时预加载 / 操作反馈与生态触发 | 4 |
-| 随包来源/许可说明，不加载 | 28 |
+| 随包来源/许可说明，不加载 | 29 |
 
 ## 分组与处理建议
 
@@ -41,7 +42,7 @@
 
 | 资产组 / ID | 文件数 | MiB | 具体用途 | 使用状态 | 分仓建议 | 来源/许可证据 | 尚缺信息 |
 | --- | ---: | ---: | --- | --- | --- | --- | --- |
-| 轻风与强风树叶录音、来源和运行时循环 (`recorded-tree-leaves`) | 20 | 17.521 | 每个树冠声源独立选取轻风与强风各一条及独立相位，按局部风响应混音；保存的 A/B 复选框保留合成旧版 | 八条 runtime 单声道循环预加载；原始立体声下载只保留作制作参考 | 按用户要求恢复用于本地 A/B；商业及公开分发未获授权 | ElevenLabs SFX v3 Free-plan 原件；项目脚本生成可重建的单声道、接缝和电平处理版 | 沿用原商业/原件分发限制；听感与响度仍需人工确认 |
+| 轻风与强风树叶录音、来源和运行时循环 (`recorded-tree-leaves`) | 20 | 17.521 | 每个树冠声源独立选取轻风与强风各一条及独立相位，按局部风响应混音；2026-10-27 已移除 A/B 开关和旧常驻合成路径 | 八条 runtime 单声道循环预加载；原始立体声下载只保留作制作参考 | 按用户要求固定为本地树叶风声；商业及公开分发未获授权 | ElevenLabs SFX v3 Free-plan 原件；项目脚本生成可重建的单声道、接缝和电平处理版 | 沿用原商业/原件分发限制；听感与响度仍需人工确认 |
 | 苹果落地三种音效与来源 (`apple-impacts`) | 8 | 2.044 | 每颗动态苹果首次落地时随机播放三种单次音效之一，独立保存音量 | 三条裁切版运行时预加载；original 为不加载的编辑参考 | 用户要求恢复用于本地开发；商业及公开分发未获授权 | ElevenLabs SFX v3 Free-plan；历史原件及裁切版原样恢复 | 保留原有商业使用限制；本轮没有取得新授权或推送 |
 | 喷淋器六连录音与来源 (`sprinkler-loop`) | 3 | 1.759 | 喷淋器每 1.56 秒六次喷水的空间循环音效；统一固定运动节奏 | 仅 selected loop 运行时预加载；original 为不加载的编辑参考 | 用户要求恢复用于本地开发；商业及公开分发未获授权 | ElevenLabs SFX v3 Free-plan；历史素材原样恢复 | 保留原有商业使用限制；本轮没有取得新授权或推送 |
 | Pixelify Sans (`font`) | 3 | 0.081 | GUI、菜单和文字的像素字体；网页启动屏原型也内嵌同一字体 | 运行时加载 | 保留公开 | 已核本地字体 OFL 1.1；许可随包 | 原始下载批次未记录；当前上游 TTF 不同字节，不影响已核字体内许可 |
@@ -50,9 +51,9 @@
 | 正式蝴蝶模型 (`model-butterfly`) | 1 | 0.014 | 游戏与网页共用的蝴蝶双翼几何、材质分组和拍翼动画 | 编译时嵌入 / 网页预览 | 保留公开基础资源 | 项目 Blender v5 制作；项目所有者确认由助手发起的蝴蝶实验为项目自有内容 | 当前制作源已保留；旧实验仅因不再需要而删除，不按版权风险处理 |
 | 叶片、64 变体与生成源 (`model-leaf`) | 3 | 0.119 | 模型叶片渲染及落叶实例的立体叶片、64 个稳定形状变体 | 编译时嵌入 / 构建源 | 保留公开基础资源 | 项目参数化生成；源码、发布指纹可追溯 | 无已知外部原始模型依赖；保持源码与生成物同步 |
 | 苹果模型与生成源 (`model-apple`) | 2 | 0.033 | 树上和掉落苹果共用的几何与制作配方 | 编译时嵌入 / 构建源 | 保留公开基础资源 | 项目参数化生成 | 保持源码与生成物同步 |
-| 花朵模型、调色板与生成源 (`model-flower`) | 5 | 1.447 | 6 种可种植模型花的花头几何、调色板权重/atlas 和制作配方 | 编译时嵌入 / 构建源 | 保留公开基础资源 | 项目参数化生成；JSON 含派生贴图数据 | JSON 内嵌 atlas 不单独计图片；保持源码与生成物同步 |
+| 花朵模型、调色板与生成源 (`model-flower`) | 5 | 1.724 | 6 种可种植模型花的花头几何、调色板权重/atlas 和制作配方 | 编译时嵌入 / 构建源 | 保留公开基础资源 | 项目参数化生成；JSON 含派生贴图数据 | JSON 内嵌 atlas 不单独计图片；保持源码与生成物同步 |
 | 土袋模型、贴纸与生成源 (`model-soil`) | 4 | 0.202 | 土袋几何、包装贴纸与倾倒制作源，游戏与预览共用派生数据 | 编译时嵌入 / 构建源 | 保留公开基础资源 | 项目模型/矢量贴纸生成 | 保持源码、JSON、PNG 与指纹同步 |
-| 跨包说明 (`bundle-notes`) | 2 | 0.025 | 资源发布流程、音效选择和来源说明；不是加载数据 | 说明文件 | 保留公开 | 项目文档 | 无 |
+| 跨包说明 (`bundle-notes`) | 2 | 0.029 | 资源发布流程、音效选择和来源说明；不是加载数据 | 说明文件 | 保留公开 | 项目文档 | 无 |
 | 脚步音效 (`footsteps`) | 73 | 4.124 | 玩家走/跑各 25 条、起跳/落地各 10 条；当前各地面类型共用 | 运行时预加载 / 事件播放 | 拆出私有或替换 | High Impact Media / Tom Winandy；购买已确认，当前许可已保存 | 禁止可提取原始音频的开源分发；历史处理和购买时版本条款未恢复 |
 | Sound Armoury 共用来源音效（地形/UI/蝉鸣） (`sound-armoury`) | 9 | 15.745 | 同一采购来源的 4 条音效：岩石循环用于地形编辑，按键用于物品栏反馈，两种蝉鸣用于生态点位 | 运行时预加载 / 操作反馈与生态触发 | 游戏内可商用；公开原件需许可、拆出或替换 | 用户确认四条共用 Sound Armoury SFX Mega Bundle 采购来源；2025-07-09 购买，当前 itch.io EULA 已保存 | 公开 WAV（含修改版）仍需明确许可；历史原始包版本/购买时条款及地形/UI 历史处理未恢复 |
 | 当前工具图标 (`tool-icons`) | 8 | 0.009 | 8 个工具主图标：挖土、种植、平整、修剪、浇水、喷水器、检查器、翻土 | 运行时加载 | 先补来源，再定是否拆出 | Git 导入记录只有 add icons | 请确认这 8 个图标的自制/生成/购买来源及许可；未使用的 tree.png 已删除 |
@@ -68,6 +69,39 @@
 | 批准蝴蝶离线图集/截图 (`butterfly-v5-evidence`) | 8 | 0.140 | 当前 v5 的透明边界、循环、调色板和离线投影验证图集 | 离线制作/回归证据 | 保留公开，不因非运行输入而拆仓 | 项目自有 v5 制作流程派生输出 | 保留当前制作验证证据；不被游戏读取 |
 | 内嵌字体的启动屏原型 HTML (`splash-html`) | 1 | 0.131 | 离线启动屏美术/动画原型，内嵌 Pixelify 字体 | 离线网页原型 | 保留工具，随附字体许可 | 项目生成网页；内嵌 Pixelify Sans 原字节 | 单独分发 HTML 时也须遵守字体 OFL；不只检查独立 TTF |
 | 内嵌图片的性能/原理报告 (`evidence-html`) | 3 | 1.952 | 土壤、草像素化、DDGI 响应的离线图表与验收报告，含内嵌截图 | 文档/验收展示 | 保留文档，逐容器核对 | 报告内有运行观测/图表；按 HTML 容器列出 | 未逐张展开 data URI 做来源鉴定；不代表已全部授权 |
+
+## 未审阅文件
+
+- `assets/texture/Planets_16x16/README.md`
+- `docs/reports/garden-expansion/assets/garden-bees-tree.png`
+- `docs/reports/garden-expansion/assets/garden-bees.png`
+- `docs/reports/garden-expansion/assets/garden-blue-day.png`
+- `docs/reports/garden-expansion/assets/garden-blue-night.png`
+- `docs/reports/garden-expansion/assets/garden-butterflies-after.png`
+- `docs/reports/garden-expansion/assets/garden-butterflies-before.png`
+- `docs/reports/garden-expansion/assets/garden-fallen-harvest.png`
+- `docs/reports/garden-expansion/assets/garden-fence.png`
+- `docs/reports/garden-expansion/assets/garden-fireflies-day.png`
+- `docs/reports/garden-expansion/assets/garden-fireflies.png`
+- `docs/reports/garden-expansion/assets/garden-harvest-before.png`
+- `docs/reports/garden-expansion/assets/garden-harvest.png`
+- `docs/reports/garden-expansion/assets/garden-lantern-day.png`
+- `docs/reports/garden-expansion/assets/garden-lantern-night.png`
+- `docs/reports/garden-expansion/assets/garden-moon.png`
+- `docs/reports/garden-expansion/assets/garden-plow.png`
+- `docs/reports/garden-expansion/assets/garden-sapling-0.375.png`
+- `docs/reports/garden-expansion/assets/garden-sapling-0.5.png`
+- `docs/reports/garden-expansion/assets/garden-sapling-0.75.png`
+- `docs/reports/garden-expansion/assets/garden-sapling-1.png`
+- `docs/reports/garden-expansion/assets/garden-shop.png`
+- `docs/reports/garden-expansion/assets/garden-shovel-drop.png`
+- `docs/reports/garden-expansion/assets/garden-shovel-held.png`
+- `docs/reports/garden-expansion/assets/garden-sunflower.png`
+- `docs/reports/garden-expansion/assets/grass-soil-tight.png`
+- `docs/reports/garden-tree-species/index.html`
+- `docs/research/sprinkler-response-captures/plants-original.png`
+- `docs/research/sprinkler-response-captures/tall-original.png`
+- `docs/research/sprinkler-vegetation-response.html`
 
 ## 引用与来源证据索引
 

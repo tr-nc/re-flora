@@ -133,7 +133,7 @@ use crate::app::world_ops;
 use crate::app::{DebugSettings, GuiAdjustables};
 use crate::audio::{
     CanopyAudioTelemetrySnapshot, SpatialFrame, SpatialFrameFacts, SpatialSoundManager,
-    TreeAudioManager, TreeRustleParams,
+    TreeAudioManager,
 };
 use crate::builder::{
     ContreeBuilder, PlainBuilder, SceneAccelBuilder, SurfaceBuilder, VOXEL_MOISTURE_MAX,
@@ -1077,19 +1077,6 @@ impl App {
         }
     }
 
-    fn tree_rustle_params(gui_adjustables: &GuiAdjustables) -> TreeRustleParams {
-        TreeRustleParams {
-            gustiness: gui_adjustables.tree_rustle_gustiness.value,
-            leaf_density: gui_adjustables.tree_rustle_leaf_density.value,
-            dryness: gui_adjustables.tree_rustle_dryness.value,
-            branch: gui_adjustables.tree_rustle_branch.value,
-            air: gui_adjustables.tree_rustle_air.value,
-            leaf_body: gui_adjustables.tree_rustle_leaf_body.value,
-            crackle: gui_adjustables.tree_rustle_crackle.value,
-            brightness: gui_adjustables.tree_rustle_brightness.value,
-        }
-    }
-
     pub(in crate::app) fn new(
         _event_loop: &ActiveEventLoop,
         platform: PlatformPlan,
@@ -1474,10 +1461,7 @@ impl App {
             spatial_sound_manager.clone(),
             Self::tree_audio_wind_response_curve(&debug_settings.adjustables),
             debug_settings.adjustables.tree_wind_volume_db.value,
-            Self::tree_rustle_params(&debug_settings.adjustables),
         )?;
-        tree_audio_manager
-            .set_recorded_mix(debug_settings.adjustables.tree_leaf_recorded_mix.value)?;
         tree_audio_manager
             .prepare_kick_rustle(Self::tree_kick_rustle_tuning(&debug_settings.adjustables))?;
         tree_audio_manager
@@ -2438,20 +2422,13 @@ impl App {
                         )
                     }
                 };
-                let (recorded_leaves, wind) = if let Some(review) = &mut self.tree_leaf_audio_review
-                {
+                let wind = if let Some(review) = &mut self.tree_leaf_audio_review {
                     review
                         .inputs(time_since_start, self.mute_audio_output)
                         .expect("tree leaf audio review inputs")
                 } else {
-                    (
-                        self.debug_settings.adjustables.tree_leaf_recorded_mix.value,
-                        wind,
-                    )
+                    wind
                 };
-                if let Err(err) = self.tree_audio_manager.set_recorded_mix(recorded_leaves) {
-                    log::error!("Failed to apply recorded tree leaf mix: {err:#}");
-                }
                 if let Err(err) = cpu_timings.time(FrameCpuScope::CanopyAudio, || {
                     self.tree_audio_manager.update(
                         time_since_start,
@@ -3216,13 +3193,6 @@ impl App {
                 self.tree_audio_manager.set_wind_response_curve(
                     Self::tree_audio_wind_response_curve(&self.debug_settings.adjustables),
                 );
-                if let Err(err) = self
-                    .tree_audio_manager
-                    .set_rustle_params(Self::tree_rustle_params(&self.debug_settings.adjustables))
-                {
-                    log::error!("Failed to rebuild resident tree rustle clip: {err:#}");
-                }
-
                 if let Err(error) =
                     self.tree_audio_manager
                         .prepare_kick_rustle(Self::tree_kick_rustle_tuning(

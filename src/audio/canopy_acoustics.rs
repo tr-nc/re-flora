@@ -78,7 +78,6 @@ pub struct CanopyAcousticDescriptor {
     tree_origin_world: Vec3,
     tree_seed: u64,
     content_seed: u64,
-    phase: f32,
     samples: Vec<CanopyAcousticSample>,
     sample_budget: usize,
 }
@@ -196,7 +195,6 @@ impl CanopyAcousticDescriptor {
             tree_origin_world,
             tree_seed,
             content_seed,
-            phase: unit_from_u64(mix_u64(content_seed ^ 0x766f_6963_655f_7068)),
             samples,
             sample_budget,
         }
@@ -218,10 +216,6 @@ impl CanopyAcousticDescriptor {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn content_seed(&self) -> u64 {
         self.content_seed
-    }
-
-    pub fn phase(&self) -> f32 {
-        self.phase
     }
 
     pub fn samples(&self) -> &[CanopyAcousticSample] {
@@ -565,8 +559,6 @@ mod tests {
         assert_eq!(first.samples(), next_generation.samples());
         assert_eq!(first.content_seed(), second.content_seed());
         assert_eq!(first.content_seed(), next_generation.content_seed());
-        assert_eq!(first.phase(), second.phase());
-        assert_eq!(first.phase(), next_generation.phase());
         assert_eq!(first.generation(), 11);
         assert_eq!(next_generation.generation(), 12);
         assert_eq!(first.samples().len(), 8);

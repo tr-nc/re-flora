@@ -49,7 +49,7 @@ fad0f2f1a919507d064e2960db74142167c359a33e92be6f489eacb019204580  leaves-strong-
 
 - Intended sound: a small localized cluster of leaves rustling vigorously under steady strong airflow, **not** a whole-tree/forest ambient wind bed or a wind-roar track.
 - These are the **strong-wind candidates** for future positional leaf audio. The intended blend is between gentle-breeze and strong-wind textures based on live game wind strength; resources should maintain steady overall intensity rather than contain their own large gust cycles.
-- All four takes now supply the saved recorded-leaf A/B experiment through separate runtime derivatives; each canopy independently pairs one with a gentle-breeze take. Unchecked retains the existing procedural foliage audio.
+- All four takes supply ambient tree-leaf audio through separate runtime derivatives; each canopy independently pairs one with a gentle-breeze take. Since 2026-10-27 this is the only ambient tree-leaf implementation; the old A/B switch and procedural ambient path are removed.
 - Preserve the original stereo downloads. Any later mono/positional preparation, level matching, filtering or seam repair must be recorded as a derivative in this bundle.
 - Verified: all four decode successfully, match their downloads exactly, and have the frame count/sample format above.
 - Not verified: audible seam quality, steadiness, lack of ambience, suitability of each take, or in-game spatial/loudness balance. Loop mode and prompt wording describe the generation request, not guaranteed audio quality. A listening pass is still required.

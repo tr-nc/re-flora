@@ -66,9 +66,11 @@ of asynchronous loop overlap and equal-power fades:
   level matching, not an assertion of perceptual normalization.
 - **One acoustic Voice:** blend PCM before spatialization and environmental acoustics;
   do not duplicate canopy geometry, rays or permanent spatial emitters for the two layers.
-- **Saved A/B:** unchecked keeps the procedural texture; checked uses recorded layers.
-  Both retain the existing Tree leaves mixer and Tree Wind Volume controls. Short start/stop
-  ramps protect random-phase source starts and replacements. No pitch randomization is added.
+- **Recorded-only (2026-10-27 follow-up):** the original saved A/B comparison and
+  procedural ambient path have been removed at the player's request. Recorded layers
+  retain the existing Tree leaves mixer and Tree Wind Volume controls. Short start/stop
+  ramps protect random-phase source starts and generation transitions. No pitch
+  randomization is added. The research and original asset preparation remain unchanged.
 
 The exact gain calibration and two-layer formula above are project design decisions, not
 requirements imposed by Wwise or FMOD. Additional per-take tuning, longer assets or subtle

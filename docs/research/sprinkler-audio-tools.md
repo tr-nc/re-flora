@@ -275,7 +275,7 @@ only committed research artifact.
 - **R1** [`SprayClock`](../../src/sprinkler.rs), [`BufferUpdater`](../../src/tracer/buffer_updater.rs), [`Tracer`](../../src/tracer/mod.rs).
 - **R2** [production spray source](../../shader/slang/sprinkler_spray.slang), [sprinkler ownership/control docs](../sprinkler-spray.md).
 - **R3** [spatial transaction](../../src/audio/spatial_frame.rs), [manager](../../src/audio/spatial_sound_manager.rs), [controlled footstep precedent](../../src/audio/local_player_footsteps.rs).
-- **R4** [original tree synthesis / resident clip rendering](../../src/audio/tree_rustle.rs), [PetalSonic public API](../../crates/petalsonic/src/lib.rs).
+- **R4** [original ambient tree synthesis (historical)](../procedural_tree_rustle_progress.md), [retained finite kick synthesis](../../src/audio/tree_kick_rustle/synthesis.rs), [PetalSonic public API](../../crates/petalsonic/src/lib.rs).
 - **R5** [playback fade](../../crates/petalsonic/src/playback.rs), [render command processing](../../crates/petalsonic/src/render.rs), [world controls](../../crates/petalsonic/src/world.rs).
 - **R6** [committed source identity/transactions](../../src/app/core/placeables.rs), [moisture staging](../../src/app/core/moisture.rs), [saved mix](../../src/audio/mixer.rs).
 

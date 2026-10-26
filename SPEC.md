@@ -146,6 +146,16 @@ known limitations; partially implemented items remain open.
 
 ### Delivery log
 
+- Player follow-up (2026-10-27): recorded breeze/strong-wind canopy audio is now
+  the only implementation. Removed the A/B checkbox, eight unused synthesis
+  controls and the procedural ambient loop/replacement path. Old true/false
+  settings are retired at load and removed on explicit Save; mixer, wind response
+  and +12 dB recorded calibration remain unchanged. Finite kick leaf-contact
+  synthesis remains private to the kick module. Audio/schema/save/native lifecycle
+  checks and six-stage five-canopy hidden Release review pass; Release rebuilt.
+  See `docs/reports/recorded-tree-leaf-audio.md`. No listening/rights approval or
+  new full-suite acceptance is implied; historical offline evidence is unchanged.
+
 - Player follow-up: saved **Tree Planting** sliders now own future tree size
   (0.5–2x species-relative scale) and apple density (0–1, default 0.25).
   Preview/placement capture the settings; existing mature trees and growing

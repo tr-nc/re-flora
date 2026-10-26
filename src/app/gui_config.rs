@@ -945,7 +945,7 @@ fn render_section_controls(
 ) {
     if section.name == "Wind" {
         ui_text::section(ui, "Tree sound response");
-        ui_text::hint(ui, "Tree leaves use the recorded breeze / strong-wind layers by default, with an independent pair and phase per canopy and a continuous local-wind blend. Uncheck only for the legacy procedural comparison. Save remembers the choice. Volume: Audio / Live mixer / Tree leaves, or Tree Wind Volume (dB). Rustle synthesis controls affect the legacy mode only.");
+        ui_text::hint(ui, "Recorded breeze and strong-wind layers blend with local wind. Volume: Audio / Live mixer / Tree leaves, or Tree Wind Volume (dB).");
         for param in &section.param {
             render_gui_param_from_config(ui, param, &section.name, adjustables);
         }
@@ -1557,11 +1557,6 @@ mod search_tests {
 }
 
 #[cfg(test)]
-fn is_tree_sound_synthesis_param(id: &str) -> bool {
-    id.starts_with("tree_rustle_")
-}
-
-#[cfg(test)]
 mod tests {
     #[test]
     fn flutter_curve_drag_edits_persisted_fields_without_a_save_hook() {
@@ -1731,7 +1726,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tree_sound_synthesis_is_separate_from_spatial_wind_controls() {
+    fn recorded_tree_wind_keeps_spatial_controls_without_legacy_synthesis_settings() {
         let settings = DebugSettings::load();
         let wind = settings
             .config
@@ -1739,14 +1734,13 @@ mod tests {
             .iter()
             .find(|s| s.name == "Wind")
             .unwrap();
-        let synthesis: Vec<_> = wind
-            .param
+        assert!(!settings
+            .config
+            .section
             .iter()
-            .filter(|p| is_tree_sound_synthesis_param(&p.id))
-            .map(|p| p.id.as_str())
-            .collect();
-        assert_eq!(synthesis.len(), 8);
-        assert!(!wind.param.iter().any(|p| p.id == "tree_rustle_base_wind"));
+            .flat_map(|section| &section.param)
+            .any(|param| param.id == "tree_leaf_recorded_mix"
+                || param.id.starts_with("tree_rustle_")));
         for id in [
             "canopy_audio_sample_budget",
             "wind_audio_attack_decay",
@@ -1755,7 +1749,6 @@ mod tests {
             "tree_wind_response_max_strength",
         ] {
             assert!(wind.param.iter().any(|p| p.id == id));
-            assert!(!is_tree_sound_synthesis_param(id));
         }
     }
 
