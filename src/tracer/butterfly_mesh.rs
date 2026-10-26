@@ -12,7 +12,10 @@ use glam::Quat;
 use glam::Vec3;
 use re_flora_vkn::{vk, Allocator, Buffer, BufferUsage, Device, MemoryLocation};
 use resource_container_derive::ResourceContainer;
-const CAPACITY: usize = 256 + crate::particles::fireflies::CAPACITY;
+const CAPACITY: usize = 256
+    + crate::particles::fireflies::CAPACITY
+    + crate::particles::bees::CAPACITY
+    + crate::particles::bees::MAX_HIVES;
 pub const MAX_RESOLUTION: u32 = 64;
 #[derive(Clone, Copy, Debug)]
 pub struct ButterflyMeshSettings {
@@ -115,6 +118,46 @@ impl ButterflyMeshRenderer {
                 .total_cmp(&a.position_ws.distance_squared(camera))
         });
         for s in candidates {
+            if matches!(s.kind, ParticleRenderKind::Bee | ParticleRenderKind::Hive) {
+                let hive = s.kind == ParticleRenderKind::Hive;
+                let body = s.butterfly_body_pose;
+                let phase = body.and_then(|p| p.phase).unwrap_or(
+                    (s.animation_sample_time.unwrap() * 11. + s.animation_phase_offset)
+                        .rem_euclid(1.),
+                );
+                let source = if hive {
+                    super::model_geometry::HIVE_SOURCE
+                } else {
+                    super::model_geometry::BEE_SOURCE_BASE
+                        + (phase * super::model_geometry::BEE_POSES as f32) as u32
+                            % super::model_geometry::BEE_POSES
+                };
+                let facing = if hive {
+                    body.map_or(glam::Quat::IDENTITY, |p| p.orientation)
+                } else {
+                    body.map_or_else(
+                        || crate::particles::butterfly_wingbeat::flight_orientation(s.velocity, 0.),
+                        |p| p.orientation,
+                    )
+                };
+                self.hosts.push(body.and_then(|p| p.host));
+                self.instances.push(Instance {
+                    position_size: s.position_ws.extend(s.size).to_array(),
+                    color: s.color.to_array(),
+                    metadata: [
+                        source,
+                        0,
+                        settings.resolution.clamp(8, MAX_RESOLUTION),
+                        if hive { 16 } else { 8 },
+                    ],
+                    lighting: [if hive { 0. } else { 0.15 }, 0., 0., 0.],
+                    tile: [0; 4],
+                    view_orientation: facing.to_array(),
+                    flower_attachment: body
+                        .map_or([0; 4], |p| [0, 0, p.yaw.to_bits(), p.clearance.to_bits()]),
+                });
+                continue;
+            }
             if s.kind == ParticleRenderKind::Firefly {
                 let time = s.animation_sample_time.unwrap();
                 let phase = (time * 9. + s.animation_phase_offset).rem_euclid(1.);
@@ -293,6 +336,28 @@ mod tests {
     }
 
     #[test]
+    fn bees_and_houses_use_distinct_cache_sources_not_voxel_or_leaf_streams() {
+        for (kind, flag) in [(ParticleRenderKind::Bee, 8), (ParticleRenderKind::Hive, 16)] {
+            let s = snapshot(kind);
+            let mut renderer = ButterflyMeshRenderer::default();
+            renderer
+                .prepare_frame_models(&[s], settings(), Vec3::ZERO)
+                .unwrap();
+            let i = renderer.instances[0];
+            assert_eq!(i.metadata[3], flag);
+            assert_eq!(i.color[3], 1.);
+            assert!(renderer.flower_hosts().is_empty());
+            if kind == ParticleRenderKind::Hive {
+                assert_eq!(i.metadata[0], super::super::model_geometry::HIVE_SOURCE);
+                assert_eq!(i.lighting[0], 0.);
+            } else {
+                assert!((super::super::model_geometry::BEE_SOURCE_BASE
+                    ..super::super::model_geometry::HIVE_SOURCE)
+                    .contains(&i.metadata[0]));
+            }
+        }
+    }
+    #[test]
     fn firefly_uses_its_own_cached_source_and_blink_material() {
         let mut s = snapshot(ParticleRenderKind::Firefly);
         s.animation_sample_time = Some(0.384);
@@ -304,7 +369,8 @@ mod tests {
         let instance = renderer.instances[0];
         assert_eq!(instance.metadata[3], 4);
         assert!((super::super::model_geometry::FIREFLY_SOURCE_BASE
-            ..super::super::model_geometry::FLOWER_SOURCE_BASE)
+            ..super::super::model_geometry::FIREFLY_SOURCE_BASE
+                + super::super::model_geometry::FIREFLY_POSES)
             .contains(&instance.metadata[0]));
         assert!(instance.lighting[1] > 0.99);
         assert_eq!(

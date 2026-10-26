@@ -99,7 +99,7 @@ fn hash(mut x: u32) -> u32 {
     x = x.wrapping_mul(0x846c_a68b);
     x ^ (x >> 16)
 }
-fn orientation(normal: Vec3, tangent: Vec3, yaw: f32) -> Quat {
+pub(super) fn orientation(normal: Vec3, tangent: Vec3, yaw: f32) -> Quat {
     let z = (tangent * yaw.cos() + normal.cross(tangent) * yaw.sin()).normalize();
     Quat::from_mat3(&Mat3::from_cols(normal.cross(z).normalize(), normal, z))
 }

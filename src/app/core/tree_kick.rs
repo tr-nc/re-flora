@@ -59,7 +59,7 @@ impl App {
                     >= self.debug_settings.adjustables.tree_kick_cooldown.value
             })
     }
-    fn picked_tree_id(&self, hit: SurfacePickHit) -> Option<u32> {
+    pub(super) fn picked_tree_id(&self, hit: SurfacePickHit) -> Option<u32> {
         let triangle = *self
             .tracer
             .raster_trees

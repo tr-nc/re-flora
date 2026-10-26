@@ -1,3 +1,4 @@
+pub(crate) mod bees;
 mod butterfly_behavior;
 mod butterfly_flight;
 pub(crate) mod fireflies;

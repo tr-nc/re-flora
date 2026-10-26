@@ -176,6 +176,8 @@ impl App {
             PlayerToolPointerAction::ShovelScoop | PlayerToolPointerAction::ShovelDrop => {
                 self.complete_soil_shovel_pick(action)
             }
+            PlayerToolPointerAction::HivePlacement => self.try_bee_house_action(false),
+            PlayerToolPointerAction::HiveRemoval => self.try_bee_house_action(true),
             PlayerToolPointerAction::Harvest => {
                 if let Err(error) = self.harvest_pointed_apple() {
                     self.garden_feedback = Some(error.to_string());

@@ -4141,6 +4141,7 @@ impl Tracer {
         let enable_glass = false;
         let has_graphics_pass = render_flags.enable_flora
             || render_flags.enable_particles
+            || self.model_mesh_frame.particle_count() > 0
             || self.sprinkler_resources.instance_count > 0
             || self.geometry_preview_resources.has_visible_mesh()
             || self.static_scene.is_some()
@@ -4260,28 +4261,27 @@ impl Tracer {
         self.model_mesh_frame
             .bind_flower_hosts(self.flower_visits.indices());
         let flower_contacts = self.flower_visits.output(gpu_profiler_frame_slot);
-        let prepared_particle_pixels =
-            if render_flags.enable_particles && self.model_mesh_frame.particle_count() > 0 {
-                Some(Self::with_gpu_scope(
-                    gpu_profiler.as_deref_mut(),
-                    gpu_profiler_frame_slot,
-                    cmdbuf,
-                    "models.particles.prepare",
-                    || {
-                        self.model_mesh_frame.particles(
-                            cmdbuf,
-                            MeshPass {
-                                display: &self.pipeline_topology.graphics().butterfly_tile_ppl,
-                            },
-                            self.camera.get_view_mat(),
-                            self.camera.get_proj_mat(),
-                            &flower_contacts,
-                        )
-                    },
-                )?)
-            } else {
-                None
-            };
+        let prepared_particle_pixels = if self.model_mesh_frame.particle_count() > 0 {
+            Some(Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                "models.particles.prepare",
+                || {
+                    self.model_mesh_frame.particles(
+                        cmdbuf,
+                        MeshPass {
+                            display: &self.pipeline_topology.graphics().butterfly_tile_ppl,
+                        },
+                        self.camera.get_view_mat(),
+                        self.camera.get_proj_mat(),
+                        &flower_contacts,
+                    )
+                },
+            )?)
+        } else {
+            None
+        };
 
         if has_graphics_pass {
             if let Some(profiler) = gpu_profiler.as_deref_mut() {
@@ -4544,6 +4544,7 @@ impl Tracer {
     ) {
         let has_graphics_pass = render_flags.enable_flora
             || render_flags.enable_particles
+            || self.model_mesh_frame.particle_count() > 0
             || self.sprinkler_resources.instance_count > 0
             || self.geometry_preview_resources.has_visible_mesh()
             || self.static_scene.is_some()
@@ -5902,8 +5903,8 @@ impl Tracer {
             );
         }
 
-        // Draw particles in the same render pass
-        if enable_particles {
+        // Persistent houses share cached model batching, not particle visibility.
+        if enable_particles || prepared_particle_pixels.is_some() {
             let particles_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
                 profiler.begin_scope(
                     gpu_profiler_frame_slot,
@@ -5917,7 +5918,7 @@ impl Tracer {
                                   instance_buffer: &Buffer,
                                   instance_count: u32,
                                   source_voxel: bool| {
-                if instance_count == 0 {
+                if !enable_particles || instance_count == 0 {
                     return;
                 }
                 pipeline.record_bind(cmdbuf);

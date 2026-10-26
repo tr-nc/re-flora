@@ -6,8 +6,7 @@ import model_pixel_cache;
 import model_cache_types;
 import leaf_lighting;
 import flora_shadow;
-import butterfly_color;
-import firefly_material;
+import garden_model_material;
 [[vk::binding(11,1)]] public StructuredBuffer<ButterflyMeshInstance> butterfly_mesh_instances;
 public float3 rotatePose(float4 q,float3 p) { return p+2.0*cross(q.xyz,cross(q.xyz,p)+q.w*p); }
 // Production uses only the shared surface; physical lighting/pose remain live.
@@ -26,11 +25,11 @@ public float4 sampleCanonicalParticle(ButterflyMeshInstance instance,uint2 pixel
     } else {
         float d=dot(normal,normalize(sun_info.sun_dir));
         float direct=lerp(max(0.0,d),abs(d),saturate(instance.lighting.x));
-        bool firefly=(instance.metadata.w&4u)!=0u;
+
         uint material=uint(surface.normalMaterial.w+0.5);
-        float3 pigment=firefly?fireflyPigment(material):instance.color.rgb;
+        float3 pigment=gardenModelPigment(instance.metadata.w,material,instance.color.rgb);
         color=applyStylizedVoxelLightingWithEnvironment(sun_info,pigment,direct*light.w,light.rgb);
-        color=firefly?color+fireflyEmission(material,instance.lighting.y):readableButterflyColor(color,pigment,sun_info.sun_dir.y);
+        color=finishGardenModelColor(color,pigment,instance.metadata.w,material,instance.lighting.y,sun_info.sun_dir.y);
     }
     return float4(color,surface.positionDepth.w);
 }

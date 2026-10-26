@@ -55,14 +55,28 @@ impl Post {
             && delta.x.abs() < self.radius as f32 + 2.
             && delta.z.abs() < self.radius as f32 + 2.
     }
+    fn radius_at(&self, y: u32) -> u32 {
+        if y > self.height * 2 / 3 {
+            self.radius.saturating_sub(1).max(1)
+        } else {
+            self.radius
+        }
+    }
+    fn owns(&self, p: UVec3) -> bool {
+        if p.y < self.base[1] || p.y - self.base[1] >= self.height {
+            return false;
+        }
+        let y = p.y - self.base[1];
+        let c = self.center(y).as_uvec3();
+        let dx = p.x.abs_diff(c.x);
+        let dz = p.z.abs_diff(c.z);
+        let r = self.radius_at(y);
+        dx <= r && dz <= r && dx * dx + dz * dz <= r * r
+    }
     fn cells(&self) -> BTreeSet<[u32; 3]> {
         let mut cells = BTreeSet::new();
         for y in 0..self.height {
-            let r = if y > self.height * 2 / 3 {
-                self.radius.saturating_sub(1).max(1)
-            } else {
-                self.radius
-            } as i32;
+            let r = self.radius_at(y) as i32;
             let c = self.center(y);
             for z in -r..=r {
                 for x in -r..=r {
@@ -89,6 +103,9 @@ impl Default for FenceSnapshot {
     }
 }
 impl FenceSnapshot {
+    pub(super) fn contains_post(&self, id: u32) -> bool {
+        self.posts.iter().any(|p| p.id == id)
+    }
     pub(super) fn validate(&self, world: UVec3) -> Result<()> {
         ensure!(
             self.posts.len() <= MAX_POSTS && self.next_id > 0,
@@ -125,6 +142,19 @@ pub(super) struct GardenFence {
     dirty: HashSet<u32>,
 }
 impl GardenFence {
+    pub(super) fn post_at(&self, cell: UVec3) -> Option<u32> {
+        self.saved.posts.iter().find(|p| p.owns(cell)).map(|p| p.id)
+    }
+    pub(super) fn post_owns(&self, id: u32, cell: UVec3) -> bool {
+        self.saved.posts.iter().any(|p| p.id == id && p.owns(cell))
+    }
+    pub(super) fn review_post_cap(&self, id: u32) -> Option<UVec3> {
+        self.saved.posts.iter().find(|p| p.id == id).map(Post::top)
+    }
+    pub(super) fn review_post_contact(&self, id: u32) -> Option<Vec3> {
+        let p = self.saved.posts.iter().find(|p| p.id == id)?;
+        Some((p.center(p.height / 2).as_vec3() + Vec3::new(0.5, 0.5, p.radius as f32 + 1.)) / 256.)
+    }
     pub(super) fn restore(&mut self, saved: FenceSnapshot) {
         self.dirty = saved.posts.iter().map(|p| p.id).collect();
         self.saved = saved;
@@ -305,7 +335,7 @@ impl App {
         self.observe_player_terrain_publication_for_connectivity(bound);
         Ok(())
     }
-    fn place_garden_post(&mut self, hit: Vec3, thick: bool) -> Result<u32> {
+    pub(super) fn place_garden_post(&mut self, hit: Vec3, thick: bool) -> Result<u32> {
         self.update_garden_fence_anchors()?;
         ensure!(
             hit.is_finite() && self.garden_fence.saved.posts.len() < MAX_POSTS,

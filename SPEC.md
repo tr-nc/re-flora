@@ -140,7 +140,7 @@ known limitations; partially implemented items remain open.
 | [x] | 11 Shovel | Press-scoop/hold-carry/release-deposit; reused deposition; soil ownership/cancel/load safety; explicit support/collapse behavior |
 | [x] | 12 Apples, storage, currency and shop | Harvest/E, persistent wallet/stock/fruit receipts, real purchases and finite planting, preserved debug supply; native reload and fallen pickup. See `docs/garden-economy.md`. |
 | [x] | 13 Sapling growth | Per-tree staged clocks, compatible old ages, edit/obstruction safety; native save/reload and four age captures. See `docs/garden-saplings.md`. |
-| [ ] | 14 Bees and attached hives | Cached-angle post-processing; hives only on tree/pole anchors; documented husbandry choice and removal/load behavior |
+| [x] | 14 Bees and attached hives | Original cached bee/house models; bounded flower visits and night return; real tree/post attachments, edit/burial/removal/reload validation. Solitary-bee house choice documented in `docs/garden-bees.md`. |
 | [ ] | 15 Aggregate validation | Release ready, clean local commits, full checklist audit, all remaining risks/blockers explicit; no unrequested push |
 | [ ] | 16 Final HTML report | Local HTML report with completed outcomes, actual screenshots, performance comparisons, validation evidence, feedback/limitations and explicit incomplete items; matches this checklist |
 
@@ -261,6 +261,20 @@ known limitations; partially implemented items remain open.
   saplings remain sparse; thin lateral wood can appear fragmented. Single-stage
   costs including preflight were 13.116 and 18.905 ms, not dense-garden acceptance.
   No offline catch-up, seasonal simulation or subjective art approval is claimed.
+- Bees/houses: Bee house toolbar mounts one roofed solitary-bee nesting model per
+  tree/pole, maximum eight houses and 64 transient residents. Both use the shared
+  cached-angle model path; no terrain substitution. Stable mounts, canonical wind
+  poses, flower visits, return/rest, day/night and deleted hosts are owned explicitly.
+  Actual save/restart retained tree/pole attachments. Native support/cap/tree removal,
+  burial (new Rock preserved), removed flowers, particles-off and uncached rendering
+  pass. Normal scene and a clearly labeled bare-tree attachment diagnostic inspected.
+  Default cache adds 7.5 MiB. One Release comparison, all frames after frame 300:
+  no houses 16.96/17.98 ms median/p95; two houses/16 residents 17.02/17.94 ms.
+  Not an isolated cost or dense/max-population performance acceptance. No honey,
+  breeding, collision-route solver, dedicated house rigid body or subjective approval.
+  Existing FPS label migration regression fixed separately in `89d267e3` using the
+  declarative schema; both previously failing migration tests and all 52 butterfly
+  checks pass. See `docs/garden-bees.md` and its primary-source research note.
 - Prior full test baseline: nine unrelated failures reproduced on `9e2b7977`
   (seven raster-tree tests and two saved-default expectations). Recheck rather
   than assuming any later failure belongs to that baseline.

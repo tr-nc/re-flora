@@ -437,6 +437,7 @@ impl App {
         self.seed_sapling_review().expect("sapling review");
         self.seed_garden_economy_review()
             .expect("garden economy review");
+        self.seed_bee_garden_review().expect("bee garden review");
         if let Some(path) = self.terrain_persistence.take_startup_save_path() {
             self.perform_startup_terrain_save(Path::new(&path))
                 .unwrap_or_else(|err| panic!("[TERRAIN_PERSISTENCE] CLI save failed: {err:#}"));

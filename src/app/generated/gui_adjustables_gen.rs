@@ -268,7 +268,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Debug",
         id: "butterfly_cache_enabled",
         kind: "bool",
-        label: "Flying insects: use model pre-cache",
+        label: "Insects / bee houses: use model pre-cache",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
@@ -1474,7 +1474,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Butterflies",
         id: "butterfly_pixel_resolution",
         kind: "uint",
-        label: "Flying insects: pre-cache resolution (N x N)",
+        label: "Insects / bee houses: pre-cache resolution (N x N)",
     },
     GeneratedGuiParamDescriptor {
         section: "Butterflies",

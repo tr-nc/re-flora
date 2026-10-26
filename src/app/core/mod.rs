@@ -59,6 +59,7 @@ pub(crate) use lighting_mode_acceptance::{
     ResolvedLightingFrameInputs, ResolvedRasterLightingState,
 };
 mod ambient_ecology;
+mod garden_bees;
 mod garden_economy;
 mod garden_fence;
 mod loading;
@@ -460,6 +461,7 @@ pub struct App {
     local_lights: LocalLightRegistry,
     night_garden: night_garden::NightGarden,
     garden_fence: garden_fence::GardenFence,
+    garden_bees: garden_bees::GardenBees,
     raster_entity_emitters: crate::lighting::RasterEntityEmitterProvider,
     emissive_voxel_lighting: Option<emissive_voxel_lighting::EmissiveVoxelLightingRuntime>,
 
@@ -1580,6 +1582,7 @@ impl App {
             local_lights: LocalLightRegistry::default(),
             night_garden: night_garden::NightGarden::default(),
             garden_fence: garden_fence::GardenFence::default(),
+            garden_bees: Default::default(),
             raster_entity_emitters: crate::lighting::RasterEntityEmitterProvider::default(),
             emissive_voxel_lighting,
 
@@ -2553,9 +2556,12 @@ impl App {
                 let mut clicked_plant_type = None;
                 let mut clicked_edit_material = None;
                 let mut shop_action = None;
-                let planting_summary = self
-                    .garden_economy
-                    .stock_summary(selected_variety, infinite_materials);
+                let planting_summary = if self.player_tools.selected_tool() == PlayerTool::Hive {
+                    "Bee house · mount on a tree/pole · right-click to remove".into()
+                } else {
+                    self.garden_economy
+                        .stock_summary(selected_variety, infinite_materials)
+                };
                 let mut terrain_snapshot_action = None;
                 let mut plant_flora_showcase_requested = false;
                 let mut environment_probe_visualization =
@@ -2932,6 +2938,7 @@ impl App {
                             ItemPanelSlot {index:ui_style::PLOW_SLOT_INDEX,label:"Plow",number:ui_style::toolbar_number(ui_style::PLOW_SLOT_INDEX),enabled:true},
                             ItemPanelSlot {index:ui_style::SOIL_SHOVEL_SLOT_INDEX,label:"Shovel",number:ui_style::toolbar_number(ui_style::SOIL_SHOVEL_SLOT_INDEX),enabled:true},
                             ItemPanelSlot {index:ui_style::HARVEST_SLOT_INDEX,label:"Harvest",number:ui_style::toolbar_number(ui_style::HARVEST_SLOT_INDEX),enabled:true},
+                            ItemPanelSlot {index:ui_style::HIVE_SLOT_INDEX,label:"Bee house",number:ui_style::toolbar_number(ui_style::HIVE_SLOT_INDEX),enabled:true},
                             ItemPanelSlot {
                                 index: ui_style::LANTERN_SLOT_INDEX,
                                 label: "Lantern",
@@ -2955,7 +2962,7 @@ impl App {
                             self.window_state.is_cursor_visible(),
                         );
                         clicked_item_panel_slot = item_panel_response.clicked_slot;
-                        shop_action=garden_economy::draw_garden_shop(ctx,&self.garden_economy,&mut self.shop_open,self.garden_feedback.as_deref(),(self.player_tools.selected_tool()==PlayerTool::Grow).then_some(planting_summary.as_str()),infinite_materials,self.window_state.is_cursor_visible());
+                        shop_action=garden_economy::draw_garden_shop(ctx,&self.garden_economy,&mut self.shop_open,self.garden_feedback.as_deref(),matches!(self.player_tools.selected_tool(),PlayerTool::Grow|PlayerTool::Hive).then_some(planting_summary.as_str()),infinite_materials,self.window_state.is_cursor_visible());
 
                         if self.player_tools.selected_tool() == PlayerTool::Grow {
                             let flora_paint_panel_response = draw_plant_panel(
@@ -3290,8 +3297,8 @@ impl App {
                 if let Err(error) = self.update_mower(frame_delta_time) {
                     log::error!("[MOWER] update failed: {error:#}");
                 }
-                if let Err(error) = self.update_garden_fence_anchors() {
-                    log::warn!("[GARDEN_FENCE] anchor reconciliation failed: {error:#}");
+                if let Err(error) = self.update_hive_anchors() {
+                    log::warn!("[GARDEN_HOSTS] anchor reconciliation failed: {error:#}");
                 }
                 if let Err(error) = cpu_timings.time(FrameCpuScope::Ecology, || {
                     self.update_ambient_ecology(f64::from(time_since_start))
@@ -3307,7 +3314,10 @@ impl App {
                     cpu_timings.time(FrameCpuScope::Particles, || {
                         self.update_particle_simulation(frame_delta_time);
                     });
+                } else {
+                    self.update_hive_models_without_particles();
                 }
+                self.review_bee_garden().expect("bee garden review");
                 self.process_water_experience_scene();
 
                 self.apply_denoiser_benchmark_camera_motion(denoiser_frame.camera_step());

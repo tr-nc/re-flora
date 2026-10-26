@@ -536,15 +536,29 @@ impl App {
         let world_max = self.world_chunk_dim.as_vec3()
             + Vec3::Y * crate::tracer::TERRARIUM_GLASS_TOP_PADDING_WORLD;
         let animation_time = self.butterfly_presentation_time();
+        let bee_day = self.current_night_visibility() < 0.01;
         self.tracer.set_flower_visits_enabled(
             self.debug_settings
                 .butterfly_flight
                 .variant
-                .uses_darting_flight(),
+                .uses_darting_flight()
+                || !self.garden_bees.sites.is_empty(),
         );
         let flowers = self
             .tracer
             .flower_visit_targets(self.surface_builder.get_resources(), wind_time);
+        if self.terrain_persistence.allows_world_updates() {
+            self.garden_bees.swarm.update(
+                dt,
+                &self.garden_bees.sites,
+                if self.render_flags.enable_flora {
+                    flowers
+                } else {
+                    &[]
+                },
+                bee_day,
+            );
+        }
         if let Some(review) = &mut self.butterfly_foraging_review {
             review.seed(
                 &mut self.butterfly_emitters,
@@ -607,23 +621,13 @@ impl App {
         self.append_butterfly_mesh_preview(frame);
         self.append_model_view_review_particles();
         self.append_firefly_models(frame);
+        self.append_bee_garden_models(frame);
         self.append_soil_bag_grains(dt);
         self.append_soil_shovel_preview();
         let snapshot_ms = snapshot_start.elapsed().as_secs_f32() * 1000.0;
 
         let upload_start = Instant::now();
-        let settings = &self.debug_settings.adjustables;
-        let butterfly_mesh = crate::tracer::ButterflyMeshSettings {
-            resolution: settings.butterfly_pixel_resolution.value,
-            fps: settings.butterfly_animation_fps.value,
-            transmission: settings.butterfly_wing_transmission.value,
-        };
-        if let Err(err) = self
-            .tracer
-            .upload_particles(&self.particle_snapshots, butterfly_mesh)
-        {
-            log::error!("Failed to upload particles: {}", err);
-        }
+        self.upload_particle_snapshots();
         let upload_ms = upload_start.elapsed().as_secs_f32() * 1000.0;
 
         if self.perf_logging {
@@ -648,6 +652,20 @@ impl App {
         }
     }
 
+    pub(super) fn upload_particle_snapshots(&mut self) {
+        let settings = &self.debug_settings.adjustables;
+        let butterfly_mesh = crate::tracer::ButterflyMeshSettings {
+            resolution: settings.butterfly_pixel_resolution.value,
+            fps: settings.butterfly_animation_fps.value,
+            transmission: settings.butterfly_wing_transmission.value,
+        };
+        if let Err(err) = self
+            .tracer
+            .upload_particles(&self.particle_snapshots, butterfly_mesh)
+        {
+            log::error!("Failed to upload particles: {}", err);
+        }
+    }
     fn append_water_debug_snapshots(&mut self) {
         if !self.water.terrain_status().is_initialized() {
             return;
@@ -697,7 +715,7 @@ impl App {
         }
     }
 
-    fn butterfly_presentation_time(&self) -> f32 {
+    pub(super) fn butterfly_presentation_time(&self) -> f32 {
         if std::env::var_os("RE_FLORA_BUTTERFLY_MESH_REVIEW").is_some() {
             0.237
         } else {

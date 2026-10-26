@@ -12,8 +12,7 @@ import model_mesh_types;
 import flora_shadow;
 import environment_lighting;
 import sunlight;
-import butterfly_color;
-import firefly_material;
+import garden_model_material;
 [[vk::binding(11,1)]] StructuredBuffer<ButterflyMeshInstance> butterfly_mesh_instances;
 float3 rotateMeshPose(float4 q,float3 p) {return p+2*cross(q.xyz,cross(q.xyz,p)+q.w*p);}
 [shader("vertex")]
@@ -46,9 +45,9 @@ ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint index:SV_VulkanInstanceI
     float3 ambient=sampleDiffuseEnvironment(gui_input,shading_info,position,normal);
     float d=dot(normal,normalize(sun_info.sun_dir));
     float direct=lerp(max(0.0,d),abs(d),saturate(instance.lighting.x));
-    bool firefly=(instance.metadata.w&4u)!=0u;
-    float3 pigment=firefly?fireflyPigment(material):instance.color.rgb;
+
+    float3 pigment=gardenModelPigment(instance.metadata.w,material,instance.color.rgb);
     float3 color=applyStylizedVoxelLightingWithEnvironment(sun_info,pigment,direct*shadow.sun_transmittance,ambient);
-    color=firefly?color+fireflyEmission(material,instance.lighting.y):readableButterflyColor(color,pigment,sun_info.sun_dir.y);
+    color=finishGardenModelColor(color,pigment,instance.metadata.w,material,instance.lighting.y,sun_info.sun_dir.y);
     ModelMeshOutput output;output.position=clip;output.color=float4(color,instance.color.w);return output;
 }

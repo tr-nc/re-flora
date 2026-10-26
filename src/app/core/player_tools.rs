@@ -32,6 +32,7 @@ pub(super) enum PlayerTool {
     Plow,
     SoilShovel,
     Harvest,
+    Hive,
     Pavement,
     Wall,
     Placeable,
@@ -48,6 +49,7 @@ impl PlayerTool {
             super::ui_style::PLOW_SLOT_INDEX => Some(Self::Plow),
             super::ui_style::SOIL_SHOVEL_SLOT_INDEX => Some(Self::SoilShovel),
             super::ui_style::HARVEST_SLOT_INDEX => Some(Self::Harvest),
+            super::ui_style::HIVE_SLOT_INDEX => Some(Self::Hive),
             super::ui_style::PAVEMENT_SLOT_INDEX => Some(Self::Pavement),
             super::ui_style::WALL_SLOT_INDEX => Some(Self::Wall),
             super::ui_style::MOWER_SLOT_INDEX => Some(Self::Mower),
@@ -74,6 +76,7 @@ impl PlayerTool {
             Self::Plow => super::ui_style::PLOW_SLOT_INDEX,
             Self::SoilShovel => super::ui_style::SOIL_SHOVEL_SLOT_INDEX,
             Self::Harvest => super::ui_style::HARVEST_SLOT_INDEX,
+            Self::Hive => super::ui_style::HIVE_SLOT_INDEX,
             Self::Pavement => super::ui_style::PAVEMENT_SLOT_INDEX,
             Self::Wall => super::ui_style::WALL_SLOT_INDEX,
             Self::Mower => super::ui_style::MOWER_SLOT_INDEX,
@@ -105,6 +108,7 @@ impl PlayerTool {
                 | Self::ThickPole
                 | Self::Rope
                 | Self::Harvest
+                | Self::Hive
                 | Self::Pavement
                 | Self::Wall
         )
@@ -295,6 +299,8 @@ pub(super) enum PlayerToolPointerAction {
     ShovelScoop,
     ShovelDrop,
     Harvest,
+    HivePlacement,
+    HiveRemoval,
 }
 
 /// Select the gesture owner before entering an asynchronous single-pick queue.
@@ -648,6 +654,8 @@ impl PlayerToolRuntime {
                 Some(PlayerToolPointerAction::PlantTree)
             }
             (PlayerTool::Harvest, MouseButton::Left) => Some(PlayerToolPointerAction::Harvest),
+            (PlayerTool::Hive, MouseButton::Left) => Some(PlayerToolPointerAction::HivePlacement),
+            (PlayerTool::Hive, MouseButton::Right) => Some(PlayerToolPointerAction::HiveRemoval),
             (PlayerTool::Stone, MouseButton::Left) => Some(PlayerToolPointerAction::StonePlacement),
             (PlayerTool::Lantern, MouseButton::Left) => {
                 Some(PlayerToolPointerAction::LanternPlacement)
@@ -847,6 +855,21 @@ mod tests {
         assert!(!runtime.has_secondary_pointer_action());
     }
 
+    #[test]
+    fn hive_has_discrete_mount_and_remove_without_a_terrain_brush() {
+        for (button, action) in [
+            (MouseButton::Left, PlayerToolPointerAction::HivePlacement),
+            (MouseButton::Right, PlayerToolPointerAction::HiveRemoval),
+        ] {
+            let mut r = PlayerToolRuntime::default();
+            r.select_item_panel_slot(crate::app::core::ui_style::HIVE_SLOT_INDEX);
+            r.set_pointer_button_state(button, ElementState::Pressed);
+            assert_eq!(r.begin_pointer_action(button), Some(action));
+            assert_eq!(r.active_continuous_action(), None);
+            assert!(!r.selected_tool().uses_terrain_edit_radius());
+            assert!(r.has_secondary_pointer_action());
+        }
+    }
     #[test]
     fn soil_shovel_owns_one_scoop_hold_release_not_continuous_dig() {
         let mut runtime = PlayerToolRuntime::default();

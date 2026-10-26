@@ -1,5 +1,6 @@
 use super::launch_owners;
 mod growth;
+mod hive_mounts;
 mod snapshot;
 pub(super) use growth::SAPLING_AGE;
 mod species_review;
@@ -1194,7 +1195,7 @@ impl GardenTrees {
         generation
     }
 
-    fn contains(&self, tree_id: u32) -> bool {
+    pub(super) fn contains(&self, tree_id: u32) -> bool {
         self.records.contains_key(&tree_id)
     }
 

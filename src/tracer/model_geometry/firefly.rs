@@ -3,7 +3,13 @@
 //! the terrain atlas or voxel particle path. Material IDs: body 0, wing 1, tail 2.
 use super::{triangle, Triangle};
 use glam::{Quat, Vec2, Vec3};
-fn ellipsoid(out: &mut Vec<Triangle>, center: Vec3, radius: Vec3, rotation: Quat, material: u32) {
+pub(super) fn ellipsoid(
+    out: &mut Vec<Triangle>,
+    center: Vec3,
+    radius: Vec3,
+    rotation: Quat,
+    material: u32,
+) {
     let point = |lat: u32, lon: u32| {
         let t = std::f32::consts::PI * lat as f32 / 6.;
         let p = std::f32::consts::TAU * lon as f32 / 12.;

@@ -63,6 +63,27 @@ these deterministic functions and uses the same cached-angle surface bank as
 butterflies. This is not terrain voxel geometry. Visual reviews are runtime
 screenshots, not source textures.
 
+## Procedural bees and nesting houses (2026-10-26)
+
+[`src/tracer/model_geometry/bees.rs`](../../src/tracer/model_geometry/bees.rs)
+is the original runtime source: a striped ellipsoid bee with antennae and four
+wing poses, plus a timber-colored box, sloped roof and nine recessed openings.
+It reuses the deterministic sphere tessellation helper in `firefly.rs`; boxes
+and openings are constructed as triangles. The exact dimensions/rotations are
+in that source, colors in
+[`garden_model_material.slang`](../../shader/slang/garden_model_material.slang),
+and world scale in [`particles/bees.rs`](../../src/particles/bees.rs) (`HIVE_SCALE=6/256`).
+No texture, external model, reference photograph or AI image/3D-generation service
+was used; no seed or offline binary-generation step is required. These are
+procedural code-generated models, not terrain voxels. Runtime screenshots are
+validation references, not source art. Existing repository code/asset licensing
+remains applicable; this note grants no new rights to third-party resources.
+
+The house is a stylized solitary-bee nesting block, not a honeybee colony;
+[research](../../docs/research/garden-bee-houses.md) informed the roof, openings
+and tree/pole placement. No RHS pictures were copied. Enlarged bee scale and
+fixed populations are readability/budget choices, not biological measurements.
+
 ## Publish the flower bank
 
 The seven published flowers are data presets in `flower-source.mjs` (Corn Poppy and Bellflower remain retired).

@@ -2,6 +2,8 @@
 //! Stable identities do not encode mutable draw slots.
 use glam::{Quat, Vec3};
 
+/// Shared cached-model body pose, optionally bound to a flower. The historical
+/// name remains; bees and rigid bee houses use the same publication contract.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ButterflyBodyPose {
     pub orientation: Quat,

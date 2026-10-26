@@ -23,6 +23,8 @@ pub(super) struct GardenSnapshot {
     carried_soil: crate::soil_movement::CarriedSoil,
     #[serde(default)]
     economy: garden_economy::GardenEconomy,
+    #[serde(default)]
+    hives: garden_bees::HiveSnapshot,
 }
 
 impl GardenSnapshot {
@@ -43,6 +45,11 @@ impl GardenSnapshot {
         self.fences.validate(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)?;
         self.carried_soil.validate()?;
         self.economy.validate()?;
+        self.hives.validate(
+            CHUNK_DIM * VOXEL_DIM_PER_CHUNK,
+            |id| self.trees.contains_tree(id),
+            |id| self.fences.contains_post(id),
+        )?;
         anyhow::ensure!(
             self.economy
                 .harvest_receipts()
@@ -389,6 +396,7 @@ impl App {
             metadata.chunk_byte_len()?,
             metadata.chunk_count()? * metadata.chunk_byte_len()?
         );
+        self.update_hive_anchors()?;
         let mut writer = TerrainSnapshotWriter::create(path, metadata)?;
         let garden = GardenSnapshot {
             flora: self.surface_builder.capture_flora_snapshot(
@@ -404,6 +412,7 @@ impl App {
             fences: self.garden_fence.saved.clone(),
             carried_soil: self.soil_shovel.carry.clone(),
             economy: self.garden_economy.clone(),
+            hives: self.garden_bees.saved.clone(),
         };
         garden.validate()?;
         let (flora_count, authored_count) = garden.flora.counts();
@@ -560,6 +569,7 @@ impl App {
         log::info!("[GARDEN_PERSISTENCE] restored flora={} authored={} trees={} tree_age={:.3} retired_tree_migration={migrated_trees}; current species retain saved wood",
             flora_count, authored_count, garden.trees.count(), self.debug_settings.adjustables.tree_age.value);
         self.garden_fence.restore(garden.fences);
+        self.garden_bees.restore(garden.hives);
         self.soil_shovel.cancel_gesture();
         self.soil_shovel.carry = garden.carried_soil;
         Ok(())
