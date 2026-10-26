@@ -236,7 +236,17 @@ impl Bees {
             bee.velocity = (bee.position - previous) / dt;
         }
     }
-    pub fn append(&mut self, frame: ButterflyFrame, out: &mut Vec<ParticleSnapshot>) {
+    pub fn append(
+        &mut self,
+        frame: ButterflyFrame,
+        size_scale: f32,
+        out: &mut Vec<ParticleSnapshot>,
+    ) {
+        let size_scale = if size_scale.is_finite() {
+            size_scale.clamp(0.1, 2.)
+        } else {
+            0.5
+        };
         for b in &mut self.residents {
             if matches!(b.trip, Trip::Home(_)) {
                 continue;
@@ -244,7 +254,12 @@ impl Bees {
             let pose = b
                 .presentation
                 .sample_with_body(frame, b.position, b.velocity, None, b.body);
-            let mut snap = model_snapshot(ParticleRenderKind::Bee, pose.position, 0.026, frame);
+            let mut snap = model_snapshot(
+                ParticleRenderKind::Bee,
+                pose.position,
+                0.026 * size_scale,
+                frame,
+            );
             snap.velocity = pose.velocity;
             snap.animation_phase_offset = b.slot as f32 / RESIDENTS as f32;
             snap.butterfly_body_pose = pose.body;
@@ -359,6 +374,36 @@ mod tests {
         assert_eq!(bees.outside(), 0);
     }
     #[test]
+    fn live_size_and_update_rate_control_bee_snapshots_independently() {
+        let mut bees = Bees::default();
+        for _ in 0..70 {
+            bees.update(0.05, &[site(1)], &[flower()], true);
+        }
+        let mut original = Vec::new();
+        bees.append(ButterflyFrame::at(5., 8), 1., &mut original);
+        assert!(!original.is_empty());
+        for bee in &mut bees.residents {
+            bee.position += Vec3::X;
+            bee.velocity = Vec3::Z;
+        }
+        let mut held = Vec::new();
+        bees.append(ButterflyFrame::at(5.05, 8), 0.5, &mut held);
+        for (before, after) in original.iter().zip(&held) {
+            assert_eq!(after.size, before.size * 0.5);
+            assert_eq!(after.position_ws, before.position_ws);
+            assert_eq!(after.velocity, before.velocity);
+            assert_eq!(after.animation_sample_time, before.animation_sample_time);
+        }
+        let mut faster = Vec::new();
+        bees.append(ButterflyFrame::at(5.05, 24), 0.5, &mut faster);
+        for (before, after) in original.iter().zip(&faster) {
+            assert_eq!(after.position_ws, before.position_ws + Vec3::X);
+            assert_eq!(after.velocity, Vec3::Z);
+            assert_ne!(after.animation_sample_time, before.animation_sample_time);
+        }
+    }
+
+    #[test]
     fn houses_are_opaque_models_and_visits_retain_stable_host_identity() {
         let mut out = Vec::new();
         append_hives(&[site(1)], ButterflyFrame::at(2., 24), &mut out);
@@ -368,7 +413,7 @@ mod tests {
         for _ in 0..70 {
             bees.update(0.05, &[site(1)], &[flower()], true);
         }
-        bees.append(ButterflyFrame::at(5., 24), &mut out);
+        bees.append(ButterflyFrame::at(5., 24), 0.5, &mut out);
         assert!(out.iter().any(|p| p
             .butterfly_body_pose
             .is_some_and(|p| p.host == Some(flower().id))));

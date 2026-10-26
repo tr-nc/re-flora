@@ -393,9 +393,16 @@ impl App {
     }
     pub(super) fn append_bee_garden_models(&mut self, frame: ButterflyFrame) {
         if self.render_flags.enable_particles {
-            self.garden_bees
-                .swarm
-                .append(frame, &mut self.particle_snapshots);
+            // Sample the raw presentation clock, not the already quantized butterfly frame.
+            let bee_frame = ButterflyFrame::at(
+                self.butterfly_presentation_time(),
+                self.debug_settings.adjustables.bee_animation_fps.value,
+            );
+            self.garden_bees.swarm.append(
+                bee_frame,
+                self.debug_settings.adjustables.bee_size_scale.value,
+                &mut self.particle_snapshots,
+            );
         }
         crate::particles::bees::append_hives(
             &self.garden_bees.sites,

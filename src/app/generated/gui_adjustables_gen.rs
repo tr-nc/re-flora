@@ -1405,6 +1405,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Flyback Speed",
     },
     GeneratedGuiParamDescriptor {
+        section: "Bees",
+        id: "bee_size_scale",
+        kind: "float",
+        label: "Size scale",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Bees",
+        id: "bee_animation_fps",
+        kind: "uint",
+        label: "Update FPS (Position + Heading + Wings)",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Butterflies",
         id: "butterflies_enabled",
         kind: "bool",
@@ -1938,6 +1950,8 @@ pub struct GuiAdjustables {
     pub leaves_tip_color: crate::gui_adjustables::ColorParam,
     pub terrain_harvest_particles_enabled: crate::gui_adjustables::BoolParam,
     pub terrain_harvest_flyback_speed: crate::gui_adjustables::FloatParam,
+    pub bee_size_scale: crate::gui_adjustables::FloatParam,
+    pub bee_animation_fps: crate::gui_adjustables::UintParam,
     pub butterflies_enabled: crate::gui_adjustables::BoolParam,
     pub butterfly_pixel_resolution: crate::gui_adjustables::UintParam,
     pub butterfly_animation_fps: crate::gui_adjustables::UintParam,
@@ -2231,6 +2245,8 @@ impl GuiAdjustables {
         let mut leaves_tip_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut terrain_harvest_particles_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut terrain_harvest_flyback_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut bee_size_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut bee_animation_fps_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut butterflies_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut butterfly_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut butterfly_animation_fps_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -3813,6 +3829,20 @@ impl GuiAdjustables {
                             terrain_harvest_flyback_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "bee_size_scale" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            bee_size_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "bee_animation_fps" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            bee_animation_fps_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
                     "butterflies_enabled" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             butterflies_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -4375,6 +4405,8 @@ impl GuiAdjustables {
             leaves_tip_color: leaves_tip_color_field.expect("Missing parameter: leaves_tip_color"),
             terrain_harvest_particles_enabled: terrain_harvest_particles_enabled_field.expect("Missing parameter: terrain_harvest_particles_enabled"),
             terrain_harvest_flyback_speed: terrain_harvest_flyback_speed_field.expect("Missing parameter: terrain_harvest_flyback_speed"),
+            bee_size_scale: bee_size_scale_field.expect("Missing parameter: bee_size_scale"),
+            bee_animation_fps: bee_animation_fps_field.expect("Missing parameter: bee_animation_fps"),
             butterflies_enabled: butterflies_enabled_field.expect("Missing parameter: butterflies_enabled"),
             butterfly_pixel_resolution: butterfly_pixel_resolution_field.expect("Missing parameter: butterfly_pixel_resolution"),
             butterfly_animation_fps: butterfly_animation_fps_field.expect("Missing parameter: butterfly_animation_fps"),
@@ -4599,6 +4631,7 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "leaf_flutter_frequency_knee" => Some(&adjustables.leaf_flutter_frequency_knee),
         "leaf_transmission_strength" => Some(&adjustables.leaf_transmission_strength),
         "terrain_harvest_flyback_speed" => Some(&adjustables.terrain_harvest_flyback_speed),
+        "bee_size_scale" => Some(&adjustables.bee_size_scale),
         "butterfly_wing_transmission" => Some(&adjustables.butterfly_wing_transmission),
         "butterfly_spawn_rate_per_source" => Some(&adjustables.butterfly_spawn_rate_per_source),
         "butterfly_height_offset_min" => Some(&adjustables.butterfly_height_offset_min),
@@ -4668,6 +4701,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "model_flower_pixel_resolution" => Some(&adjustables.model_flower_pixel_resolution),
         "special_flora_plants_per_release" => Some(&adjustables.special_flora_plants_per_release),
         "grass_color_seed" => Some(&adjustables.grass_color_seed),
+        "bee_animation_fps" => Some(&adjustables.bee_animation_fps),
         "butterfly_pixel_resolution" => Some(&adjustables.butterfly_pixel_resolution),
         "butterfly_animation_fps" => Some(&adjustables.butterfly_animation_fps),
         "soil_deposition_batch_size" => Some(&adjustables.soil_deposition_batch_size),
@@ -4926,6 +4960,7 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "leaf_flutter_frequency_knee" => Some(&mut adjustables.leaf_flutter_frequency_knee),
         "leaf_transmission_strength" => Some(&mut adjustables.leaf_transmission_strength),
         "terrain_harvest_flyback_speed" => Some(&mut adjustables.terrain_harvest_flyback_speed),
+        "bee_size_scale" => Some(&mut adjustables.bee_size_scale),
         "butterfly_wing_transmission" => Some(&mut adjustables.butterfly_wing_transmission),
         "butterfly_spawn_rate_per_source" => Some(&mut adjustables.butterfly_spawn_rate_per_source),
         "butterfly_height_offset_min" => Some(&mut adjustables.butterfly_height_offset_min),
@@ -4995,6 +5030,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "model_flower_pixel_resolution" => Some(&mut adjustables.model_flower_pixel_resolution),
         "special_flora_plants_per_release" => Some(&mut adjustables.special_flora_plants_per_release),
         "grass_color_seed" => Some(&mut adjustables.grass_color_seed),
+        "bee_animation_fps" => Some(&mut adjustables.bee_animation_fps),
         "butterfly_pixel_resolution" => Some(&mut adjustables.butterfly_pixel_resolution),
         "butterfly_animation_fps" => Some(&mut adjustables.butterfly_animation_fps),
         "soil_deposition_batch_size" => Some(&mut adjustables.soil_deposition_batch_size),

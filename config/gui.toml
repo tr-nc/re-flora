@@ -2683,6 +2683,31 @@ min = 0.05
 max = 2
 
 [[section]]
+name = "Bees"
+
+[[section.param]]
+id = "bee_size_scale"
+kind = "float"
+label = "Size scale"
+type = "Float"
+
+[section.param.data]
+value = 0.5
+min = 0.1
+max = 2
+
+[[section.param]]
+id = "bee_animation_fps"
+kind = "uint"
+label = "Update FPS (Position + Heading + Wings)"
+type = "Uint"
+
+[section.param.data]
+value = 24
+min = 2
+max = 60
+
+[[section]]
 name = "Butterflies"
 
 [[section.param]]
