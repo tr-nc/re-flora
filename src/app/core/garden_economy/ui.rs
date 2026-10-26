@@ -116,7 +116,8 @@ pub(in crate::app::core) fn draw_garden_shop(
                 });
             ui.separator();
             ui.label("Use Grow to plant. Seedlings are used before seeds.");
-            ui.label("Aim at a ripe apple and use Harvest or E. B / Esc closes this shop.");
+            ui.label("Harvest / E picks one ripe apple. Hold Vacuum to collect nearby apples and plants.");
+            ui.label("Collected flowers return as seedlings. B / Esc closes this shop.");
             if let Some(text) = feedback {
                 ui.label(text);
             }

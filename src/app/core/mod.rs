@@ -79,6 +79,7 @@ mod terrain_connectivity;
 mod terrain_persistence;
 mod tree_bench;
 mod ui_style;
+mod vacuum;
 mod vegetation;
 mod visible_terrain;
 mod voxel_backpack;
@@ -530,6 +531,7 @@ pub struct App {
     apple_pixel_review_frame: Option<u32>,
     #[allow(dead_code)]
     terrain_harvest_particle_handles: Vec<ParticleHandle>,
+    vacuum: vacuum::Vacuum,
     particle_forces: ParticleForces,
 
     render_start_time: Option<Instant>,
@@ -1655,6 +1657,7 @@ impl App {
             flower_model_bench: flower_model_bench::FlowerModelBench::from_env()?,
             apple_pixel_review_frame: apple_pixel_review.then_some(0),
             terrain_harvest_particle_handles,
+            vacuum: vacuum::Vacuum::default(),
             particle_forces,
 
             render_start_time: None,
@@ -2189,6 +2192,9 @@ impl App {
                                 Some(PlayerToolPointerInteraction::PavementStroke) => {
                                     self.stop_terrain_edit_loop_sound();
                                     self.begin_pavement_stroke();
+                                }
+                                Some(PlayerToolPointerInteraction::Vacuum) => {
+                                    self.vacuum.begin();
                                 }
                                 Some(PlayerToolPointerInteraction::SoilShovel) => {
                                     self.begin_soil_shovel(now)
@@ -2895,6 +2901,7 @@ impl App {
                             ItemPanelSlot {index:ui_style::PLOW_SLOT_INDEX,label:"Plow",number:ui_style::toolbar_number(ui_style::PLOW_SLOT_INDEX),enabled:true},
                             ItemPanelSlot {index:ui_style::SOIL_SHOVEL_SLOT_INDEX,label:"Shovel",number:ui_style::toolbar_number(ui_style::SOIL_SHOVEL_SLOT_INDEX),enabled:true},
                             ItemPanelSlot {index:ui_style::HARVEST_SLOT_INDEX,label:"Harvest",number:ui_style::toolbar_number(ui_style::HARVEST_SLOT_INDEX),enabled:true},
+                            ItemPanelSlot {index:ui_style::VACUUM_SLOT_INDEX,label:"Vacuum",number:ui_style::toolbar_number(ui_style::VACUUM_SLOT_INDEX),enabled:true},
                             ItemPanelSlot {index:ui_style::HIVE_SLOT_INDEX,label:"Bee house",number:ui_style::toolbar_number(ui_style::HIVE_SLOT_INDEX),enabled:true},
                             ItemPanelSlot {
                                 index: ui_style::LANTERN_SLOT_INDEX,
@@ -2919,6 +2926,7 @@ impl App {
                             self.window_state.is_cursor_visible(),
                         );
                         clicked_item_panel_slot = item_panel_response.clicked_slot;
+                        Self::draw_vacuum_reticle(ctx, self.player_tools.selected_tool() == PlayerTool::Vacuum && !self.shop_open, self.player_tools.vacuum_held());
                         shop_action=garden_economy::draw_garden_shop(ctx,&self.garden_economy,&mut self.shop_open,self.garden_feedback.as_deref(),matches!(self.player_tools.selected_tool(),PlayerTool::Grow|PlayerTool::Hive).then_some(planting_summary.as_str()),infinite_materials,self.window_state.is_cursor_visible());
 
                         if self.player_tools.selected_tool() == PlayerTool::Grow {
@@ -3231,6 +3239,11 @@ impl App {
                     self.debug_settings.adjustables.auto_daynight_cycle.value,
                 );
 
+                if let Err(error) = self.update_vacuum(frame_delta_time) {
+                    self.garden_feedback = Some(error.to_string());
+                    self.player_tools.cancel_continuous_hold();
+                    log::warn!("[VACUUM] collection stopped: {error:#}");
+                }
                 if let Err(error) = self.update_mower(frame_delta_time) {
                     log::error!("[MOWER] update failed: {error:#}");
                 }

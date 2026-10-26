@@ -22,6 +22,7 @@ fn slots() -> Vec<ItemPanelSlot> {
         "Plow",
         "Shovel",
         "Harvest",
+        "Vacuum",
         "Bee house",
     ]
     .into_iter()

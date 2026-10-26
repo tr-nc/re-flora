@@ -91,6 +91,20 @@ the most relevant garden interactions:
 The current prototype does not yet provide the complete harvest, Seed Circulation, automatic return,
 or player onboarding described by the canonical game direction.
 
+## Batch collecting
+
+Select **Vacuum** in the toolbar, aim with the small **screen-center** reticle,
+and hold the left mouse button. It collects nearby ripe apples (on trees or on
+the ground) and special ground plants in a forward cone, up to 16 items per pulse.
+Release to stop. Grass, trees, terrain and unripe apples are never collected;
+solid surfaces block suction. In orbit mode the aim remains the screen center,
+not the mouse cursor.
+
+Apples go to the garden inventory; collected flowers return as seedlings shown
+in **Shop (B)** and can be replanted with Grow. Colored voxel trails fly toward
+the center as feedback; inventory ownership commits before this cosmetic flight,
+so switching tools or opening a menu does not lose items.
+
 ## Controls
 
 ### Camera and Application

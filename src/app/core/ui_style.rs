@@ -37,10 +37,11 @@ pub(crate) const PLOW_SLOT_INDEX: usize = 20;
 pub(crate) const SOIL_SHOVEL_SLOT_INDEX: usize = 21;
 pub(crate) const HARVEST_SLOT_INDEX: usize = 22;
 pub(crate) const HIVE_SLOT_INDEX: usize = 23;
+pub(crate) const VACUUM_SLOT_INDEX: usize = 24;
 pub(crate) const SPRINKLER_PLACEABLE_SLOT_INDEX: usize = 1;
 
 /// Visible order, independent of the stable internal tool IDs.
-pub(crate) const TOOLBAR_ORDER: [usize; 21] = [
+pub(crate) const TOOLBAR_ORDER: [usize; 22] = [
     GROW_SLOT_INDEX,
     SHOVEL_SLOT_INDEX,
     HOE_SLOT_INDEX,
@@ -61,6 +62,7 @@ pub(crate) const TOOLBAR_ORDER: [usize; 21] = [
     PLOW_SLOT_INDEX,
     SOIL_SHOVEL_SLOT_INDEX,
     HARVEST_SLOT_INDEX,
+    VACUUM_SLOT_INDEX,
     HIVE_SLOT_INDEX,
 ];
 

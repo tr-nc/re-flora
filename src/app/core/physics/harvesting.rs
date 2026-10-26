@@ -109,6 +109,66 @@ impl TerrainPhysics {
         }
         Ok(hit.map(|h| h.1))
     }
+    /// One bounded pose readback per suction pulse, shared by attached and loose fruit.
+    pub(in crate::app::core) fn vacuum_apples(
+        &self,
+        beam: super::super::vacuum::Beam,
+        tracer: &Tracer,
+    ) -> anyhow::Result<Vec<(HarvestKey, Vec3)>> {
+        let mut candidates = Vec::new();
+        for (&tree, fruits) in &self.fruits_by_tree {
+            for (&id, fruit) in fruits {
+                if !ripe(fruit, self.fruit_cycle) {
+                    continue;
+                }
+                let (center, root) = if let Some(body) = fruit.body {
+                    let Some(state) = self.collision_world.dynamic_body_state(body) else {
+                        continue;
+                    };
+                    (state.position / VOXELS_PER_WORLD_UNIT, None)
+                } else {
+                    (
+                        fruit.spec.position_voxels.as_vec3() / VOXELS_PER_WORLD_UNIT,
+                        Some(fruit.spec.position_voxels),
+                    )
+                };
+                if beam.contains(center, 0.12) {
+                    candidates.push((HarvestKey { tree, fruit: id }, center, root));
+                }
+            }
+        }
+        candidates.sort_by(|a, b| {
+            a.1.distance_squared(beam.origin)
+                .total_cmp(&b.1.distance_squared(beam.origin))
+                .then(a.0.cmp(&b.0))
+        });
+        candidates.truncate(MAX_PICK_CANDIDATES);
+        let roots: Vec<_> = candidates.iter().filter_map(|c| c.2).collect();
+        let mut poses = if roots.is_empty() {
+            Vec::new()
+        } else {
+            tracer.attached_fruit_handoff(&roots)?
+        }
+        .into_iter();
+        let mut result = Vec::new();
+        for (key, center, root) in candidates {
+            let center = if let Some(root) = root {
+                (root.as_vec3()
+                    + poses
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("incomplete fruit poses"))?
+                        .0)
+                    / VOXELS_PER_WORLD_UNIT
+            } else {
+                center
+            };
+            if beam.contains(center, 0.) {
+                result.push((key, center));
+            }
+        }
+        Ok(result)
+    }
+
     pub(in crate::app::core) fn take_harvest_apple(&mut self, key: HarvestKey) -> bool {
         let Some(fruits) = self.fruits_by_tree.get_mut(&key.tree) else {
             return false;

@@ -32,6 +32,7 @@ pub(super) enum PlayerTool {
     Plow,
     SoilShovel,
     Harvest,
+    Vacuum,
     Hive,
     Pavement,
     Wall,
@@ -49,6 +50,7 @@ impl PlayerTool {
             super::ui_style::PLOW_SLOT_INDEX => Some(Self::Plow),
             super::ui_style::SOIL_SHOVEL_SLOT_INDEX => Some(Self::SoilShovel),
             super::ui_style::HARVEST_SLOT_INDEX => Some(Self::Harvest),
+            super::ui_style::VACUUM_SLOT_INDEX => Some(Self::Vacuum),
             super::ui_style::HIVE_SLOT_INDEX => Some(Self::Hive),
             super::ui_style::PAVEMENT_SLOT_INDEX => Some(Self::Pavement),
             super::ui_style::WALL_SLOT_INDEX => Some(Self::Wall),
@@ -76,6 +78,7 @@ impl PlayerTool {
             Self::Plow => super::ui_style::PLOW_SLOT_INDEX,
             Self::SoilShovel => super::ui_style::SOIL_SHOVEL_SLOT_INDEX,
             Self::Harvest => super::ui_style::HARVEST_SLOT_INDEX,
+            Self::Vacuum => super::ui_style::VACUUM_SLOT_INDEX,
             Self::Hive => super::ui_style::HIVE_SLOT_INDEX,
             Self::Pavement => super::ui_style::PAVEMENT_SLOT_INDEX,
             Self::Wall => super::ui_style::WALL_SLOT_INDEX,
@@ -108,6 +111,7 @@ impl PlayerTool {
                 | Self::ThickPole
                 | Self::Rope
                 | Self::Harvest
+                | Self::Vacuum
                 | Self::Hive
                 | Self::Pavement
                 | Self::Wall
@@ -307,6 +311,7 @@ pub(super) enum PlayerToolPointerAction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PlayerToolPointerInteraction {
     Pick(PlayerToolPointerAction),
+    Vacuum,
     PavementStroke,
     SoilShovel,
 }
@@ -572,7 +577,10 @@ impl PlayerToolRuntime {
         &mut self,
         button: MouseButton,
     ) -> Option<PlayerToolPointerInteraction> {
-        if self.selected_tool == PlayerTool::SoilShovel && button == MouseButton::Left {
+        if self.selected_tool == PlayerTool::Vacuum && button == MouseButton::Left {
+            self.pointer = ToolPointerState::Continuous(PressedPointerButtons::Left);
+            Some(PlayerToolPointerInteraction::Vacuum)
+        } else if self.selected_tool == PlayerTool::SoilShovel && button == MouseButton::Left {
             self.pointer = ToolPointerState::idle(self.pointer.buttons());
             Some(PlayerToolPointerInteraction::SoilShovel)
         } else if self.selected_tool.is_construction() && button == MouseButton::Left {
@@ -618,6 +626,12 @@ impl PlayerToolRuntime {
             return self.continuous_action_for_button(MouseButton::Right);
         }
         None
+    }
+
+    pub(super) fn vacuum_held(&self) -> bool {
+        self.selected_tool == PlayerTool::Vacuum
+            && self.continuous_hold_active()
+            && self.pointer.buttons().left()
     }
 
     pub(super) fn continuous_hold_active(&self) -> bool {
@@ -838,6 +852,32 @@ mod tests {
         assert_eq!(runtime.active_continuous_action(), None);
         runtime.set_pointer_button_state(MouseButton::Left, ElementState::Released);
         assert!(!runtime.finish_pointer_release());
+    }
+
+    #[test]
+    fn vacuum_is_a_cancelable_primary_hold_without_a_terrain_brush_or_pick() {
+        let mut r = PlayerToolRuntime::default();
+        r.select_item_panel_slot(crate::app::core::ui_style::VACUUM_SLOT_INDEX);
+        r.set_pointer_button_state(MouseButton::Left, ElementState::Pressed);
+        assert_eq!(
+            r.begin_pointer_interaction(MouseButton::Left),
+            Some(PlayerToolPointerInteraction::Vacuum)
+        );
+        assert!(r.vacuum_held());
+        assert!(r.active_continuous_action().is_none());
+        r.set_pointer_button_state(MouseButton::Right, ElementState::Pressed);
+        r.set_pointer_button_state(MouseButton::Left, ElementState::Released);
+        assert!(!r.vacuum_held(), "right mouse cannot keep suction alive");
+        r.set_pointer_button_state(MouseButton::Left, ElementState::Pressed);
+        r.begin_pointer_interaction(MouseButton::Left);
+        r.cancel_continuous_hold();
+        assert!(!r.vacuum_held(), "UI/focus cancellation must stop suction");
+        r.begin_pointer_interaction(MouseButton::Left);
+        r.select_item_panel_slot(crate::app::core::ui_style::GROW_SLOT_INDEX);
+        assert!(
+            !r.vacuum_held(),
+            "switching tools cannot inherit a running vacuum"
+        );
     }
 
     #[test]

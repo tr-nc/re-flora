@@ -900,6 +900,59 @@ impl SurfaceBuilder {
         })
     }
 
+    /// Canonical authored owners, not a delayed GPU response-instance mirror.
+    pub(crate) fn authored_plants(&self) -> impl Iterator<Item = AuthoredFloraInstance> + '_ {
+        self.authored_flora
+            .instances_by_chunk
+            .values()
+            .flat_map(|v| v.iter().copied())
+    }
+
+    /// Infallible ownership transfer. Publication follows inventory credit.
+    pub(crate) fn take_authored_plant(&mut self, plant: AuthoredFloraInstance) -> bool {
+        if species::species()
+            .get(plant.species_index as usize)
+            .is_none_or(|s| s.placement_mode != species::FloraPlacementMode::Authored)
+        {
+            return false;
+        }
+        let chunk = self.chunk_id_for_world_voxel(plant.base_world_vox);
+        let Some(plants) = self.authored_flora.instances_by_chunk.get_mut(&chunk) else {
+            return false;
+        };
+        let Some(index) = plants.iter().position(|p| {
+            p.response_id == plant.response_id
+                && p.species_index == plant.species_index
+                && p.base_world_vox == plant.base_world_vox
+        }) else {
+            return false;
+        };
+        plants.swap_remove(index);
+        true
+    }
+
+    pub(crate) fn publish_collected_plants(
+        &mut self,
+        plants: &[AuthoredFloraInstance],
+    ) -> Result<()> {
+        let mut chunks = std::collections::HashSet::new();
+        let mut growth = std::collections::HashSet::new();
+        for plant in plants {
+            chunks.insert(self.chunk_id_for_world_voxel(plant.base_world_vox));
+            let radius = species::species()[plant.species_index as usize]
+                .grass_growth_influence_radius_voxels;
+            growth
+                .extend(self.grass_growth_potential_affected_chunks(plant.base_world_vox, radius));
+        }
+        for chunk in chunks {
+            self.sync_authored_flora_chunk_to_gpu(chunk)?;
+        }
+        for chunk in growth {
+            self.rebuild_grass_growth_potential_for_chunk(chunk)?;
+        }
+        Ok(())
+    }
+
     pub fn authored_flora_base_positions(&self) -> impl Iterator<Item = (u32, UVec3)> + '_ {
         self.authored_flora
             .instances_by_chunk

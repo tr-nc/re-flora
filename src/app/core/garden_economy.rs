@@ -231,6 +231,18 @@ impl GardenEconomy {
         self.harvested.insert(key);
         Ok(true)
     }
+    pub fn collect_plant(&mut self, species: u32, take: impl FnOnce() -> bool) -> Result<bool> {
+        let p = product_for(PlantGoods::Seedling(FloraPaintSelection::Species(species)))
+            .ok_or_else(|| anyhow::anyhow!("This plant cannot be collected"))?;
+        let count = self.count(&p.id);
+        ensure!(count < MAX_STOCK, "Plant storage is full");
+        if !take() {
+            return Ok(false);
+        }
+        self.stock.insert(p.id.clone(), count + 1);
+        Ok(true)
+    }
+
     pub fn forget_tree(&mut self, tree: u32) {
         self.harvested.retain(|k| k.tree != tree);
     }
@@ -286,6 +298,26 @@ impl GardenEconomy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn plant_collection_checks_capacity_and_policy_before_taking_exact_owner() {
+        let species = species::MODEL_FLOWER_FIRST_SPECIES;
+        let product =
+            product_for(PlantGoods::Seedling(FloraPaintSelection::Species(species))).unwrap();
+        let mut bag = GardenEconomy::default();
+        assert!(bag
+            .collect_plant(0, || panic!("grass must never be taken"))
+            .is_err());
+        bag.stock.insert(product.id.clone(), MAX_STOCK);
+        assert!(bag
+            .collect_plant(species, || panic!("full bag must never remove a plant"))
+            .is_err());
+        bag.stock.clear();
+        assert!(!bag.collect_plant(species, || false).unwrap());
+        assert_eq!(bag.count(&product.id), 0);
+        assert!(bag.collect_plant(species, || true).unwrap());
+        assert_eq!(bag.count(&product.id), 1);
+        bag.validate().unwrap();
+    }
     #[test]
     fn retired_willow_stock_becomes_plane_stock_without_losing_goods() {
         let mut value = serde_json::to_value(GardenEconomy::default()).unwrap();

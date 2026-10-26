@@ -8,7 +8,7 @@ Requested scope (sequential, local commits only):
 - [x] Replace the third plantable tree (weeping willow) with London plane
   (法国梧桐; Platanus × hispanica / × acerifolia), informed by botanical sources;
   preserve old save readability; inspect real game renders.
-- [ ] Add a central-aim vacuum tool for nearby harvestable fruit and special
+- [x] Add a central-aim vacuum tool for nearby harvestable fruit and special
   ground plants; never collect ordinary grass, trees or terrain; reuse inventory
   transactions and persistence, with visible collection feedback.
 - [ ] Add carrots with a stylized taproot/feathery rosette, selection, planting,
@@ -23,6 +23,32 @@ subjective approval of animated motion. No push, official packaging, external
 publication or unattended persistent garden/config writes are requested.
 
 ## Evidence
+
+### Vacuum
+
+- Toolbar **Vacuum**: hold left mouse, aim at screen center in either camera
+  mode. Bounded forward cone, 1.25-world-unit reach, radius capped at 0.16;
+  up to 16 items every 0.12 seconds, no catch-up burst after a stall.
+- Takes ripe attached/fallen apples and authored special plants only. Grass,
+  terrain, trees, unripe apples and other scenery cannot enter the collection
+  transaction. Flowers become reusable seedling stock in Shop; no invisible
+  second backpack or unpersisted pickups.
+- Canonical identity is removed and inventory credited in one synchronous
+  ownership transfer, before fallible GPU refresh or cosmetic flight. Full
+  stock/missing owners cannot destroy a plant; repeated pulses and save/reload
+  cannot credit it twice. Scene visibility is one bounded native ray batch per
+  pulse, including posed wood and fixed-model surfaces, not a through-wall radius.
+- Cosmetic colored voxel streams curl toward the camera center. UI/focus loss,
+  tool switching and releasing the primary button stop suction, not committed
+  inventory. Ordinary pointer/radius brushes are not reused accidentally.
+- Checks: fmt/check, vacuum/tool-routing and economy transaction tests, toolbar
+  rendering tests, Release build. Native fixture passed three-plant batch,
+  retained grass/trees, solid-ground occlusion, exact-once removal, inventory +
+  flora snapshot round-trip, and real ripe-apple collection.
+  `target/liveliness-vacuum.log` has `VACUUM_REVIEW passed` and shutdown
+  `failures=0`, no ERROR/panic/VUID. Inspected `target/liveliness-vacuum.png`.
+- Reproduce with `RE_FLORA_VACUUM_REVIEW=1 RUST_LOG=re_flora=info cargo run
+  --release -- --hidden --mute --auto-exit 6`. No generated files/new assets.
 
 ### London plane
 
