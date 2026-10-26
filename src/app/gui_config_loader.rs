@@ -218,7 +218,6 @@ impl GuiConfigLoader {
         Self::migrate_model_surface_cache(&mut config);
         Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_density");
         Self::add_missing_param(&mut config, "Debug", "sprinkler_placement_type");
-        Self::add_missing_param(&mut config, "Debug", "sprinkler_mist_particles");
         // Retire obsolete sprinkler settings at the load boundary; do not rewrite user files.
         for section in &mut config.section {
             section.param.retain(|p| {
@@ -313,9 +312,12 @@ impl GuiConfigLoader {
                         | "camera_orbit_max_elevation"
                         | "sprinkler_design"
                         | "sprinkler_size_scale"
+                        | "sprinkler_mist_particles"
+                        | "infinite_materials"
                 )
             });
         }
+        config.section.retain(|s| s.name != "Material Supply");
         // Retired controls are fixed render inputs, including when loading older saves.
         for section in &mut config.section {
             section.param.retain(|p| {
@@ -1687,6 +1689,59 @@ max = 2
     }
 
     #[test]
+    fn material_supply_and_droplet_toggles_retire_for_both_saved_values() {
+        for value in [false, true] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let mut supply = config
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .find(|p| p.id == "sprinkler_cache_enabled")
+                .unwrap()
+                .clone();
+            supply.id = "infinite_materials".into();
+            supply.value = super::GuiParamValue::Bool { value };
+            let mut droplets = supply.clone();
+            droplets.id = "sprinkler_mist_particles".into();
+            config
+                .section
+                .iter_mut()
+                .find(|s| s.name == "Debug")
+                .unwrap()
+                .param
+                .push(droplets);
+            config
+                .section
+                .push(crate::app::gui_config_model::GuiSection {
+                    name: "Material Supply".into(),
+                    param: vec![supply],
+                });
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("gui.toml");
+            let before = toml::to_string_pretty(&config).unwrap();
+            std::fs::write(&path, &before).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+            assert!(!loaded.section.iter().any(|s| s.name == "Material Supply"));
+            assert!(!loaded
+                .section
+                .iter()
+                .flat_map(|s| &s.param)
+                .any(|p| matches!(
+                    p.id.as_str(),
+                    "infinite_materials" | "sprinkler_mist_particles"
+                )));
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            let saved = std::fs::read_to_string(&path).unwrap();
+            assert!(
+                !saved.contains("infinite_materials")
+                    && !saved.contains("sprinkler_mist_particles")
+            );
+        }
+    }
+
+    #[test]
     fn fixed_appearance_preferences_retire_from_old_saves_without_writing() {
         for id in [
             "gui_panel_outlines",
@@ -1775,7 +1830,7 @@ max = 2
                         let mut param = section
                             .param
                             .iter()
-                            .find(|p| p.id == "sprinkler_mist_particles")
+                            .find(|p| p.id == "sprinkler_cache_enabled")
                             .unwrap()
                             .clone();
                         param.id = "sprinkler_mist_air".into();
@@ -1843,7 +1898,7 @@ max = 2
                 }
                 let mut obsolete = params
                     .iter()
-                    .find(|p| p.id == "sprinkler_mist_particles")
+                    .find(|p| p.id == "sprinkler_cache_enabled")
                     .unwrap()
                     .clone();
                 obsolete.id = "vegetation_spray_response".into();

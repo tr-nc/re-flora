@@ -126,9 +126,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Mist & Scattering",
-        description: "Mist supplies the spray body; optional small droplets follow the same nozzle, launch law, wind, valve and terrain. Intensity changes mist only (2 is twice the former default); zero leaves enabled droplets visible. Droplets are optical only and never add irrigation. Mist uses the original analytic rendering. Small droplets are screen-facing quads.",
+        description: "Mist supplies the spray body; small droplets follow the same nozzle, launch law, wind, valve and terrain. Intensity changes mist only (2 is twice the former default); zero leaves enabled droplets visible. Droplets are optical only and never add irrigation. Mist uses the original analytic rendering. Small droplets are screen-facing quads.",
         initially_open: false,
-        params: &["sprinkler_mist_density", "sprinkler_mist_particles"],
+        params: &["sprinkler_mist_density"],
     },
     ControlGroup {
         parent: None,
@@ -592,7 +592,6 @@ mod tests {
                         "Atmos",
                         "Audio",
                         "Camera",
-                        "Material Supply",
                         "Soil Deposition",
                         "Stone",
                         "Terrain",
@@ -615,7 +614,7 @@ mod tests {
         for shape in &output.shapes {
             collect(&shape.shape, &mut titles);
         }
-        assert_eq!(titles.len(), 9);
+        assert_eq!(titles.len(), 8);
         let mut sorted = titles.clone();
         sorted.sort_by_key(|title| title.to_ascii_lowercase());
         assert_eq!(

@@ -20,6 +20,7 @@ pub(super) struct Review {
     mode: String,
     // Legacy renderer comparisons are native-fixture facts, never saved GUI overrides.
     mist_flow: bool,
+    droplets_enabled: bool,
     frame: u32,
     base: Option<Vec3>,
     control_step: usize,
@@ -41,6 +42,7 @@ impl Review {
 
     pub fn apply_render_inputs(&mut self, inputs: &mut crate::tracer::RenderFrameInputs) {
         inputs.environment.sprinkler_mist_flow = self.mist_flow;
+        inputs.environment.sprinkler_mist_particles = self.droplets_enabled;
         if let Some(air) = self.air.as_mut() {
             air.apply_render_inputs(self.frame, inputs);
         }
@@ -221,6 +223,7 @@ impl Review {
         Ok(Some(Self {
             mode,
             mist_flow: true,
+            droplets_enabled: true,
             frame: 0,
             base: None,
             control_step: 0,
@@ -599,9 +602,9 @@ impl App {
                 ensure!(
                     review.mist_flow
                         && gui.sprinkler_mist_density.value > 0.0
-                        && gui.sprinkler_mist_particles.value
+                        && review.droplets_enabled
                         && self.render_flags.enable_particles,
-                    "optical diagnostic needs flowing mist and droplets enabled in saved settings; it only masks the consumer"
+                    "optical diagnostic needs flowing mist and active droplets; it only masks the consumer"
                 );
                 self.tracer.set_sprinkler_optical_diagnostic(diagnostic);
                 log::info!("[SPRINKLER_OPTICAL_DIAGNOSTIC] channels={mode} preparation=both bounds=both irrigation=unchanged saved=false");
@@ -710,10 +713,8 @@ impl App {
                 base.x = 0.75;
                 base.z = 1.25;
             }
-            self.debug_settings
-                .adjustables
-                .sprinkler_mist_particles
-                .value = review.mode.contains("particles") && !review.mode.ends_with("disabled");
+            review.droplets_enabled =
+                review.mode.contains("particles") && !review.mode.ends_with("disabled");
             self.sprinkler_diagnostic_timing.frequency = 4.0;
             if review.is_rotary() {
                 let gui = &mut self.debug_settings.adjustables;
@@ -737,7 +738,7 @@ impl App {
                 let gui = &mut self.debug_settings.adjustables;
                 gui.sprinkler_placement_type.value = 1;
                 gui.sprinkler_mist_density.value = 2.0;
-                gui.sprinkler_mist_particles.value = true;
+                review.droplets_enabled = true;
                 gui.sprinkler_rotation_speed.value = 5.0;
             }
             if review.mode.starts_with("rotary-design-") {
@@ -883,7 +884,7 @@ impl App {
                 self.sprinkler_diagnostic_timing.frequency = 5.0;
                 self.sprinkler_diagnostic_timing.duty_percent = duty;
                 gui.sprinkler_mist_density.value = 6.0;
-                gui.sprinkler_mist_particles.value = true;
+                review.droplets_enabled = true;
                 let side = (count as f32).sqrt().ceil() as usize;
                 for i in 0..count {
                     let spacing = if overlap { 0.0001 } else { 0.17 };
@@ -1501,19 +1502,14 @@ impl App {
                     .iter()
                     .filter(|p| p.center_amplitude[3] > 0.0)
                     .collect();
-                let enabled = self
-                    .debug_settings
-                    .adjustables
-                    .sprinkler_mist_particles
-                    .value
-                    && self.render_flags.enable_particles;
+                let enabled = review.droplets_enabled && self.render_flags.enable_particles;
                 ensure!(
                     drops.len() == crate::tracer::SPRINKLER_DROPLETS as usize,
                     "bounded droplet slots"
                 );
                 ensure!(
                     live.is_empty() != enabled,
-                    "droplet checkbox/global particle flag not followed"
+                    "diagnostic/global particle flag not followed"
                 );
                 for p in &live {
                     ensure!(

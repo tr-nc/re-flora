@@ -11,10 +11,11 @@
 - In finite mode a placement spends exactly one plant, not a brush-sized guess.
   Seedlings are used before seeds, starting at growth 96/255 instead of zero.
   A tree uses the normal young-tree lifecycle described in `garden-saplings.md`.
-- The existing **Debug → Infinite Materials** option still supplies free planting
-  without changing real stock. Unlimited flora retains the existing painting
+- The code-only `INFINITE_MATERIALS` switch in `src/app/core/material_supply.rs`
+  currently fixes this build to free planting without changing real stock.
+  The Debug Material Supply section is removed; old saved toggles are ignored. Unlimited flora retains the existing painting
   brush. Purchases themselves still spend real coins in either mode. Plow and
-  shovel retain their finite soil ownership; this option does not create soil in
+  shovel retain their finite soil ownership; this build policy does not create soil in
   either movement tool.
 
 ## Authored balance

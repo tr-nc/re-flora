@@ -308,12 +308,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "sprinkler_mist_particles",
-        kind: "bool",
-        label: "Sprinklers: small water droplets",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "sprinkler_pixel_resolution",
         kind: "uint",
         label: "Sprinklers: pre-cache resolution (N x N)",
@@ -1519,12 +1513,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Apple density (new trees)",
     },
     GeneratedGuiParamDescriptor {
-        section: "Material Supply",
-        id: "infinite_materials",
-        kind: "bool",
-        label: "Infinite Materials (Soil / Edit)",
-    },
-    GeneratedGuiParamDescriptor {
         section: "Soil Deposition",
         id: "soil_deposition_batch_size",
         kind: "uint",
@@ -1725,7 +1713,6 @@ pub struct GuiAdjustables {
     pub sprinkler_wetting_speed: crate::gui_adjustables::FloatParam,
     pub soil_drying_speed: crate::gui_adjustables::FloatParam,
     pub sprinkler_mist_density: crate::gui_adjustables::FloatParam,
-    pub sprinkler_mist_particles: crate::gui_adjustables::BoolParam,
     pub sprinkler_pixel_resolution: crate::gui_adjustables::UintParam,
     pub apple_pixel_resolution: crate::gui_adjustables::UintParam,
     pub model_pixel_view_count: crate::gui_adjustables::UintParam,
@@ -1927,7 +1914,6 @@ pub struct GuiAdjustables {
     pub tree_planting_instant_mature: crate::gui_adjustables::BoolParam,
     pub tree_planting_scale: crate::gui_adjustables::FloatParam,
     pub tree_planting_apple_density: crate::gui_adjustables::FloatParam,
-    pub infinite_materials: crate::gui_adjustables::BoolParam,
     pub soil_deposition_batch_size: crate::gui_adjustables::UintParam,
     pub soil_deposition_rate: crate::gui_adjustables::FloatParam,
     pub soil_deposition_spread_radius: crate::gui_adjustables::FloatParam,
@@ -2013,7 +1999,6 @@ impl GuiAdjustables {
         let mut sprinkler_wetting_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut soil_drying_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut sprinkler_mist_density_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut sprinkler_mist_particles_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut sprinkler_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut apple_pixel_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut model_pixel_view_count_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -2215,7 +2200,6 @@ impl GuiAdjustables {
         let mut tree_planting_instant_mature_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut tree_planting_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_planting_apple_density_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut infinite_materials_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut soil_deposition_batch_size_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut soil_deposition_rate_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut soil_deposition_spread_radius_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2540,11 +2524,6 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             sprinkler_mist_density_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "sprinkler_mist_particles" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            sprinkler_mist_particles_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "sprinkler_pixel_resolution" => {
@@ -3890,11 +3869,6 @@ impl GuiAdjustables {
                             tree_planting_apple_density_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "infinite_materials" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            infinite_materials_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
                     "soil_deposition_batch_size" => {
                         if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0);
@@ -4121,7 +4095,6 @@ impl GuiAdjustables {
             sprinkler_wetting_speed: sprinkler_wetting_speed_field.expect("Missing parameter: sprinkler_wetting_speed"),
             soil_drying_speed: soil_drying_speed_field.expect("Missing parameter: soil_drying_speed"),
             sprinkler_mist_density: sprinkler_mist_density_field.expect("Missing parameter: sprinkler_mist_density"),
-            sprinkler_mist_particles: sprinkler_mist_particles_field.expect("Missing parameter: sprinkler_mist_particles"),
             sprinkler_pixel_resolution: sprinkler_pixel_resolution_field.expect("Missing parameter: sprinkler_pixel_resolution"),
             apple_pixel_resolution: apple_pixel_resolution_field.expect("Missing parameter: apple_pixel_resolution"),
             model_pixel_view_count: model_pixel_view_count_field.expect("Missing parameter: model_pixel_view_count"),
@@ -4323,7 +4296,6 @@ impl GuiAdjustables {
             tree_planting_instant_mature: tree_planting_instant_mature_field.expect("Missing parameter: tree_planting_instant_mature"),
             tree_planting_scale: tree_planting_scale_field.expect("Missing parameter: tree_planting_scale"),
             tree_planting_apple_density: tree_planting_apple_density_field.expect("Missing parameter: tree_planting_apple_density"),
-            infinite_materials: infinite_materials_field.expect("Missing parameter: infinite_materials"),
             soil_deposition_batch_size: soil_deposition_batch_size_field.expect("Missing parameter: soil_deposition_batch_size"),
             soil_deposition_rate: soil_deposition_rate_field.expect("Missing parameter: soil_deposition_rate"),
             soil_deposition_spread_radius: soil_deposition_spread_radius_field.expect("Missing parameter: soil_deposition_spread_radius"),
@@ -4629,7 +4601,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "butterfly_cache_enabled" => Some(&adjustables.butterfly_cache_enabled),
         "model_flower_cache_enabled" => Some(&adjustables.model_flower_cache_enabled),
         "sprinkler_cache_enabled" => Some(&adjustables.sprinkler_cache_enabled),
-        "sprinkler_mist_particles" => Some(&adjustables.sprinkler_mist_particles),
         "raster_tree_wind" => Some(&adjustables.raster_tree_wind),
         "grass_moisture_response" => Some(&adjustables.grass_moisture_response),
         "flora_growth_override_enabled" => Some(&adjustables.flora_growth_override_enabled),
@@ -4646,7 +4617,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "butterfly_mesh_preview" => Some(&adjustables.butterfly_mesh_preview),
         "rooftop_voxel_scene" => Some(&adjustables.rooftop_voxel_scene),
         "tree_planting_instant_mature" => Some(&adjustables.tree_planting_instant_mature),
-        "infinite_materials" => Some(&adjustables.infinite_materials),
         "soil_deposition_fast_path" => Some(&adjustables.soil_deposition_fast_path),
         _ => None,
     }
@@ -4951,7 +4921,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "butterfly_cache_enabled" => Some(&mut adjustables.butterfly_cache_enabled),
         "model_flower_cache_enabled" => Some(&mut adjustables.model_flower_cache_enabled),
         "sprinkler_cache_enabled" => Some(&mut adjustables.sprinkler_cache_enabled),
-        "sprinkler_mist_particles" => Some(&mut adjustables.sprinkler_mist_particles),
         "raster_tree_wind" => Some(&mut adjustables.raster_tree_wind),
         "grass_moisture_response" => Some(&mut adjustables.grass_moisture_response),
         "flora_growth_override_enabled" => Some(&mut adjustables.flora_growth_override_enabled),
@@ -4968,7 +4937,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "butterfly_mesh_preview" => Some(&mut adjustables.butterfly_mesh_preview),
         "rooftop_voxel_scene" => Some(&mut adjustables.rooftop_voxel_scene),
         "tree_planting_instant_mature" => Some(&mut adjustables.tree_planting_instant_mature),
-        "infinite_materials" => Some(&mut adjustables.infinite_materials),
         "soil_deposition_fast_path" => Some(&mut adjustables.soil_deposition_fast_path),
         _ => None,
     }

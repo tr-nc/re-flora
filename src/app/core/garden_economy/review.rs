@@ -16,8 +16,8 @@ impl App {
         let Ok(mode) = std::env::var("RE_FLORA_ECONOMY_REVIEW") else {
             return Ok(());
         };
-        let original = self.debug_settings.adjustables.infinite_materials.value;
-        self.debug_settings.adjustables.infinite_materials.value = false;
+        let original = self.material_supply_diagnostic_override;
+        self.material_supply_diagnostic_override = Some(false);
         let check = (|| -> Result<()> {
             if mode == "load" {
                 ensure!(
@@ -89,14 +89,14 @@ impl App {
                 self.query_terrain_height_cpu(Vec2::new(1.45, 1.45)),
                 1.45,
             );
-            self.debug_settings.adjustables.infinite_materials.value = true;
+            self.material_supply_diagnostic_override = Some(true);
             desc.branching.seed = 908;
             self.plant_owned_tree(desc, free_pos)?;
             ensure!(
                 self.garden_economy == before,
                 "debug supply changed real inventory"
             );
-            self.debug_settings.adjustables.infinite_materials.value = false;
+            self.material_supply_diagnostic_override = Some(false);
             self.garden_economy.buy("seeds/sunflower")?;
             self.garden_economy.buy("seedling/sunflower")?;
             self.garden_economy.buy("seeds/grass_mix")?;
@@ -228,8 +228,11 @@ impl App {
             log::info!("[GARDEN_ECONOMY_REVIEW] coins={} apples={} harvest_receipts=2 saplings_owned=1 flower_seeds={} grass_seeds={} failed_and_duplicate_planting_preserved=true debug_supply_preserved=true verified=true",self.garden_economy.coins,self.garden_economy.apples,self.garden_economy.count("seeds/sunflower"),self.garden_economy.count("seeds/grass_mix"));
             Ok(())
         })();
-        self.debug_settings.adjustables.infinite_materials.value =
-            if mode == "shop" { false } else { original };
+        self.material_supply_diagnostic_override = if mode == "shop" {
+            Some(false)
+        } else {
+            original
+        };
         check?;
         self.contree_builder.flush_cpu_chunk_cache_jobs();
         let ground = self.query_terrain_height_cpu(Vec2::new(0.65, 1.22));

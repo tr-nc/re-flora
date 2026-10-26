@@ -270,7 +270,7 @@ pub(super) fn freeze_render_frame_inputs(
         sprinkler_rotation_speed: gui.sprinkler_rotation_speed.value,
         sprinkler_pulse_duty: crate::sprinkler::PULSE_DUTY_PERCENT,
         sprinkler_mist_density: gui.sprinkler_mist_density.value,
-        sprinkler_mist_particles: gui.sprinkler_mist_particles.value,
+        sprinkler_mist_particles: true,
         sprinkler_pulse_frequency: crate::sprinkler::PULSE_FREQUENCY,
         sprinkler_mist_flow: true,
         // Retired visual experiment; only the explicit developer review may override this.
@@ -534,7 +534,6 @@ mod tests {
         let sprinkler_rotation_speed = float!(sprinkler_rotation_speed);
         let sprinkler_pulse_duty = crate::sprinkler::PULSE_DUTY_PERCENT;
         let sprinkler_pulse_frequency = crate::sprinkler::PULSE_FREQUENCY;
-        gui.sprinkler_mist_particles.value = false;
         let sun_display_luminance = 1.0;
         let god_ray_max_depth = float!(god_ray_max_depth);
         let god_ray_max_checks = uint!(god_ray_max_checks);
@@ -763,7 +762,7 @@ mod tests {
                 sprinkler_rotation_speed,
                 sprinkler_pulse_duty,
                 sprinkler_mist_density,
-                sprinkler_mist_particles: false,
+                sprinkler_mist_particles: true,
                 sprinkler_pulse_frequency,
                 sprinkler_mist_flow: true,
                 sprinkler_mist_air: false,

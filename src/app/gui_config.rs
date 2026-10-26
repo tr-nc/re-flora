@@ -1024,6 +1024,7 @@ mod section_order_tests {
             "Environment Probes",
             "Camera View",
             "GUI Appearance",
+            "Material Supply",
         ] {
             assert!(
                 !original.iter().any(|name| name == title),
@@ -2321,7 +2322,6 @@ mod tests {
             loaded.adjustables.sprinkler_mist_density.value,
             default_mist
         );
-        assert!(loaded.adjustables.sprinkler_mist_particles.value);
         assert!(!loaded
             .config
             .section

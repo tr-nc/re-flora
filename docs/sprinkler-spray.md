@@ -117,7 +117,7 @@ Vulkan 同步验证；隐藏静音 Release smoke 正常退出。原有 GUI 内�
 
 `Mist & Scattering` 的 **Mist intensity**（原 `sprinkler_mist_density`）为 0–6，引入时默认 **2**，
 即原默认光学密度的两倍，不影响浇水。已有自定义值加载时保留，旧控件名称／范围更新。
-**Small water droplets** 默认开启，可独立关闭；mist intensity 为零时仍可只看小水滴。
+**Small water droplets** GUI 开关已移除，正常游戏固定开启，旧保存值被忽略；mist intensity 为零时仍可只看小水滴。
 全局 `--no-particles` 只隐藏小水滴，不停止雾与浇水。
 方向雾开关仍独立：关闭时显示旧的无方向椭球雾，**它是视觉对照，不是共享喷流的形状预览**。
 `Soil Wetting` 的 wetting speed 控制入水量，wet patch scale 控制四级湿度随机量化的空间相关性，

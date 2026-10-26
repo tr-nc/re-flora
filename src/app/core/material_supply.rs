@@ -1,10 +1,14 @@
-//! Debug material supply is independent of geometry bounds, support and the real backpack.
+//! Build-selected supply is independent of geometry bounds, support and real inventory.
+
+/// Code-only build switch. Set false to build the finite-inventory game.
+const INFINITE_MATERIALS: bool = true;
 use super::voxel_backpack::BackpackVoxel;
 use super::*;
 
 impl App {
     pub(super) fn infinite_materials_enabled(&self) -> bool {
-        self.debug_settings.adjustables.infinite_materials.value
+        self.material_supply_diagnostic_override
+            .unwrap_or(INFINITE_MATERIALS)
     }
 
     pub(super) fn selected_edit_material(&self) -> BackpackVoxel {
@@ -43,14 +47,14 @@ impl App {
             end: center,
             radius: 0.03,
         };
-        let original = self.debug_settings.adjustables.infinite_materials.value;
+        let original = self.material_supply_diagnostic_override;
         let check = (|| -> Result<()> {
-            self.debug_settings.adjustables.infinite_materials.value = false;
+            self.material_supply_diagnostic_override = Some(false);
             anyhow::ensure!(
                 self.apply_soil_deposition(edit, 16, 1)?.added == 0,
                 "finite mode created soil from an empty backpack"
             );
-            self.debug_settings.adjustables.infinite_materials.value = true;
+            self.material_supply_diagnostic_override = Some(true);
             let infinite = self.apply_soil_deposition(edit, 16, 1)?;
             anyhow::ensure!(
                 infinite.added > 0,
@@ -67,7 +71,7 @@ impl App {
                 ) == Some((self.selected_edit_material(), u32::MAX)),
                 "Edit did not share infinite supply"
             );
-            self.debug_settings.adjustables.infinite_materials.value = false;
+            self.material_supply_diagnostic_override = Some(false);
             anyhow::ensure!(
                 self.apply_soil_deposition(edit, 16, 1)?.added == 0,
                 "disabling infinite supply left a phantom stock"
@@ -92,7 +96,15 @@ impl App {
             log::info!("[MATERIAL_SUPPLY][CHECK] empty_finite=0 infinite_added={} finite_added={} toggle_back=true real_inventory_preserved=true shared_edit_supply=true normal_geometry_bounds=true", infinite.added, finite.added);
             Ok(())
         })();
-        self.debug_settings.adjustables.infinite_materials.value = original;
-        check
+        self.material_supply_diagnostic_override = original;
+        check?;
+        anyhow::ensure!(
+            self.infinite_materials_enabled() == INFINITE_MATERIALS,
+            "validation did not restore build supply"
+        );
+        log::info!(
+            "[MATERIAL_SUPPLY][CHECK] restored_build_policy=true infinite={INFINITE_MATERIALS}"
+        );
+        Ok(())
     }
 }

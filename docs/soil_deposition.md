@@ -28,9 +28,9 @@ cargo run --release -- --rooftop-poc
 - **3** 切回原 Edit／Dig，可继续用原几何编辑方法比较或移除土。
 - Debug 的 **Soil Deposition** 集中放置五个可保存参数：**Soil batch size (individual voxels)**（1–1024，默认512）、**Soil release frequency (batches / second)**（1–120，默认20）、散布半径（0–128 体素）、土团半径（0–4）、堆坡斜率；另有保存的性能 A/B 复选框 **Soil: faster sampling and settling (A/B)**（默认不勾选，原版；勾选为候选）。每批50、每秒20批即约1000体素／秒，不依赖渲染帧率。可选择宽散布或土团，但不再作为默认。
 
-Debug → **Material Supply** → **Infinite Materials (Soil / Edit)** 是可保存的统一供应开关，本次按调试要求默认开启，普通花园和屋顶都适用。开启时空背包即可使用 Soil／Edit，铺土、放置、挖掘均不改动真实背包；右侧无限材料面板可以选择 Edit 材料，Soil 始终投放 Dirt。无限的是材料供应，不是出料速度或几何范围：正常支撑、工作区／世界边界、连通性处理仍然有效。
+**Material Supply** GUI 分组和开关已移除。`src/app/core/material_supply.rs` 的代码常量 `INFINITE_MATERIALS = true` 决定当前构建始终使用无限供应，普通花园和屋顶都适用；旧 GUI 保存值不再生效。当前构建中空背包即可使用 Soil／Edit，铺土、放置、挖掘均不改动真实背包；右侧无限材料面板可以选择 Edit 材料，Soil 始终投放 Dirt。无限的是材料供应，不是出料速度或几何范围：正常支撑、工作区／世界边界、连通性处理仍然有效。
 
-关闭开关后恢复有限材料：Soil 使用收集的 Dirt，并按实际写入量扣除；Edit 沿用第一个有库存的材料，挖掘正常收集。没有 Dirt 时不会凭空铺土，也不会为背包制造假库存。屋顶 proof 本身仍不保存地形。
+如需有限材料版本，将该代码常量改为 `false` 后重新构建（不是游戏内切换）：Soil 使用收集的 Dirt，并按实际写入量扣除；Edit 沿用第一个有库存的材料，挖掘正常收集。没有 Dirt 时不会凭空铺土，也不会为背包制造假库存。屋顶 proof 本身仍不保存地形。
 
 本次没有自动启动可见游戏。
 

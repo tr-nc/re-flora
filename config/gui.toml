@@ -648,15 +648,6 @@ min = 0
 max = 6
 
 [[section.param]]
-id = "sprinkler_mist_particles"
-kind = "bool"
-label = "Sprinklers: small water droplets"
-type = "Bool"
-
-[section.param.data]
-value = true
-
-[[section.param]]
 id = "sprinkler_pixel_resolution"
 kind = "uint"
 label = "Sprinklers: pre-cache resolution (N x N)"
@@ -2885,18 +2876,6 @@ type = "Float"
 value = 0.25
 min = 0
 max = 1
-
-[[section]]
-name = "Material Supply"
-
-[[section.param]]
-id = "infinite_materials"
-kind = "bool"
-label = "Infinite Materials (Soil / Edit)"
-type = "Bool"
-
-[section.param.data]
-value = true
 
 [[section]]
 name = "Soil Deposition"

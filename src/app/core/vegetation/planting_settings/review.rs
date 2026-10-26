@@ -18,7 +18,7 @@ impl App {
                 self.remove_tree(id)?;
             }
             self.contree_builder.flush_cpu_chunk_cache_jobs();
-            self.debug_settings.adjustables.infinite_materials.value = true;
+            self.material_supply_diagnostic_override = Some(true);
             self.debug_settings
                 .adjustables
                 .tree_planting_instant_mature
@@ -62,7 +62,7 @@ impl App {
             );
             self.tree_placement_preview_desc.branching.seed = 908;
             let second_desc = self.tree_placement_preview_desc.clone();
-            self.debug_settings.adjustables.infinite_materials.value = false;
+            self.material_supply_diagnostic_override = Some(false);
             self.debug_settings
                 .adjustables
                 .tree_planting_instant_mature

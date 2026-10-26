@@ -492,6 +492,8 @@ pub struct App {
     pavement: pavement::PavementRuntime,
     voxel_backpack: VoxelBackpack,
     garden_economy: garden_economy::GardenEconomy,
+    // Explicit native validation only; normal supply is selected in material_supply.rs.
+    material_supply_diagnostic_override: Option<bool>,
     shop_open: bool,
     garden_feedback: Option<String>,
     garden_fallen_review_frames: Option<u32>,
@@ -1621,6 +1623,7 @@ impl App {
             },
             voxel_backpack: VoxelBackpack::default(),
             garden_economy: Default::default(),
+            material_supply_diagnostic_override: None,
             shop_open: false,
             garden_feedback: None,
             garden_fallen_review_frames: None,
