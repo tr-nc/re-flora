@@ -212,12 +212,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
-        id: "cpu_stem_band_rendering",
-        kind: "bool",
-        label: "Experimental color-band stems (CPU climbing paths)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Debug",
         id: "flower_stem_model_resolution",
         kind: "uint",
         label: "Stem Pixelization: samples per height (grass and flowers)",
@@ -1710,54 +1704,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         kind: "float",
         label: "Frequency Curve Bias",
     },
-    GeneratedGuiParamDescriptor {
-        section: "Climbing Plants",
-        id: "climbing_fixture",
-        kind: "choice",
-        label: "Test terrain (applies immediately)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Climbing Plants",
-        id: "climbing_flexibility",
-        kind: "float",
-        label: "Shoot exploration / flexibility",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Climbing Plants",
-        id: "climbing_search_turn",
-        kind: "float",
-        label: "Search turn width (0–6x flexibility; live)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Climbing Plants",
-        id: "climbing_search_rate",
-        kind: "float",
-        label: "Search rotation rate (0.5–3x; live)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Climbing Plants",
-        id: "climbing_search_reach",
-        kind: "float",
-        label: "Unsupported search reach (voxels; live)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Climbing Plants",
-        id: "climbing_speed",
-        kind: "float",
-        label: "Growth attempts/sec (up to 2.5 voxels per tip)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Climbing Plants",
-        id: "climbing_spacing",
-        kind: "float",
-        label: "Adhesion spacing (voxels; 256/world unit)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "Climbing Plants",
-        id: "climbing_show_anchors",
-        kind: "bool",
-        label: "Show markers: yellow attachment / blue search / orange regrowth / red missing root",
-    },
 ];
 
 #[allow(dead_code)]
@@ -1793,7 +1739,6 @@ pub struct GuiAdjustables {
     pub scene_pixel_resolve_mode: crate::gui_adjustables::ChoiceParam,
     pub grass_band_pixelization: crate::gui_adjustables::BoolParam,
     pub grass_band_pose_reuse: crate::gui_adjustables::BoolParam,
-    pub cpu_stem_band_rendering: crate::gui_adjustables::BoolParam,
     pub flower_stem_model_resolution: crate::gui_adjustables::UintParam,
     pub flower_stem_cell_height_voxels: crate::gui_adjustables::FloatParam,
     pub flower_stem_radius_scale: crate::gui_adjustables::FloatParam,
@@ -2043,14 +1988,6 @@ pub struct GuiAdjustables {
     pub grass_sway_frequency_start: crate::gui_adjustables::FloatParam,
     pub grass_sway_frequency_full: crate::gui_adjustables::FloatParam,
     pub grass_sway_frequency_knee: crate::gui_adjustables::FloatParam,
-    pub climbing_fixture: crate::gui_adjustables::ChoiceParam,
-    pub climbing_flexibility: crate::gui_adjustables::FloatParam,
-    pub climbing_search_turn: crate::gui_adjustables::FloatParam,
-    pub climbing_search_rate: crate::gui_adjustables::FloatParam,
-    pub climbing_search_reach: crate::gui_adjustables::FloatParam,
-    pub climbing_speed: crate::gui_adjustables::FloatParam,
-    pub climbing_spacing: crate::gui_adjustables::FloatParam,
-    pub climbing_show_anchors: crate::gui_adjustables::BoolParam,
 }
 
 impl Default for GuiAdjustables {
@@ -2095,7 +2032,6 @@ impl GuiAdjustables {
         let mut scene_pixel_resolve_mode_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut grass_band_pixelization_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut grass_band_pose_reuse_field: Option<crate::gui_adjustables::BoolParam> = None;
-        let mut cpu_stem_band_rendering_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flower_stem_model_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut flower_stem_cell_height_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut flower_stem_radius_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2345,14 +2281,6 @@ impl GuiAdjustables {
         let mut grass_sway_frequency_start_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_sway_frequency_full_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut grass_sway_frequency_knee_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut climbing_fixture_field: Option<crate::gui_adjustables::ChoiceParam> = None;
-        let mut climbing_flexibility_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut climbing_search_turn_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut climbing_search_rate_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut climbing_search_reach_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut climbing_speed_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut climbing_spacing_field: Option<crate::gui_adjustables::FloatParam> = None;
-        let mut climbing_show_anchors_field: Option<crate::gui_adjustables::BoolParam> = None;
 
         for section in &config.section {
             for param in &section.param {
@@ -2550,11 +2478,6 @@ impl GuiAdjustables {
                     "grass_band_pose_reuse" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             grass_band_pose_reuse_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
-                    "cpu_stem_band_rendering" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            cpu_stem_band_rendering_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "flower_stem_model_resolution" => {
@@ -4216,58 +4139,6 @@ impl GuiAdjustables {
                             grass_sway_frequency_knee_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
-                    "climbing_fixture" => {
-                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
-                            climbing_fixture_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
-                        }
-                    }
-                    "climbing_flexibility" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            climbing_flexibility_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "climbing_search_turn" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            climbing_search_turn_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "climbing_search_rate" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            climbing_search_rate_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "climbing_search_reach" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            climbing_search_reach_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "climbing_speed" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            climbing_speed_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "climbing_spacing" => {
-                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
-                            let min = min.unwrap_or(0.0);
-                            let max = max.unwrap_or(1.0);
-                            climbing_spacing_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
-                        }
-                    }
-                    "climbing_show_anchors" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            climbing_show_anchors_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
                     _ => {}
                 }
             }
@@ -4305,7 +4176,6 @@ impl GuiAdjustables {
             scene_pixel_resolve_mode: scene_pixel_resolve_mode_field.expect("Missing parameter: scene_pixel_resolve_mode"),
             grass_band_pixelization: grass_band_pixelization_field.expect("Missing parameter: grass_band_pixelization"),
             grass_band_pose_reuse: grass_band_pose_reuse_field.expect("Missing parameter: grass_band_pose_reuse"),
-            cpu_stem_band_rendering: cpu_stem_band_rendering_field.expect("Missing parameter: cpu_stem_band_rendering"),
             flower_stem_model_resolution: flower_stem_model_resolution_field.expect("Missing parameter: flower_stem_model_resolution"),
             flower_stem_cell_height_voxels: flower_stem_cell_height_voxels_field.expect("Missing parameter: flower_stem_cell_height_voxels"),
             flower_stem_radius_scale: flower_stem_radius_scale_field.expect("Missing parameter: flower_stem_radius_scale"),
@@ -4555,14 +4425,6 @@ impl GuiAdjustables {
             grass_sway_frequency_start: grass_sway_frequency_start_field.expect("Missing parameter: grass_sway_frequency_start"),
             grass_sway_frequency_full: grass_sway_frequency_full_field.expect("Missing parameter: grass_sway_frequency_full"),
             grass_sway_frequency_knee: grass_sway_frequency_knee_field.expect("Missing parameter: grass_sway_frequency_knee"),
-            climbing_fixture: climbing_fixture_field.expect("Missing parameter: climbing_fixture"),
-            climbing_flexibility: climbing_flexibility_field.expect("Missing parameter: climbing_flexibility"),
-            climbing_search_turn: climbing_search_turn_field.expect("Missing parameter: climbing_search_turn"),
-            climbing_search_rate: climbing_search_rate_field.expect("Missing parameter: climbing_search_rate"),
-            climbing_search_reach: climbing_search_reach_field.expect("Missing parameter: climbing_search_reach"),
-            climbing_speed: climbing_speed_field.expect("Missing parameter: climbing_speed"),
-            climbing_spacing: climbing_spacing_field.expect("Missing parameter: climbing_spacing"),
-            climbing_show_anchors: climbing_show_anchors_field.expect("Missing parameter: climbing_show_anchors"),
         }
     }
 }
@@ -4770,12 +4632,6 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "grass_sway_frequency_start" => Some(&adjustables.grass_sway_frequency_start),
         "grass_sway_frequency_full" => Some(&adjustables.grass_sway_frequency_full),
         "grass_sway_frequency_knee" => Some(&adjustables.grass_sway_frequency_knee),
-        "climbing_flexibility" => Some(&adjustables.climbing_flexibility),
-        "climbing_search_turn" => Some(&adjustables.climbing_search_turn),
-        "climbing_search_rate" => Some(&adjustables.climbing_search_rate),
-        "climbing_search_reach" => Some(&adjustables.climbing_search_reach),
-        "climbing_speed" => Some(&adjustables.climbing_speed),
-        "climbing_spacing" => Some(&adjustables.climbing_spacing),
         _ => None,
     }
 }
@@ -4830,7 +4686,6 @@ pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
         "scene_pixel_resolve_mode" => Some(&adjustables.scene_pixel_resolve_mode),
         "sprinkler_design" => Some(&adjustables.sprinkler_design),
         "sprinkler_placement_type" => Some(&adjustables.sprinkler_placement_type),
-        "climbing_fixture" => Some(&adjustables.climbing_fixture),
         _ => None,
     }
 }
@@ -4850,7 +4705,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "scene_supersampling_enabled" => Some(&adjustables.scene_supersampling_enabled),
         "grass_band_pixelization" => Some(&adjustables.grass_band_pixelization),
         "grass_band_pose_reuse" => Some(&adjustables.grass_band_pose_reuse),
-        "cpu_stem_band_rendering" => Some(&adjustables.cpu_stem_band_rendering),
         "flower_stem_test_branches" => Some(&adjustables.flower_stem_test_branches),
         "apple_cache_enabled" => Some(&adjustables.apple_cache_enabled),
         "butterfly_cache_enabled" => Some(&adjustables.butterfly_cache_enabled),
@@ -4875,7 +4729,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "tree_planting_instant_mature" => Some(&adjustables.tree_planting_instant_mature),
         "infinite_materials" => Some(&adjustables.infinite_materials),
         "soil_deposition_fast_path" => Some(&adjustables.soil_deposition_fast_path),
-        "climbing_show_anchors" => Some(&adjustables.climbing_show_anchors),
         _ => None,
     }
 }
@@ -5106,12 +4959,6 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "grass_sway_frequency_start" => Some(&mut adjustables.grass_sway_frequency_start),
         "grass_sway_frequency_full" => Some(&mut adjustables.grass_sway_frequency_full),
         "grass_sway_frequency_knee" => Some(&mut adjustables.grass_sway_frequency_knee),
-        "climbing_flexibility" => Some(&mut adjustables.climbing_flexibility),
-        "climbing_search_turn" => Some(&mut adjustables.climbing_search_turn),
-        "climbing_search_rate" => Some(&mut adjustables.climbing_search_rate),
-        "climbing_search_reach" => Some(&mut adjustables.climbing_search_reach),
-        "climbing_speed" => Some(&mut adjustables.climbing_speed),
-        "climbing_spacing" => Some(&mut adjustables.climbing_spacing),
         _ => None,
     }
 }
@@ -5166,7 +5013,6 @@ pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
         "scene_pixel_resolve_mode" => Some(&mut adjustables.scene_pixel_resolve_mode),
         "sprinkler_design" => Some(&mut adjustables.sprinkler_design),
         "sprinkler_placement_type" => Some(&mut adjustables.sprinkler_placement_type),
-        "climbing_fixture" => Some(&mut adjustables.climbing_fixture),
         _ => None,
     }
 }
@@ -5186,7 +5032,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "scene_supersampling_enabled" => Some(&mut adjustables.scene_supersampling_enabled),
         "grass_band_pixelization" => Some(&mut adjustables.grass_band_pixelization),
         "grass_band_pose_reuse" => Some(&mut adjustables.grass_band_pose_reuse),
-        "cpu_stem_band_rendering" => Some(&mut adjustables.cpu_stem_band_rendering),
         "flower_stem_test_branches" => Some(&mut adjustables.flower_stem_test_branches),
         "apple_cache_enabled" => Some(&mut adjustables.apple_cache_enabled),
         "butterfly_cache_enabled" => Some(&mut adjustables.butterfly_cache_enabled),
@@ -5211,7 +5056,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "tree_planting_instant_mature" => Some(&mut adjustables.tree_planting_instant_mature),
         "infinite_materials" => Some(&mut adjustables.infinite_materials),
         "soil_deposition_fast_path" => Some(&mut adjustables.soil_deposition_fast_path),
-        "climbing_show_anchors" => Some(&mut adjustables.climbing_show_anchors),
         _ => None,
     }
 }

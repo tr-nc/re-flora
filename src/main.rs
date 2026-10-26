@@ -3,7 +3,6 @@ mod audio;
 mod branch_skeleton;
 mod builder;
 mod cli;
-mod climbing_plants;
 mod ddgi;
 #[cfg(target_os = "linux")]
 mod desktop_session;

@@ -78,7 +78,7 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Stem Model Pixelization",
-        description: "Grass square color bands use hardware rasterization and prepared poses on the scene-wide pixel grid. Flower sampling and CPU climbing stems are unchanged.",
+        description: "Grass square color bands use hardware rasterization and prepared poses on the scene-wide pixel grid. Flower sampling is unchanged.",
         initially_open: false,
         params: &["grass_band_pixelization", "flower_stem_model_resolution"],
     },
@@ -87,7 +87,7 @@ const GROUPS: &[ControlGroup] = &[
         title: "Stem Geometry & Color Bands",
         description: "Grass unchecked: original voxel geometry. Checked: square color-band stems with flat color and lighting, hardware depth and no spherical caps. All objects use the scene-wide pixel grid. Growth and wind stay live.",
         initially_open: false,
-        params: &["cpu_stem_band_rendering", "grass_band_pose_reuse"],
+        params: &["grass_band_pose_reuse"],
     },
     ControlGroup {
         parent: None,

@@ -314,7 +314,7 @@ fn build_apple_shadow_mesh() -> (Vec<DynamicFruitVertex>, Vec<u32>) {
         .map(|&p| {
             let position = super::apple_preview::world_position(p);
             // Only position is consumed by the shadow pass. Keep the shared
-            // mesh layout used by the independently lit climbing blocks.
+            // mesh layout used by the independently lit CPU stem benchmark blocks.
             DynamicFruitVertex::new(position, position, Vec3::Y, Vec3::ONE)
         })
         .collect();

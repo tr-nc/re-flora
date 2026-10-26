@@ -146,6 +146,15 @@ known limitations; partially implemented items remain open.
 
 ### Delivery log
 
+- Player follow-up (2026-10-27): retired Climbing Plants entirely: Debug settings,
+  session simulation/rod collision, placement branch, demo fixtures and terrain-edit
+  observers removed. Old GUI fields are discarded on load and explicit Save;
+  persistent flora/material IDs are unchanged. Removed Environment Probes from
+  Debug only, preserving production DDGI and CLI/native diagnostics. Shared CPU
+  stem benchmark rendering remains independent of the deleted plant system.
+  Focused tests and native UI/DDGI/smoke checks pass; Release rebuilt. Details:
+  `docs/reports/retired-climbing-and-probe-panel.md`.
+
 - Player follow-up (2026-10-27): removed the lantern size slider after approval
   of 0.5×. New placements now use a fixed half-size constant; existing stamped
   lanterns remain unchanged. Legacy saved scale values and the empty placement

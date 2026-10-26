@@ -1,5 +1,10 @@
 # Climbing vine: search, attach, prune, regrow
 
+> **Archived 2026-10-27:** the player retired climbing plants. The GUI, simulation,
+> planting and terrain-response integration described below have been deleted.
+> This document records history, not available controls or current source paths.
+> See [retirement validation](reports/retired-climbing-and-probe-panel.md).
+
 The demo grows one persistent, unbranched vine. Missing support prunes the downstream
 subtree, even if higher attachments still have wall behind them. A rooted surviving
 stump can explore and regrow with fresh IDs without repairing the missing wall;

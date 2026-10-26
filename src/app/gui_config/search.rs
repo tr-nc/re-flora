@@ -173,11 +173,11 @@ mod tests {
     #[test]
     fn custom_sections_hide_unrelated_content_and_open_matches_without_changing_collapse_state() {
         let context = egui::Context::default();
-        let filter = SearchFilter::new("probe spacing");
+        let filter = SearchFilter::new("terrain snapshots");
         let mut drew = false;
         let _ = context.run_ui(Default::default(), |ui| {
             assert!(filter
-                .section(ui, "Environment Probes", &["Spacing"], |_| {
+                .section(ui, "Terrain & Plants", &["Snapshots"], |_| {
                     drew = true;
                 })
                 .is_some());
@@ -191,7 +191,7 @@ mod tests {
         let _ = context.run_ui(Default::default(), |ui| {
             assert!(
                 SearchFilter::default()
-                    .section(ui, "Environment Probes", &[], |_| {})
+                    .section(ui, "Terrain & Plants", &[], |_| {})
                     .is_none(),
                 "search changed the normally collapsed group"
             );

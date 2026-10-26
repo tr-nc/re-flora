@@ -77,7 +77,6 @@ static CATALOG: LazyLock<Vec<Product>> = LazyLock::new(|| {
                 let d = &species::species()[i as usize];
                 (d.key, d.display_name)
             }
-            FloraPaintSelection::ClimbingVine => continue,
         };
         let grass = selection == FloraPaintSelection::GrassMix;
         let quantity = if grass {

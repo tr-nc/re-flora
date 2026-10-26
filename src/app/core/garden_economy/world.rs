@@ -117,7 +117,6 @@ impl App {
         let species_index = match selection {
             FloraPaintSelection::GrassMix => seed % 2,
             FloraPaintSelection::Species(i) => i,
-            FloraPaintSelection::ClimbingVine => return Ok(false),
         };
         let growth = if matches!(supply.goods, PlantGoods::Seedling(_)) {
             96

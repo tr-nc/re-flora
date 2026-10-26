@@ -9,7 +9,6 @@ mod butterfly_foraging_review;
 mod camera_control;
 mod camera_snapshot_ui;
 mod canopy_audio_diagnostic;
-mod climbing_plants;
 mod cpu_stem_review;
 mod ddgi_spatial_weight_readback;
 mod debug_panel;
@@ -17,7 +16,6 @@ mod denoiser_bench;
 mod emissive_voxel_lighting;
 mod environment_irradiance_capture;
 mod environment_lighting_test_scene;
-mod environment_probe_ui;
 mod fallen_leaf_review;
 mod flower_model_bench;
 mod flower_model_review;
@@ -476,7 +474,6 @@ pub struct App {
     debug_tree_pos: Vec3,
     tree_placement_preview_desc: TreeDesc,
     config_panel_visible: bool,
-    environment_probe_spacing_draft: u32,
     environment_probe_rebuild_spacing_voxels: Option<u32>,
     camera_snapshots: CameraSnapshotLibrary,
     camera_snapshot_draft_name: String,
@@ -521,7 +518,6 @@ pub struct App {
     tree_leaf_audio_review: Option<tree_leaf_audio_review::Review>,
     tree_species_review: Option<vegetation::TreeSpeciesReview>,
     sprinkler_review: Option<sprinkler_review::Review>,
-    climbing_plants: climbing_plants::ClimbingPlants,
     particle_animation_time_sec: f32,
     water: water::WaterRuntime,
     particle_snapshots: Vec<ParticleSnapshot>,
@@ -1600,7 +1596,6 @@ impl App {
             regenerate_trees_requested: false,
             trees,
             config_panel_visible: std::env::var_os("RE_FLORA_DEBUG_PANEL_REVIEW").is_some(),
-            environment_probe_spacing_draft: lighting.probe_spacing_voxels,
             environment_probe_rebuild_spacing_voxels: lighting.rebuild_probe_spacing_voxels,
             camera_snapshots,
             camera_snapshot_draft_name,
@@ -1647,7 +1642,6 @@ impl App {
             sprinkler_audio_review: sprinkler_audio_review::SprinklerAudioReview::from_environment(
             ),
             sprinkler_review: sprinkler_review::Review::from_env()?,
-            climbing_plants: Default::default(),
             particle_animation_time_sec: 0.0,
             water,
             particle_snapshots,
@@ -2542,9 +2536,6 @@ impl App {
                 };
                 let mut terrain_snapshot_action = None;
                 let mut plant_flora_showcase_requested = false;
-                let mut environment_probe_visualization =
-                    self.tracer.environment_probe_visualization_settings();
-                let mut environment_probe_rebuild_requested = false;
 
                 let current_camera_pose = self.tracer.camera_pose();
                 let tree_kick_prompt = self.update_tree_kick_prompt();
@@ -2779,11 +2770,6 @@ impl App {
                                                 if section == "Wind" {
                                                     ui.not_saved("Wind prototype experiment", |ui| self.wind_prototype.controls(ui));
                                                 }
-                                                if section == "Climbing Plants" {
-                                                    ui.not_saved("Vine actions and live status: plant history is session-only; the settings above use Save", |ui| {
-                                                        self.climbing_plants.draw_actions(ui);
-                                                    });
-                                                }
                                             }, debug_panel::EXTRA_SECTIONS, |section, ui| {
                                                 match section {
                                                     "Camera Snapshots" => {
@@ -2799,24 +2785,14 @@ impl App {
                                                         extra_search_matches += usize::from(camera_search_result.is_some());
                                                         camera_snapshot_to_apply = camera_search_result.flatten();
                                                     }
-                                                    "Environment Probes" => {
-                                                        extra_search_matches += usize::from(debug_search.section(ui, "Environment Probes", &["DDGI", "Spacing", "Apply Rebuild", "Visualize probes", "Display Filter", "Camera radius", "Instance stride", "Marker size", "Depth tested"], |ui| {
-                                                            environment_probe_rebuild_requested = environment_probe_ui::draw(
-                                                                ui,
-                                                                &mut self.environment_probe_spacing_draft,
-                                                                self.tracer.ddgi_runtime_status().active().grid.spacing_voxels(),
-                                                                &mut environment_probe_visualization,
-                                                            );
-                                                        }).is_some());
-                                                    }
                                                     "Terrain & Plants" => {
                                                         extra_search_matches += usize::from(debug_search.section(ui, "Terrain & Plants", &["Save", "Load", "Snapshots", "Flowers", "Grasses", "Planting", "Growth"], |ui| {
-                                                            ui_text::hint(ui, "Saves terrain, grass, special plants, trees and growth. Loading replaces them. Climbing vines are session-only and reset on load.");
+                                                            ui_text::hint(ui, "Saves terrain, grass, special plants, trees and growth. Loading replaces them.");
                                                             terrain_snapshot_action = self.terrain_persistence.snapshot_controls(ui);
                                                             if ui.button("Plant all flowers & grasses around me").clicked() {
                                                                 plant_flora_showcase_requested = true;
                                                             }
-                                                            ui_text::hint(ui, "Debug one-shot: plants ordinary flowers and both grasses near your feet (or edit-camera focus); excludes climbing vines. Save Terrain & Plants to keep them.");
+                                                            ui_text::hint(ui, "Debug one-shot: plants ordinary flowers and both grasses near your feet (or edit-camera focus). Save Terrain & Plants to keep them.");
                                                             if let Some(status) = &self.flora_showcase_status {
                                                                 ui_text::status(ui, status);
                                                             }
@@ -3079,20 +3055,6 @@ impl App {
                     self.sync_cursor_with_panels();
                     return;
                 }
-                if environment_probe_rebuild_requested {
-                    self.tracer
-                        .rebuild_environment_probes(self.environment_probe_spacing_draft);
-                    let status = self.tracer.ddgi_runtime_status();
-                    log::info!(
-                        "[DDGI][REBUILD_STATUS] {} | {} | {} | {}",
-                        status.active_line(),
-                        status.builder_line(),
-                        status.coordinator_line(),
-                        status.availability_line()
-                    );
-                }
-                self.tracer
-                    .set_environment_probe_visualization_settings(environment_probe_visualization);
                 self.sync_cursor_with_panels();
                 if let Some(action) = shop_action {
                     self.apply_shop_action(action);
@@ -3259,11 +3221,6 @@ impl App {
                     self.tracer.invalidate_local_direct_sun_shadow_histories();
                 }
 
-                if let Err(error) =
-                    self.update_climbing_plants(world_tick_steps, world_tick_seconds)
-                {
-                    log::error!("[CLIMBING] update failed: {error:#}");
-                }
                 self.world_clock.advance_daynight(
                     world_tick_steps,
                     world_tick_seconds,

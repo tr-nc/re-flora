@@ -27,7 +27,7 @@
 
 Debug Panel 用于调参和明确的操作，不是运行时诊断信息展示平台。Probe revisions、tokens、内存、计数、当前 camera pose 等诊断应按需写入日志，不常驻面板。不要为不相关的组硬凑父分类或分类 separator；保留具体控制组及其保存归属。所有控制组（包括 Terrain & Plants）放在同一滚动内容内，顶部仅保留 Save 和 Search。
 
-普通浏览时，所有顶层栏目按**实际英文显示名称、不区分大小写的 A–Z 顺序**自动排列。声明式 section、跨存储 section 的 Debug 调整组、Camera Snapshots／Environment Probes／Terrain & Plants 等 App 自定义操作组共用一个排序入口，不能把某类栏目单独置顶或追加在尾部。新增声明式栏目自动参与排序；新增 App 操作栏目通过 `draw_with_extra_sections` 注册。显示别名（如 Sky → Atmos、Voxel → Terrain）决定位置，不改存储 section、参数 ID、控件单一归属、保存绑定、折叠 ID 或默认展开状态。组内参数保留 adjustment-first 的调参顺序，不要求逐个滑杆按字母排列。
+普通浏览时，所有顶层栏目按**实际英文显示名称、不区分大小写的 A–Z 顺序**自动排列。声明式 section、跨存储 section 的 Debug 调整组、Camera Snapshots／Terrain & Plants 等 App 自定义操作组共用一个排序入口，不能把某类栏目单独置顶或追加在尾部。新增声明式栏目自动参与排序；新增 App 操作栏目通过 `draw_with_extra_sections` 注册。显示别名（如 Sky → Atmos、Voxel → Terrain）决定位置，不改存储 section、参数 ID、控件单一归属、保存绑定、折叠 ID 或默认展开状态。组内参数保留 adjustment-first 的调参顺序，不要求逐个滑杆按字母排列。
 
 Save 按钮用橙色边框表示保存文档有修改；成功保存后清除，失败时保留并在日志/按钮 tooltip 报错，不新增常驻 “Settings saved” 元素。比较统一保存文档，覆盖声明式和自定义字段，不为单个控件加 dirty/save hook；搜索及临时工具不计入。
 
@@ -106,7 +106,7 @@ settings.draw(ui, |section, temporary| {
 - `newly_declared_slider_needs_no_save_hook`：测试构建额外声明一个新字段，用实际 egui 鼠标事件调整新滑杆，无保存接线仍能保存并重载。
 - 临时标签、旧文件兼容、原子保存、失败提示、树与蝴蝶 UI 回归仍保留。
 
-覆盖范围是已声明／序列化的设置，不声称能检测有人故意在其它任意 UI 中绕过统一入口。旧树编辑器仍是模块内部可信适配器，直接编辑已保存的树对象；Environment Probes 是既有独立临时实验，现已明确显示不保存。本次没有把整个应用所有 UI 都改造成受限界面。
+覆盖范围是已声明／序列化的设置，不声称能检测有人故意在其它任意 UI 中绕过统一入口。旧树编辑器仍是模块内部可信适配器，直接编辑已保存的树对象；Environment Probes 调试区域已于 2026-10-27 移除，底层 DDGI 与命令行诊断保留。本次没有把整个应用所有 UI 都改造成受限界面。
 
 ## 搜索与根层级间距验证
 

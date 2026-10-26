@@ -1,6 +1,5 @@
 // App-owned actions participate in the same root ordering as saved settings.
-pub(super) const EXTRA_SECTIONS: &[&str] =
-    &["Camera Snapshots", "Environment Probes", "Terrain & Plants"];
+pub(super) const EXTRA_SECTIONS: &[&str] = &["Camera Snapshots", "Terrain & Plants"];
 
 pub(super) fn scroll_area() -> egui::ScrollArea {
     egui::ScrollArea::vertical()
@@ -71,6 +70,16 @@ mod tests {
     use egui::{Event, PointerButton, Pos2, Rect, Vec2};
 
     #[test]
+    fn retired_sections_are_not_registered_or_searchable() {
+        for title in ["Climbing Plants", "Environment Probes"] {
+            assert!(!EXTRA_SECTIONS.contains(&title));
+        }
+        let source = include_str!("mod.rs");
+        assert!(!source.contains("environment_probe_ui::draw"));
+        assert!(!source.contains("update_climbing_plants"));
+    }
+
+    #[test]
     fn unsaved_border_does_not_add_layout_and_disappears_when_clean() {
         let context = egui::Context::default();
         for dirty in [false, true, false] {
@@ -117,7 +126,6 @@ mod tests {
                         "Camera",
                         "Camera Snapshots",
                         "Camera View",
-                        "Environment Probes",
                         "Soil Deposition",
                         "Terrain",
                         "Terrain & Plants",
@@ -141,7 +149,7 @@ mod tests {
         for shape in &output.shapes {
             collect(&shape.shape, &mut titles);
         }
-        assert_eq!(titles.len(), 11);
+        assert_eq!(titles.len(), 10);
         let mut sorted = titles.clone();
         sorted.sort_by_key(|title| title.to_ascii_lowercase());
         assert_eq!(titles, sorted);

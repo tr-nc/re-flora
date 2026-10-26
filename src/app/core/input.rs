@@ -1206,31 +1206,6 @@ impl App {
                     }
                     return;
                 }
-                if self.current_flora_paint_selection()
-                    == species::FloraPaintSelection::ClimbingVine
-                {
-                    // A vine is one root per stroke, not a painted occupancy field.
-                    if self.player_tools.previous_stroke_center(action).is_none() {
-                        let direction = self.terrain_edit_ray().map(|(_, direction)| direction);
-                        match direction
-                            .map(|direction| self.plant_climbing_at_surface(center, direction))
-                        {
-                            Some(Ok(true)) => {}
-                            Some(Ok(false)) | None => {
-                                self.player_tools.defer_stroke(action, now);
-                                return;
-                            }
-                            Some(Err(err)) => {
-                                log::error!("Failed to plant climbing vine: {err}");
-                                self.player_tools.interrupt_stroke(action);
-                                return;
-                            }
-                        }
-                    }
-                    self.player_tools.record_stroke_dab(action, now, center);
-                    return;
-                }
-
                 let edit = self.player_tools.stroke_edit(action, center);
                 if !self.terrain_brush_endpoint_within_editable_chunk(edit) {
                     self.stop_terrain_edit_loop_sound();

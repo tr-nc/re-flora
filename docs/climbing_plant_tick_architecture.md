@@ -1,5 +1,10 @@
 # Playable vine tick ownership
 
+> **Archived 2026-10-27:** the player retired climbing plants. The GUI, simulation,
+> planting and terrain-response integration described below have been deleted.
+> This document records history, not available controls or current source paths.
+> See [retirement validation](reports/retired-climbing-and-probe-panel.md).
+
 `src/app/core/climbing_plants/tick.rs` owns advancing one session vine. Production
 play, accelerated native reviews, and cadence regressions call `VineTick::advance`.
 `Plant` and its rod retain ownership of growth, pruning and transactional mechanics.

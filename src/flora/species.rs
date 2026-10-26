@@ -195,15 +195,12 @@ pub fn is_grass_species_index(species_idx: u32) -> bool {
 pub enum FloraPaintSelection {
     GrassMix,
     Species(u32),
-    /// Session-only climbing plant, not an occupancy-flora shader species.
-    ClimbingVine,
 }
 
 impl FloraPaintSelection {
     pub fn shader_selection(self) -> u32 {
         match self {
             Self::GrassMix => FLORA_OCCUPANCY_SELECTION_GRASS_MIX,
-            Self::ClimbingVine => panic!("climbing vines are not occupancy flora"),
             Self::Species(species_idx) => {
                 debug_assert!(
                     (species_idx as usize) < species_count(),
@@ -232,7 +229,6 @@ pub const PLAYER_FLORA_PAINT_SELECTIONS: &[FloraPaintSelection] = &player_flora_
 pub fn flora_paint_selection_label(selection: FloraPaintSelection) -> &'static str {
     match selection {
         FloraPaintSelection::GrassMix => "Grass Mix",
-        FloraPaintSelection::ClimbingVine => "Climbing Vine",
         FloraPaintSelection::Species(species_idx) => species()
             .get(species_idx as usize)
             .map(|species| species.display_name)
@@ -243,7 +239,6 @@ pub fn flora_paint_selection_label(selection: FloraPaintSelection) -> &'static s
 pub fn flora_paint_brush_settings(selection: FloraPaintSelection) -> FloraPaintBrushSettings {
     match selection {
         FloraPaintSelection::GrassMix => GRASS_MIX_PAINT_BRUSH_SETTINGS,
-        FloraPaintSelection::ClimbingVine => FloraPaintBrushSettings::dense(80),
         FloraPaintSelection::Species(species_idx) => species()
             .get(species_idx as usize)
             .map(|species| species.paint_brush)
@@ -297,11 +292,6 @@ mod tests {
 
     #[test]
     fn climbing_vine_is_not_in_the_grow_tool_or_shader_species() {
-        assert!(!PLAYER_FLORA_PAINT_SELECTIONS.contains(&FloraPaintSelection::ClimbingVine));
-        assert_eq!(
-            flora_paint_selection_label(FloraPaintSelection::ClimbingVine),
-            "Climbing Vine"
-        );
         assert!(!species()
             .iter()
             .any(|species| species.key == "climbing_vine"));

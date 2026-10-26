@@ -2348,81 +2348,6 @@ impl DdgiRuntimeStatus {
                 .expect("DDGI staging status was validated at construction")
         })
     }
-
-    pub fn active_line(self) -> String {
-        let active = self.active();
-        format!(
-            "Active token {} · terrain {} · radiance {} · {} vox · {:?} · published {}",
-            format_optional(self.active_token_serial()),
-            format_optional(active.relocated_terrain_revision),
-            format_optional(active.radiance_revision),
-            active.grid.spacing_voxels(),
-            active.stage,
-            format_ddgi_field(active.published_field()),
-        )
-    }
-
-    pub fn builder_line(self) -> String {
-        let Some(staging) = self.staging() else {
-            return "Builder none".to_owned();
-        };
-        let token = self
-            .staging_token()
-            .expect("staging volume must expose its build token");
-        format!(
-            "Builder token {} · {:?} · terrain {} · radiance {} · {} vox · {}/{} filtered · {:?} · complete {} · building {} · published {}",
-            token.serial(),
-            token.kind(),
-            format_optional(staging.relocated_terrain_revision),
-            format_optional(staging.radiance_revision),
-            staging.grid.spacing_voxels(),
-            staging.filtered_probe_count,
-            staging.grid.probe_count(),
-            staging.stage,
-            format_ddgi_field(staging.complete_field),
-            format_ddgi_field(staging.building_field),
-            format_ddgi_field(staging.published_field()),
-        )
-    }
-
-    pub fn coordinator_line(self) -> String {
-        format!(
-            "Target terrain {} · coordinator {:?} · density queued {}",
-            format_optional(self.target_terrain_revision()),
-            self.coordinator(),
-            format_optional(self.deferred_density_spacing_voxels()),
-        )
-    }
-
-    pub fn availability_line(self) -> &'static str {
-        if self.target_terrain_revision().is_some() && self.active_consumers_are_available() {
-            "Probes: active field available · replacement pending"
-        } else if self.active_consumers_are_available() {
-            "Probes: active field available"
-        } else {
-            "Probes: initializing"
-        }
-    }
-}
-
-fn format_optional<T: std::fmt::Display>(value: Option<T>) -> String {
-    value.map_or_else(|| "none".to_owned(), |value| value.to_string())
-}
-
-fn format_ddgi_field(value: Option<DdgiFieldIdentity>) -> String {
-    value.map_or_else(
-        || "none".to_owned(),
-        |identity| {
-            let field = identity.field();
-            format!(
-                "#{}/E{} {:?} <- {:?}",
-                field.serial(),
-                field.update_epoch(),
-                field.state(),
-                identity.source().map(|source| source.serial()),
-            )
-        },
-    )
 }
 
 #[cfg(test)]
@@ -2793,14 +2718,13 @@ mod tests {
         assert!(matches!(active_only.state, DdgiRuntimeState::Active { .. }));
         assert!(active_only.staging().is_none());
         assert_eq!(
-            active_only.active_line(),
-            "Active token 1 · terrain 7 · radiance 3 · 16 vox · Ready · published #1/E0 Converging <- None"
+            active_only.active_token_serial(),
+            Some(active_token.serial())
         );
-        assert_eq!(active_only.builder_line(), "Builder none");
-        assert_eq!(
-            active_only.availability_line(),
-            "Probes: active field available"
-        );
+        assert_eq!(active_only.active().relocated_terrain_revision, Some(7));
+        assert_eq!(active_only.active().radiance_revision, Some(3));
+        assert_eq!(active_only.active().grid.spacing_voxels(), 16);
+        assert!(active_only.active_consumers_are_available());
 
         runtime.request_density_rebuild(probe_spacing(32));
         assert!(runtime.observe_visible_terrain(8, edit_bound(200, 220)));
@@ -2809,16 +2733,10 @@ mod tests {
         let building = runtime.status_from_physical(DdgiStatus::new(active, Some(staging)));
         assert!(matches!(building.state, DdgiRuntimeState::Staging { .. }));
         assert_eq!(building.staging_token(), Some(token));
-        assert!(building
-            .builder_line()
-            .starts_with("Builder token 2 · Terrain"));
-        assert!(building.coordinator_line().contains("Target terrain 8"));
-        assert!(building.coordinator_line().contains("density queued 32"));
+        assert_eq!(token.kind(), crate::ddgi::DdgiBuildKind::Terrain);
+        assert_eq!(building.target_terrain_revision(), Some(8));
+        assert_eq!(building.deferred_density_spacing_voxels(), Some(32));
         assert!(building.active_consumers_are_available());
-        assert_eq!(
-            building.availability_line(),
-            "Probes: active field available · replacement pending"
-        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Debug visualization support for the DDGI probe volume.
 //!
 //! The production probe representation lives in `crate::ddgi`. This module only owns the small
-//! billboard mesh and user-facing visualization controls.
+//! billboard mesh and visualization settings for CLI/native diagnostic callers.
 
 use crate::resource::Resource;
 use bytemuck::{Pod, Zeroable};
@@ -16,20 +16,10 @@ const ENVIRONMENT_PROBE_MARKER_INDEX_COUNT: u32 = 6;
 pub enum EnvironmentProbeVisualizationMode {
     #[default]
     State = 0,
+    // Retained shader-ABI value; the retired GUI no longer selects this mode.
+    #[allow(dead_code)]
     Irradiance = 1,
     Relocation = 2,
-}
-
-impl EnvironmentProbeVisualizationMode {
-    pub const ALL: [Self; 3] = [Self::State, Self::Irradiance, Self::Relocation];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::State => "State",
-            Self::Irradiance => "Irradiance",
-            Self::Relocation => "Relocation",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -38,19 +28,9 @@ pub enum EnvironmentProbeVisualizationFilter {
     #[default]
     All = 0,
     Valid = 1,
+    // Retained shader-ABI value for non-GUI diagnostic callers.
+    #[allow(dead_code)]
     Invalid = 2,
-}
-
-impl EnvironmentProbeVisualizationFilter {
-    pub const ALL: [Self; 3] = [Self::All, Self::Valid, Self::Invalid];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::All => "All",
-            Self::Valid => "Valid only",
-            Self::Invalid => "Invalid only",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

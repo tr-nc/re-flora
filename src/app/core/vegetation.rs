@@ -3218,7 +3218,7 @@ impl App {
 
     /// Debug-only one-shot planting. Keep the ordinary authored and grass
     /// occupancy pipelines (and terrain Save) authoritative; do not add a
-    /// second flora system or include session-only climbing vines.
+    /// second flora system.
     pub(super) fn plant_flora_showcase_at_player(&mut self) -> Result<String> {
         let mut center = self
             .camera_control
@@ -3378,10 +3378,6 @@ impl App {
             TerrainSurfaceRemovalService::compile_surface_brush_in_world(edit, self.world_chunk_dim)
         {
             let paint_selection = self.current_flora_paint_selection();
-            anyhow::ensure!(
-                paint_selection != species::FloraPaintSelection::ClimbingVine,
-                "climbing vine roots must use the Grow terrain-ray placement path"
-            );
             let paint_brush = species::flora_paint_brush_settings(paint_selection);
             if let species::FloraPaintSelection::Species(species_index) = paint_selection {
                 if species::is_authored_plant_species_index(species_index) {

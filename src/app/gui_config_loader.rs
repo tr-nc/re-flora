@@ -77,11 +77,16 @@ impl GuiConfigLoader {
         Self::retire_dither_setting(&mut config);
         Self::simplify_ordered_dither_settings(&mut config);
         Self::retire_cloud_settings(&mut config);
+        config
+            .section
+            .retain(|section| section.name != "Climbing Plants");
         for section in &mut config.section {
             section.param.retain(|param| {
                 param.id != "stone_lantern_placement_scale"
                     && param.id != "tree_leaf_recorded_mix"
                     && !param.id.starts_with("tree_rustle_")
+                    && !param.id.starts_with("climbing_")
+                    && param.id != "cpu_stem_band_rendering"
                     && param.id != "grass_natural_bend_min_voxels"
                     && param.id != "flora_bend_height_power"
                     && param.id != "apple_directional_lighting"
@@ -281,7 +286,6 @@ impl GuiConfigLoader {
         }
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pixelization");
-        Self::add_missing_param(&mut config, "Debug", "cpu_stem_band_rendering");
         Self::validate(&config, config_path);
         Self::migrate_flutter_frequency(&mut config);
         Self::migrate_frequency_ceiling(&mut config);
@@ -354,24 +358,9 @@ impl GuiConfigLoader {
         }
         Self::add_missing_section_params(&mut config, "Tree Planting");
         Self::add_missing_section_params(&mut config, "Terrain Material");
-        Self::add_missing_section_params(&mut config, "Climbing Plants");
         // Old saves gain new flower controls from the declarations, without
         // reinterpreting or overwriting the existing overall size.
         Self::add_missing_section_params(&mut config, "Flora");
-        // The vine no longer has a pause mode. Old zero-speed saves must also
-        // become a positive rate, not silently preserve a second way to pause.
-        for param in config.section.iter_mut().flat_map(|s| &mut s.param) {
-            if param.id == "climbing_speed" {
-                if let GuiParamValue::Float { value, min, .. } = &mut param.value {
-                    *min = Some(1.0);
-                    *value = (*value).max(1.0);
-                }
-            } else if param.id == "climbing_search_turn" {
-                if let GuiParamValue::Float { max, .. } = &mut param.value {
-                    *max = Some(6.0);
-                }
-            }
-        }
         // Retired controls must not survive in the live config or on the next save.
         for section in &mut config.section {
             section.param.retain(|param| {
@@ -387,11 +376,6 @@ impl GuiConfigLoader {
                         | "terrain_material_color_band"
                         | "butterfly_mesh_enabled"
                         | "butterfly_self_shadows"
-                        | "climbing_continuous_stem"
-                        | "climbing_paused"
-                        | "climbing_enabled"
-                        | "climbing_clockwise"
-                        | "climbing_seed"
                         | "apple_preview_model"
                         | "model_flower_heads_only"
                         | "model_pixel_snap_views"
@@ -959,17 +943,6 @@ impl GuiConfigLoader {
                 if let Some(existing) = saved.param.iter_mut().find(|p| p.id == param.id) {
                     // Presentation follows the current schema; retain the user's authored value.
                     existing.label = param.label;
-                    if existing.id == "climbing_fixture" {
-                        if let (
-                            GuiParamValue::Choice { options, .. },
-                            GuiParamValue::Choice {
-                                options: defaults, ..
-                            },
-                        ) = (&mut existing.value, &param.value)
-                        {
-                            options.clone_from(defaults);
-                        }
-                    }
                 } else {
                     saved.param.push(param);
                 }
@@ -1407,6 +1380,108 @@ impl GuiConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn retired_climbing_settings_do_not_return_from_old_saves() {
+        use crate::app::gui_config_model::{GuiParam, GuiParamKind, GuiParamValue, GuiSection};
+        for enabled in [false, true] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            let mut retired = Vec::new();
+            for id in [
+                "climbing_flexibility",
+                "climbing_search_turn",
+                "climbing_search_rate",
+                "climbing_search_reach",
+                "climbing_speed",
+                "climbing_spacing",
+            ] {
+                retired.push(GuiParam {
+                    id: id.into(),
+                    kind: GuiParamKind::Float,
+                    label: id.into(),
+                    enabled_if: None,
+                    value: GuiParamValue::Float {
+                        value: 10.,
+                        min: Some(0.),
+                        max: Some(100.),
+                    },
+                });
+            }
+            for id in [
+                "climbing_enabled",
+                "climbing_paused",
+                "climbing_show_anchors",
+                "climbing_clockwise",
+            ] {
+                retired.push(GuiParam {
+                    id: id.into(),
+                    kind: GuiParamKind::Bool,
+                    label: id.into(),
+                    enabled_if: None,
+                    value: GuiParamValue::Bool { value: enabled },
+                });
+            }
+            retired.push(GuiParam {
+                id: "climbing_fixture".into(),
+                kind: GuiParamKind::Choice,
+                label: "Climbing fixture".into(),
+                enabled_if: None,
+                value: GuiParamValue::Choice {
+                    value: 1,
+                    options: vec!["None".into(), "Wall".into()],
+                },
+            });
+            config.section.push(GuiSection {
+                name: "Climbing Plants".into(),
+                param: retired,
+            });
+            // Stray prototype fields outside their former section are retired too.
+            config.section[0].param.push(GuiParam {
+                id: "climbing_seed".into(),
+                kind: GuiParamKind::Uint,
+                label: "Climbing seed".into(),
+                enabled_if: None,
+                value: GuiParamValue::Uint {
+                    value: 3,
+                    min: None,
+                    max: None,
+                },
+            });
+            config.section[0].param.push(GuiParam {
+                id: "cpu_stem_band_rendering".into(),
+                kind: GuiParamKind::Bool,
+                label: "Retired CPU stem toggle".into(),
+                enabled_if: None,
+                value: GuiParamValue::Bool { value: enabled },
+            });
+            let tree = config.tree.desc.clone();
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            let original = toml::to_string_pretty(&config).unwrap();
+            std::fs::write(&path, &original).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            let restored = GuiConfigLoader::load_from_path(&path);
+            for candidate in [&loaded, &restored] {
+                assert_eq!(candidate.tree.desc, tree);
+                assert!(!candidate
+                    .section
+                    .iter()
+                    .any(|s| s.name == "Climbing Plants"));
+                assert!(!candidate
+                    .section
+                    .iter()
+                    .flat_map(|s| &s.param)
+                    .any(|p| p.id.starts_with("climbing_") || p.id == "cpu_stem_band_rendering"));
+                let _ = crate::app::gui_config::GuiAdjustables::from_config(candidate);
+            }
+            let saved = std::fs::read_to_string(&path).unwrap();
+            assert!(!saved.contains("climbing_"));
+            assert!(!saved.contains("cpu_stem_band_rendering"));
+        }
+    }
+
     #[test]
     fn recorded_tree_wind_retires_both_legacy_choices_without_changing_live_audio_settings() {
         use crate::app::gui_config_model::{GuiParam, GuiParamKind, GuiParamValue};

@@ -1,5 +1,5 @@
 //! Opt-in CPU-owned path stress fixture; real band upload/raster/shadow paths.
-//! Flower-like branches and climbing-like curves are authored on CPU every frame.
+//! Flower-like branches and synthetic curved paths are authored on CPU every frame.
 use super::App;
 use crate::tracer::{path_bands, DynamicFruitRenderInstance, StemPathPoint};
 use anyhow::{ensure, Result};
@@ -85,7 +85,6 @@ impl CpuStemReview {
                 .set_camera_pose_looking_at(target + offset, target),
             "CPU review camera"
         );
-        app.debug_settings.adjustables.cpu_stem_band_rendering.value = self.experimental;
         let start = Instant::now();
         let time = frame as f32 / 60.;
         let growing = self.shape == "growth";
@@ -159,7 +158,7 @@ impl CpuStemReview {
         let count = bands.len();
         let path_us = start.elapsed().as_micros();
         if self.experimental {
-            app.tracer.show_climbing_plant_geometry(&[])?;
+            app.tracer.show_cpu_stem_blocks(&[])?;
             app.tracer.show_cpu_stem_bands(&bands)?;
         } else {
             let blocks = bands
@@ -187,7 +186,7 @@ impl CpuStemReview {
                 })
                 .collect::<Vec<_>>();
             app.tracer.show_cpu_stem_bands(&[])?;
-            app.tracer.show_climbing_plant_geometry(&blocks)?;
+            app.tracer.show_cpu_stem_blocks(&blocks)?;
         }
         let upload_us = start.elapsed().as_micros() - path_us;
         log::info!("[CPU_STEM_TIMING] simulation_frame={frame} path_us={path_us} upload_us={upload_us} bands={count}");

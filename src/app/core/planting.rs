@@ -45,7 +45,7 @@ impl AuthoredFloraPlacementBatch {
 
 /// One sector per ordinary flora species. Retry within the same sector when a
 /// column is occupied or has no plantable ground; never move another species'
-/// label/position around the ring. This does not include climbing vines.
+/// label/position around the ring.
 pub(super) const FLORA_SHOWCASE_ATTEMPTS: usize = 25;
 
 #[cfg(test)]

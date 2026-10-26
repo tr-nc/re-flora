@@ -154,7 +154,6 @@ mod tests {
                             path.file_name().unwrap().to_str().unwrap(),
                             "gui_config.rs"
                                 | "wind_prototype.rs"
-                                | "climbing_plants.rs"
                                 | "camera_snapshot_ui.rs"
                                 | "snapshot_controls.rs"
                                 | "curve_preview.rs"
