@@ -19,6 +19,10 @@ impl App {
             }
             self.contree_builder.flush_cpu_chunk_cache_jobs();
             self.debug_settings.adjustables.infinite_materials.value = true;
+            self.debug_settings
+                .adjustables
+                .tree_planting_instant_mature
+                .value = true;
             self.debug_settings.adjustables.tree_planting_scale.value = 1.;
             self.debug_settings
                 .adjustables
@@ -29,10 +33,10 @@ impl App {
             let first_desc = self.tree_placement_preview_desc.clone();
             let ground = self.query_terrain_height_cpu(Vec2::new(0.72, 1.22));
             let first = self.plant_owned_tree(first_desc.clone(), Vec3::new(0.72, ground, 1.22))?;
-            self.advance_tree_growth(900.)?;
             anyhow::ensure!(
-                self.trees.records[&first].age == 1.,
-                "first tree did not mature"
+                self.trees.records[&first].age == 1.
+                    && self.trees.records[&first].growth_seconds.is_none(),
+                "instant planting did not create an adult without a growth clock"
             );
             let old = self.capture_tree_snapshot();
             let generation = self.trees.records[&first]
@@ -59,17 +63,27 @@ impl App {
             self.tree_placement_preview_desc.branching.seed = 908;
             let second_desc = self.tree_placement_preview_desc.clone();
             self.debug_settings.adjustables.infinite_materials.value = false;
+            self.debug_settings
+                .adjustables
+                .tree_planting_instant_mature
+                .value = false;
             self.garden_economy.buy("sapling/apple_tree")?;
             let stock_before = self.garden_economy.count("sapling/apple_tree");
             let ground = self.query_terrain_height_cpu(Vec2::new(1.25, 1.22));
             let second =
                 self.plant_owned_tree(second_desc.clone(), Vec3::new(1.25, ground, 1.22))?;
             anyhow::ensure!(
-                self.trees.records[&second].mature_desc == second_desc
+                self.trees.records[&second].age == SAPLING_AGE
+                    && self.trees.records[&second].growth_seconds == Some(0.)
+                    && self.trees.records[&second].mature_desc == second_desc
                     && self.garden_economy.count("sapling/apple_tree") + 1 == stock_before,
                 "paid placement did not capture preview settings or consume one sapling"
             );
             let before_change = self.capture_tree_snapshot();
+            self.debug_settings
+                .adjustables
+                .tree_planting_instant_mature
+                .value = true;
             self.debug_settings.adjustables.tree_planting_scale.value = 0.5;
             self.debug_settings
                 .adjustables
@@ -132,7 +146,7 @@ impl App {
             "loaded trees followed current planting settings"
         );
         self.verify_restored_tree_rendering(&old)?;
-        log::info!("[TREE_PLANTING_REVIEW] mode={mode} first_scale=1 first_density=1 first_fruits={first_count} second_scale=1.5 second_density=0.1 second_fruits={second_count} next_scale=0.5 next_density=0 old_trees_unchanged=true growth_independent=true verified=true");
+        log::info!("[TREE_PLANTING_REVIEW] mode={mode} first_scale=1 first_density=1 first_fruits={first_count} second_scale=1.5 second_density=0.1 second_fruits={second_count} next_scale=0.5 next_density=0 old_trees_unchanged=true instant_adult=true unchecked_sapling=true growth_independent=true verified=true");
         Ok(())
     }
 }

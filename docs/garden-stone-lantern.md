@@ -21,7 +21,30 @@ existing Edit tool can carve or remove the lantern, including its light core.
 The light is currently always lit, using existing emissive material controls and
 the global light budget. Construction resource pricing is not implemented here.
 
-## Evidence
+## Size preset (2026-10-27)
+
+**R → Construction Placement → Stone lantern scale (new lanterns)**, or search
+**new lanterns**. Range **0.5–2**, default **1** preserves the previous size.
+Debug Save persists the preset; it applies to subsequent placements until changed.
+Already placed lanterns are ordinary stored terrain and are never resized.
+
+The scale is sampled once into a placement plan. All cuboid boundaries, the
+foundation allowance and empty window clearance are scaled together and rounded
+to voxel boundaries. Shared boundaries stay shared; the minimum 0.5 retains
+nonempty pillars/core and four open windows. This is voxel-quantized resizing,
+not smooth subvoxel scaling. Invalid/nonfinite sizes are rejected before editing.
+
+Follow-up verification: three lantern unit tests cover seven representative
+scales, window obstruction, footprint limits and invalid inputs; old-config
+migration and the exhaustive generic settings save/reload test pass. Hidden
+Release `RE_FLORA_LANTERN_REVIEW=small` and `load-small` runs saved/reloaded
+the actual half-size terrain lantern: **1,381 Rock / 27 Emissive voxels**, open
+window and physical roof ray verified. Half size has a 15×25×15 voxel bound.
+The same review's `1`/`load` modes retain the original 1× fixture.
+Inspected `target/lantern-size-control.png`; check/Release/hidden smoke pass.
+No manual visual approval or new performance claim; no world-save format changes.
+
+## Original-size evidence
 
 - `cargo test lantern`: three tests (recipe/window/core, obstruction/footing,
   actual toolbar/discrete-pointer mapping). Five text-toolbar tests also pass.

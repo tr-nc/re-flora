@@ -1,6 +1,7 @@
 # Per-tree sapling growth
 
-Newly planted catalog trees begin at age **0.375**, grow in 1/32-age stages, and
+With **Tree Planting → Plant mature trees instantly (new trees)** unchecked,
+newly planted catalog trees begin at age **0.375**, grow in 1/32-age stages, and
 reach age 1 after **900 simulated seconds**. With the default clock this means
 one age stage roughly every 45 seconds. Pausing world updates pauses growth;
 there is no offline/wall-clock catch-up. Preview and planted age agree. Mature
@@ -12,6 +13,11 @@ pending tree is republished per half simulated second, with the largest pending
 age gap first and stable-ID tie-breaking. Existing transactional tree publication
 updates wood, leaves, physics, fruit, shadows and canopy audio together. Mature
 Apple trees fruit from age 0.75; smaller saplings do not carry full-sized apples.
+
+Since 2026-10-27 that saved checkbox defaults to **checked**: new trees instead
+start at age 1 without a growth clock. The preview uses the same initial age as
+placement. Toggling only affects future plantings; existing sapling clocks and
+stored mature descriptions are unchanged. See [planting preferences](garden-tree-planting.md).
 
 ## Appearance and compatibility
 

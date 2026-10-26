@@ -7,6 +7,14 @@ const MATURATION_SECONDS: f32 = 900.;
 const AGE_STEPS: f32 = 32.;
 const PUBLICATION_INTERVAL: f32 = 0.5;
 
+pub(super) fn planting_age(instant_mature: bool) -> f32 {
+    if instant_mature {
+        1.
+    } else {
+        SAPLING_AGE
+    }
+}
+
 fn age_at(seconds: f32) -> f32 {
     let age = SAPLING_AGE + (1. - SAPLING_AGE) * (seconds / MATURATION_SECONDS).clamp(0., 1.);
     (age * AGE_STEPS).floor() / AGE_STEPS
@@ -18,7 +26,17 @@ impl App {
         desc: TreeDesc,
         position: Vec3,
     ) -> Result<u32> {
-        anyhow::ensure!(position.is_finite(), "invalid sapling position");
+        self.plant_tree_with_maturity(desc, position, false)
+    }
+
+    pub(in crate::app::core) fn plant_tree_with_maturity(
+        &mut self,
+        desc: TreeDesc,
+        position: Vec3,
+        instant_mature: bool,
+    ) -> Result<u32> {
+        let age = planting_age(instant_mature);
+        anyhow::ensure!(position.is_finite(), "invalid tree position");
         anyhow::ensure!(
             self.trees.records.len() < 512 && self.trees.placement_id(true) < u32::MAX,
             "garden tree capacity reached"
@@ -35,8 +53,8 @@ impl App {
             "the mature tree would extend outside the garden"
         );
         anyhow::ensure!(
-            self.growing_tree_space_clear(&desc, position, SAPLING_AGE)?,
-            "sapling space is occupied"
+            self.growing_tree_space_clear(&desc, position, age)?,
+            "tree placement space is occupied"
         );
         let id = self.trees.placement_id(true);
         self.apply_tree_placement_at_age(
@@ -45,15 +63,15 @@ impl App {
                 placement: TreePlacement::World(position),
                 options: TreeAddOptions::default().with_new_id(),
             },
-            SAPLING_AGE,
+            age,
         )?;
         self.trees
             .records
             .get_mut(&id)
             .context("planted sapling missing")?
-            .growth_seconds = Some(0.);
+            .growth_seconds = (!instant_mature).then_some(0.);
         log::info!(
-            "[TREE_GROWTH] planted={id} age={SAPLING_AGE} maturation_seconds={MATURATION_SECONDS}"
+            "[TREE_GROWTH] planted={id} age={age} instant_mature={instant_mature} maturation_seconds={MATURATION_SECONDS}"
         );
         Ok(id)
     }

@@ -349,6 +349,7 @@ impl GuiConfigLoader {
             });
         }
         Self::add_missing_section_params(&mut config, "Tree Planting");
+        Self::add_missing_section_params(&mut config, "Construction Placement");
         Self::add_missing_section_params(&mut config, "Terrain Material");
         Self::add_missing_section_params(&mut config, "Climbing Plants");
         // Old saves gain new flower controls from the declarations, without
@@ -1489,6 +1490,47 @@ mod tests {
             assert!(!saved.contains("tree_leaf_recorded_mix"));
             assert!(!saved.contains("tree_rustle_"));
         }
+    }
+
+    #[test]
+    fn placement_preferences_upgrade_old_settings_and_preserve_saved_choices() {
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        config
+            .section
+            .retain(|section| section.name != "Construction Placement");
+        for section in &mut config.section {
+            section
+                .param
+                .retain(|p| p.id != "tree_planting_instant_mature");
+        }
+        let tree = config.tree.desc.clone();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        let original = toml::to_string_pretty(&config).unwrap();
+        std::fs::write(&path, &original).unwrap();
+        let mut loaded = GuiConfigLoader::load_from_path(&path);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        let defaults = crate::app::gui_config::GuiAdjustables::from_config(&loaded);
+        assert!(defaults.tree_planting_instant_mature.value);
+        assert_eq!(defaults.stone_lantern_placement_scale.value, 1.);
+        for p in loaded.section.iter_mut().flat_map(|s| &mut s.param) {
+            match (&*p.id, &mut p.value) {
+                ("tree_planting_instant_mature", super::GuiParamValue::Bool { value }) => {
+                    *value = false
+                }
+                ("stone_lantern_placement_scale", super::GuiParamValue::Float { value, .. }) => {
+                    *value = 0.5
+                }
+                _ => {}
+            }
+        }
+        GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+        let restored = GuiConfigLoader::load_from_path(&path);
+        let fields = crate::app::gui_config::GuiAdjustables::from_config(&restored);
+        assert!(!fields.tree_planting_instant_mature.value);
+        assert_eq!(fields.stone_lantern_placement_scale.value, 0.5);
+        assert_eq!(restored.tree.desc, tree);
     }
 
     #[test]

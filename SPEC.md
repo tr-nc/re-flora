@@ -146,6 +146,19 @@ known limitations; partially implemented items remain open.
 
 ### Delivery log
 
+- Player follow-up (2026-10-27): added saved **Stone lantern scale (new lanterns)**
+  in Construction Placement, range 0.5–2, default 1. Only newly stamped terrain
+  uses the preset; geometry, window clearance and foundation allowance scale
+  together. Half-size actual terrain save/reload retains 1,381 stone/27 emissive
+  cells, open windows and collision roof ray.
+- Added default-on **Plant mature trees instantly (new trees)** in Tree Planting.
+  New finite/free placements start at age 1 without a clock; unchecked placements
+  retain sapling growth. Existing adults and growing saplings are unaffected by
+  later toggles. Native paid/free planting, growth independence and restart checks
+  pass, along with settings migration/save tests and focused geometry/vegetation
+  tests. Release rebuilt; see `docs/garden-tree-planting.md` and
+  `docs/garden-stone-lantern.md`. No automatic visible launch.
+
 - Player follow-up (2026-10-27): recorded breeze/strong-wind canopy audio is now
   the only implementation. Removed the A/B checkbox, eight unused synthesis
   controls and the procedural ambient loop/replacement path. Old true/false

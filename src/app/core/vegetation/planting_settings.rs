@@ -10,6 +10,7 @@ mod review;
 pub(in crate::app::core) struct TreePlantingSettings {
     scale: f32,
     apple_density: f32,
+    instant_mature: bool,
 }
 
 impl TreePlantingSettings {
@@ -22,9 +23,14 @@ impl TreePlantingSettings {
             }
         };
         Self {
+            instant_mature: gui.tree_planting_instant_mature.value,
             scale: bounded(gui.tree_planting_scale.value, 0.5, 2., 1.),
             apple_density: bounded(gui.tree_planting_apple_density.value, 0., 1., 0.25),
         }
+    }
+
+    pub(in crate::app::core) fn initial_age(self) -> f32 {
+        growth::planting_age(self.instant_mature)
     }
 
     pub(in crate::app::core) fn apply(self, mut desc: TreeDesc) -> TreeDesc {
@@ -49,6 +55,23 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn maturity_preference_refreshes_preview_age_without_changing_the_mature_description() {
+        let mut settings = crate::app::gui_config::DebugSettings::load();
+        let desc = TreeSpecies::AppleTree.default_desc();
+        settings.adjustables.tree_planting_instant_mature.value = true;
+        let adult = TreePlantingSettings::from_gui(&settings.adjustables);
+        settings.adjustables.tree_planting_instant_mature.value = false;
+        let sapling = TreePlantingSettings::from_gui(&settings.adjustables);
+        assert_ne!(
+            adult, sapling,
+            "the UI change detector must refresh the preview"
+        );
+        assert_eq!(adult.initial_age(), 1.);
+        assert_eq!(sapling.initial_age(), SAPLING_AGE);
+        assert_eq!(adult.apply(desc.clone()), sapling.apply(desc));
+    }
 
     #[test]
     fn planting_controls_keep_owned_trees_and_growth_targets_independent() {
@@ -78,6 +101,7 @@ mod tests {
         let settings = TreePlantingSettings {
             scale: 1.5,
             apple_density: 1.,
+            instant_mature: true,
         };
         for species in [
             TreeSpecies::AppleTree,
@@ -114,6 +138,7 @@ mod tests {
             let adjusted = TreePlantingSettings {
                 scale: 1.,
                 apple_density: density,
+                instant_mature: true,
             }
             .apply(desc.clone());
             assert_eq!(Tree::new(adjusted.clone()).branches(), tree.branches());

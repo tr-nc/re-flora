@@ -1,9 +1,10 @@
-# Next-tree size and apple density
+# Next-tree planting preferences
 
 Open **R → Tree Planting**, or search **new trees** in Debug:
 
 | Control | Range | Default | Effect |
 |---|---:|---:|---|
+| Plant mature trees instantly (new trees) | Off / On | On | New trees start adult, without a growth clock; Off restores sapling planting |
 | Tree scale (new trees) | 0.5–2 | 1 | Species-relative tree structural size for future plantings |
 | Apple density (new trees) | 0–1 | 0.25 | Probability of an apple at each eligible fruit attachment |
 
@@ -21,7 +22,7 @@ wood/leaves. No shader/instance ABI changes are required.
 
 ## Ownership and persistence
 
-- Both controls are declared in `config/gui.toml`, with one generated GUI owner.
+- All three controls are declared in `config/gui.toml`, with one generated GUI owner.
   Debug **Save** remembers the planting preset; Search discovers it automatically.
   Older GUI files gain missing controls without being rewritten or changing their
   stored live-tree authoring. Existing saved slider values are preserved.
@@ -39,15 +40,35 @@ wood/leaves. No shader/instance ABI changes are required.
   compound its scale on the next planting. The new planting size/density controls
   own these two values for Grow, independently of the existing live tree editor.
 
-Use **Grow → Tree** after setting the sliders. New trees still begin as saplings;
-apples appear only at the existing eligible growth stages, not on a just-planted
-sapling. Settings changes do not freeze normal growth/wind on old trees.
+Use **Grow → Tree** after setting the preferences. **Plant mature trees instantly**
+is checked by default: the shared finite/unlimited placement path validates the
+full adult wood footprint, publishes age 1 and stores no growth clock. Unchecking
+starts new trees at age 0.375 with their existing independent growth clock.
+This preference is sampled only on placement; toggling does not age, freeze or
+restart existing trees, including saplings already growing. Existing saves retain
+their clocks. Apples still depend on the captured density and eligible growth stage.
 
 These guarantees concern the two **new-tree** sliders. Existing live authoring,
 global Tree Age and Apple Size controls retain their existing scope; they are not
 safe substitutes for the new controls if you want to leave old trees alone.
 
-## Validation
+## Instant-maturity follow-up (2026-10-27)
+
+- Old GUI files gain the default-on checkbox without a file rewrite; explicitly
+  saved Off survives Save/reload. No global tree-age setting is repurposed.
+- The native fixture now verifies the first free tree is immediately adult with
+  no clock (no growth advance used to make it adult). It unchecks before planting
+  the purchased tree and checks age 0.375, clock 0 and exactly one stock debit.
+  Rechecking leaves its snapshot unchanged; it still matures normally afterward.
+- A separate Release process reloads both trees and verifies the same owned
+  descriptions and rendering. All accepted native logs have no ERROR/panic/VUID.
+- 54 vegetation tests (including preview-age invalidation), the new preference migration test and exhaustive generic
+  settings save/reload pass. Inspected `target/instant-tree-control.png`: one
+  searchable checkbox in Tree Planting, checked by default.
+- Check, formatting, Release build and ordinary hidden/muted smoke pass. No full
+  repository test rerun, subjective approval or dense-scene performance claim.
+
+## Size/density validation
 
 - Real egui slider press/release tests change both values through search results,
   verify no live-tree edit signal or authoring mutation, and save/reload each value.

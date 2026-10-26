@@ -88,7 +88,14 @@ impl App {
                     .ok_or_else(|| anyhow::anyhow!("Buy this sapling in Shop (B)"))?,
             )
         };
-        let id = self.plant_growing_tree(desc, position)?;
+        let id = self.plant_tree_with_maturity(
+            desc,
+            position,
+            self.debug_settings
+                .adjustables
+                .tree_planting_instant_mature
+                .value,
+        )?;
         if let Some(p) = supply {
             self.garden_economy.consume_committed_plant(&p.id);
         }

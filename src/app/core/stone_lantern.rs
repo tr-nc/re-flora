@@ -18,7 +18,11 @@ struct Part {
     hi: IVec3,
     material: u32,
 }
-fn parts() -> Vec<Part> {
+fn scaled_boundary(value: IVec3, scale: f32) -> IVec3 {
+    (value.as_vec3() * scale).round().as_ivec3()
+}
+
+fn parts(scale: f32) -> Vec<Part> {
     let mut p = Vec::new();
     let mut stone = |lo, hi| {
         p.push(Part {
@@ -50,15 +54,26 @@ fn parts() -> Vec<Part> {
         hi: IVec3::new(3, 32, 3),
         material: VOXEL_TYPE_EMISSIVE,
     });
+    for part in &mut p {
+        part.lo = scaled_boundary(part.lo, scale);
+        part.hi = scaled_boundary(part.hi, scale);
+    }
     p
 }
 struct Plan {
     base: IVec3,
     bound: UAabb3,
     parts: Vec<Part>,
+    footing_height: i32,
+    window_lo: IVec3,
+    window_hi: IVec3,
 }
 impl Plan {
-    fn new(hit: Vec3, world_dim: UVec3) -> Result<Self> {
+    fn new(hit: Vec3, world_dim: UVec3, scale: f32) -> Result<Self> {
+        ensure!(
+            scale.is_finite() && (0.5..=2.).contains(&scale),
+            "invalid lantern scale"
+        );
         ensure!(hit.is_finite(), "invalid lantern contact");
         let v = hit * 256.;
         ensure!(
@@ -70,7 +85,7 @@ impl Plan {
             v.y.ceil() as i32 - 1,
             v.z.floor() as i32,
         );
-        let parts = parts();
+        let parts = parts(scale);
         let lo = parts.iter().fold(IVec3::MAX, |a, p| a.min(base + p.lo));
         let hi = parts.iter().fold(IVec3::MIN, |a, p| a.max(base + p.hi));
         ensure!(
@@ -81,6 +96,9 @@ impl Plan {
             base,
             bound: UAabb3::new(lo.as_uvec3(), hi.as_uvec3()),
             parts,
+            footing_height: scaled_boundary(IVec3::Y * FOOTING_HEIGHT, scale).y,
+            window_lo: scaled_boundary(IVec3::new(-8, 24, -8), scale),
+            window_hi: scaled_boundary(IVec3::new(9, 36, 9), scale),
         })
     }
     fn material_at(&self, world: IVec3) -> u32 {
@@ -132,12 +150,12 @@ impl Plan {
                         u32::from(bytes[(x + dim.x * (y + dim.y * z)) as usize] & VOXEL_TYPE_MASK);
                     // The two base courses may embed in a gently uneven soil/rock
                     // surface. Nothing above it (including windows) is overwritten.
-                    let footing = p.y < (self.base.y + FOOTING_HEIGHT) as u32
+                    let footing = p.y < (self.base.y + self.footing_height) as u32
                         && matches!(existing, VOXEL_TYPE_DIRT | VOXEL_TYPE_ROCK);
                     let material = self.material_at(p.as_ivec3());
                     let local = p.as_ivec3() - self.base;
                     let window =
-                        (24..36).contains(&local.y) && local.x.abs() <= 8 && local.z.abs() <= 8;
+                        local.cmpge(self.window_lo).all() && local.cmplt(self.window_hi).all();
                     if existing != 0 && !footing && (material != 0 || window) {
                         anyhow::bail!("lantern needs a clear upright space at {p:?}");
                     }
@@ -190,7 +208,14 @@ impl App {
         }
     }
     fn place_stone_lantern(&mut self, hit: Vec3) -> Result<Plan> {
-        let plan = Plan::new(hit, self.world_chunk_dim * super::VOXEL_DIM_PER_CHUNK)?;
+        let plan = Plan::new(
+            hit,
+            self.world_chunk_dim * super::VOXEL_DIM_PER_CHUNK,
+            self.debug_settings
+                .adjustables
+                .stone_lantern_placement_scale
+                .value,
+        )?;
         let dim = plan.bound.max() - plan.bound.min();
         let before = self
             .plain_builder
@@ -208,6 +233,15 @@ impl App {
         let Ok(mode) = std::env::var("RE_FLORA_LANTERN_REVIEW") else {
             return Ok(());
         };
+        let scale = if matches!(mode.as_str(), "small" | "load-small") {
+            0.5
+        } else {
+            1.
+        };
+        self.debug_settings
+            .adjustables
+            .stone_lantern_placement_scale
+            .value = scale;
         self.contree_builder.flush_cpu_chunk_cache_jobs();
         ensure!(
             self.contree_builder.cpu_chunk_cache_jobs_idle(),
@@ -215,11 +249,16 @@ impl App {
         );
         let xz = glam::Vec2::new(0.82, 1.22);
         let y = self.query_terrain_height_cpu(xz);
-        let plan = if mode == "load" {
+        let plan = if mode.starts_with("load") {
             // The fixture's center ray now hits the persisted roof, not its soil.
             Plan::new(
-                Vec3::new(xz.x, y - 48. / 256., xz.y),
+                Vec3::new(
+                    xz.x,
+                    y - (scaled_boundary(IVec3::Y * 49, scale).y - 1) as f32 / 256.,
+                    xz.y,
+                ),
                 self.world_chunk_dim * super::VOXEL_DIM_PER_CHUNK,
+                scale,
             )?
         } else {
             self.place_stone_lantern(Vec3::new(xz.x, y, xz.y))?
@@ -251,7 +290,7 @@ impl App {
                         light += 1;
                     }
                     let local = world.as_ivec3() - plan.base;
-                    if local == IVec3::new(0, 29, -8) {
+                    if local == scaled_boundary(IVec3::new(0, 29, -8), scale) {
                         ensure!(actual == 0, "lantern window closed");
                         windows += 1;
                     }
@@ -259,7 +298,7 @@ impl App {
             }
         }
         ensure!(
-            stone > 1000 && light == 150 && windows == 1,
+            (stone, light) == if scale == 1. { (9847, 150) } else { (1381, 27) } && windows == 1,
             "lantern native acceptance failed"
         );
         // CPU collision/query caches publish asynchronously after the visible
@@ -269,20 +308,25 @@ impl App {
             self.contree_builder.cpu_chunk_cache_jobs_idle(),
             "lantern CPU terrain did not settle"
         );
-        let roof_ray = Vec3::new(xz.x, (plan.base.y + 60) as f32 / 256., xz.y);
+        let roof_ray = Vec3::new(xz.x, (plan.bound.max().y + 10) as f32 / 256., xz.y);
         let roof = self
             .contree_builder
             .query_terrain_ray_cpu(roof_ray, Vec3::NEG_Y)
             .context("lantern physical ray missed")?;
         ensure!(
-            (roof.position.y - (plan.base.y + 49) as f32 / 256.).abs() < 2. / 256.,
+            (roof.position.y - plan.bound.max().y as f32 / 256.).abs() < 2. / 256.,
             "lantern physical roof ray mismatch: actual={:?} expected_y={}",
             roof.position,
-            (plan.base.y + 49) as f32 / 256.
+            plan.bound.max().y as f32 / 256.
         );
         if mode == "edit" {
-            let lo = (plan.base + IVec3::new(-2, 26, -2)).as_uvec3();
-            let hi = (plan.base + IVec3::new(3, 32, 3)).as_uvec3();
+            let core = plan
+                .parts
+                .iter()
+                .find(|p| p.material == VOXEL_TYPE_EMISSIVE)
+                .unwrap();
+            let lo = (plan.base + core.lo).as_uvec3();
+            let hi = (plan.base + core.hi).as_uvec3();
             let cuboid = Cuboid::from_min_max(lo.as_vec3(), hi.as_vec3());
             let bvh_nodes = build_bvh(&[cuboid.aabb()], &[0]).map_err(anyhow::Error::msg)?;
             self.execute_world_edit(WorldEditTransaction::terrain_change(
@@ -301,7 +345,7 @@ impl App {
             );
             log::info!("[STONE_LANTERN_REVIEW] core_removed=150 ordinary_terrain_edit=true");
         }
-        log::info!("[STONE_LANTERN_REVIEW] verified=true mode={mode} stone={stone} emissive={light} open_windows=true physical_roof_ray=true");
+        log::info!("[STONE_LANTERN_REVIEW] verified=true mode={mode} scale={scale} stone={stone} emissive={light} open_windows=true physical_roof_ray=true");
         Ok(())
     }
 }
@@ -310,7 +354,7 @@ mod tests {
     use super::*;
     #[test]
     fn lantern_has_a_stone_pedestal_roof_and_open_windows_around_a_luminous_core() {
-        let p = Plan::new(Vec3::ONE, UVec3::splat(512)).unwrap();
+        let p = Plan::new(Vec3::ONE, UVec3::splat(512), 1.).unwrap();
         for offset in [
             IVec3::new(0, 1, 0),
             IVec3::new(0, 12, 0),
@@ -331,12 +375,60 @@ mod tests {
             p.material_at(p.base + IVec3::new(0, 29, 0)),
             VOXEL_TYPE_EMISSIVE
         );
-        assert!(Plan::new(Vec3::ZERO, UVec3::splat(512)).is_err());
-        assert!(Plan::new(Vec3::splat(2.), UVec3::splat(512)).is_err());
+        assert!(Plan::new(Vec3::ZERO, UVec3::splat(512), 1.).is_err());
+        assert!(Plan::new(Vec3::splat(2.), UVec3::splat(512), 1.).is_err());
     }
     #[test]
+    fn scaled_lanterns_keep_open_windows_and_scale_the_complete_clearance_domain() {
+        let original = Plan::new(Vec3::ONE, UVec3::splat(512), 1.).unwrap();
+        let original_bound = original.bound;
+        for scale in [0.5, 0.57, 0.75, 1., 1.25, 1.5, 2.] {
+            let p = Plan::new(Vec3::ONE, UVec3::splat(512), scale).unwrap();
+            assert_eq!(
+                p.bound.max().y - p.bound.min().y,
+                (49. * scale).round() as u32
+            );
+            assert!(p.parts.iter().all(|part| part.hi.cmpgt(part.lo).all()));
+            // Probe the actual edge cells of each quantized opening; scaling
+            // an original edge-cell coordinate can land beyond an exclusive bound.
+            let y = (p.window_lo.y + p.window_hi.y) / 2;
+            for local in [
+                IVec3::new(0, y, p.window_lo.z),
+                IVec3::new(0, y, p.window_hi.z - 1),
+                IVec3::new(p.window_lo.x, y, 0),
+                IVec3::new(p.window_hi.x - 1, y, 0),
+            ] {
+                assert_eq!(p.material_at(p.base + local), 0);
+                let d = p.bound.max() - p.bound.min();
+                let mut bytes = vec![0; d.element_product() as usize];
+                let q = (p.base + local).as_uvec3() - p.bound.min();
+                bytes[(q.x + d.x * (q.y + d.y * q.z)) as usize] = VOXEL_TYPE_ROCK as u8;
+                assert!(
+                    p.validate_clearance(&bytes).is_err(),
+                    "blocked window at scale {scale}"
+                );
+            }
+            assert_eq!(
+                p.material_at(p.base + scaled_boundary(IVec3::new(0, 29, 0), scale)),
+                VOXEL_TYPE_EMISSIVE
+            );
+            let d = p.bound.max() - p.bound.min();
+            let mut bytes = vec![0; d.element_product() as usize];
+            let q = (p.base + IVec3::Y * (p.footing_height - 1)).as_uvec3() - p.bound.min();
+            bytes[(q.x + d.x * (q.y + d.y * q.z)) as usize] = VOXEL_TYPE_DIRT as u8;
+            assert!(p.validate_clearance(&bytes).is_ok());
+            assert_eq!(original.bound, original_bound);
+        }
+        for scale in [f32::NAN, f32::INFINITY, 0., 0.49, 2.01] {
+            assert!(Plan::new(Vec3::ONE, UVec3::splat(512), scale).is_err());
+        }
+        assert!(Plan::new(Vec3::new(0.08, 1., 1.), UVec3::splat(512), 1.).is_ok());
+        assert!(Plan::new(Vec3::new(0.08, 1., 1.), UVec3::splat(512), 2.).is_err());
+    }
+
+    #[test]
     fn obstruction_rejects_before_any_edit_and_soil_foot_embedding_is_allowed() {
-        let p = Plan::new(Vec3::ONE, UVec3::splat(512)).unwrap();
+        let p = Plan::new(Vec3::ONE, UVec3::splat(512), 1.).unwrap();
         let d = p.bound.max() - p.bound.min();
         let mut bytes = vec![0; d.element_product() as usize];
         let index = |v: IVec3| {

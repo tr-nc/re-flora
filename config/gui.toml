@@ -2918,6 +2918,15 @@ value = "#7A7D80"
 name = "Tree Planting"
 
 [[section.param]]
+id = "tree_planting_instant_mature"
+kind = "bool"
+label = "Plant mature trees instantly (new trees)"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
 id = "tree_planting_scale"
 kind = "float"
 label = "Tree scale (new trees)"
@@ -2938,6 +2947,20 @@ type = "Float"
 value = 0.25
 min = 0
 max = 1
+
+[[section]]
+name = "Construction Placement"
+
+[[section.param]]
+id = "stone_lantern_placement_scale"
+kind = "float"
+label = "Stone lantern scale (new lanterns)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.5
+max = 2
 
 [[section]]
 name = "Material Supply"

@@ -1744,7 +1744,7 @@ impl App {
         let mesh = build_tree_preview_mesh(
             &self
                 .tree_placement_preview_desc
-                .at_age(vegetation::SAPLING_AGE),
+                .at_age(self.tree_planting_settings().initial_age()),
         );
         self.tracer.upload_tree_geometry_preview(&mesh)
     }
