@@ -26,6 +26,23 @@ float4 treeCachedLighting(float3 center) {
     }
     return float4(0,0,0,1);
 }
+// Smooth value noise defines contiguous, irregular peeling areas rather than
+// assigning unrelated pigments to rectangular cells. Rest-space sampling keeps
+// the thin surface coloration attached to the same wood as it bends.
+float barkNoise(float3 p) {
+    int3 cell = int3(floor(p));
+    float3 f = frac(p);
+    f = f*f*(3.0-2.0*f);
+    float value = 0.0;
+    for (uint z=0u;z<2u;++z) for (uint y=0u;y<2u;++y) for (uint x=0u;x<2u;++x) {
+        int3 c = cell + int3(x,y,z);
+        uint h = uint(c.x)*73856093u ^ uint(c.y)*19349663u ^ uint(c.z)*83492791u;
+        h ^= h >> 16u; h *= 0x7feb352du; h ^= h >> 15u;
+        float3 w = lerp(1.0-f,f,float3(x,y,z));
+        value += float(h & 65535u)/65535.0*w.x*w.y*w.z;
+    }
+    return value;
+}
 struct FragmentInput {
     [[vk::location(0)]] float3 world_position : TEXCOORD0;
     [[vk::location(1)]] nointerpolation float3 center : TEXCOORD1;
@@ -51,15 +68,14 @@ float4 main(FragmentInput input) : SV_Target0 {
     }
     float3 albedo = voxelColorByType(voxel_colors,VOXEL_TYPE_CHERRY_WOOD);
     if(input.bark_style > 0.5) {
-        // Stable rest-space exfoliating plates, not swimming world-space noise.
-        // Overlapping scales soften the square voxel plate pattern.
         float3 p = input.center * 256.0;
-        int3 cell = int3(floor((p + 1.5*sin(p.yzx*0.31)) / float3(4,7,4)));
-        uint h = uint(cell.x)*73856093u ^ uint(cell.y)*19349663u ^ uint(cell.z)*83492791u;
-        h ^= h >> 13u;
-        uint patch = h % 5u;
-        float3 pigment = patch < 2u ? float3(0.76,0.75,0.60)
-            : patch < 4u ? float3(0.53,0.57,0.39) : float3(0.39,0.37,0.29);
+        float3 warped = p + 1.1*sin(p.yzx*0.27 + sin(p.zxy*0.13));
+        float patch = barkNoise(warped / float3(3.0,5.0,3.0));
+        // Light brown outer bark and creamy olive exposed bark: close values,
+        // not dark pseudo-shadows. Narrow transitions retain readable plates.
+        float3 pigment = lerp(float3(0.65,0.63,0.53), float3(0.69,0.70,0.59),
+            smoothstep(0.34,0.43,patch));
+        pigment = lerp(pigment,float3(0.76,0.74,0.64),smoothstep(0.58,0.66,patch));
         albedo = srgbToLinear(pigment);
     }
     float3 color = albedo * irradiance;
