@@ -68,7 +68,7 @@ impl TreeBufferLayout {
             array_bytes(counts.nodes, 16)?,
             lookup(counts.solid_lookup, 16)?,
             lookup(counts.attachment_lookup, 16)?,
-            array_bytes(counts.attachments, 32)?,
+            array_bytes(counts.attachments, 48)?,
             array_bytes(counts.nodes, 32)?,
             array_bytes(counts.primitives, 16)?,
             array_bytes(counts.vertices, 32)?,

@@ -52,6 +52,8 @@ fn player_capsule_center_voxels(camera_position: Vec3, camera_height: f32) -> Ve
 pub(super) struct TreeFruitSpec {
     pub id: u64,
     pub position_voxels: UVec3,
+    /// Exact woody support and its owner; populated before tree publication.
+    pub attachment: Option<(usize, Vec3)>,
     pub grow_start_phase: f32,
     pub full_growth_phase: f32,
     pub connection_strength: f32,
@@ -1775,6 +1777,7 @@ mod tests {
         TreeFruitSpec {
             id: 7,
             position_voxels: UVec3::new(64, 96, 64),
+            attachment: None,
             grow_start_phase: 0.55,
             full_growth_phase: 0.70,
             connection_strength: 0.5,

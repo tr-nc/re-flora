@@ -128,6 +128,15 @@ mod tests {
     }
 
     #[test]
+    fn attachment_cap_matches_the_published_model() {
+        assert!(mesh()
+            .positions
+            .iter()
+            .zip(&mesh().materials)
+            .any(|(p, &m)| m == 1 && p.distance(crate::flora::apple::STEM_TIP_VOXELS) < 1e-5));
+    }
+
+    #[test]
     fn preview_mesh_has_three_materials_and_fits_legacy_apple_scale() {
         let mesh = mesh();
         assert_eq!(mesh.positions.len(), mesh.materials.len());

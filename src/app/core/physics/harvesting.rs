@@ -242,6 +242,7 @@ mod tests {
         let spec = TreeFruitSpec {
             id: key.fruit,
             position_voxels: UVec3::splat(128),
+            attachment: None,
             grow_start_phase: 0.5,
             full_growth_phase: 0.8,
             connection_strength: 0.5,

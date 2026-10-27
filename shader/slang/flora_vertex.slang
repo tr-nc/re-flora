@@ -5,6 +5,7 @@ import plant_water_status;
 import color;
 import environment_lighting;
 import flora_motion;
+import apple_attachment;
 import grass_growth_shape;
 import leaf_flutter;
 import leaf_lighting;
@@ -177,6 +178,15 @@ public float effectiveGrowthPotential(bool isSurfaceFlora, float competitionFact
         return clamp(gui_input.flora_growth_override, 0.0, 1.0);
     }
     return min(competitionFactor, environmentFactor);
+}
+
+public float4 floraAppleRotation(uint3 root, uint index) {
+    uint seed = instanceSeed(root);
+    bool inertial = attachedVegetationResponseEnabled();
+    float3 response = inertial
+        ? sampleVegetationResponse(root,seed,FLORA_SPECIES_APPLE,index,pc.response_offset)
+        : float3(0);
+    return appleHeldRotation(gui_input,response,inertial);
 }
 
 public struct PreparedFloraVertex

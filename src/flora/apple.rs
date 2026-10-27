@@ -1,4 +1,25 @@
-//! Shared apple size policy and environment lighting tuning.
+//! Shared apple size policy, attachment geometry and environment lighting tuning.
+use glam::{Quat, Vec2, Vec3};
+
+/// Upper stem-cap center in the authored model, converted to native voxel units.
+/// See assets/models/apple-source.mjs; checked against the published mesh.
+pub const STEM_TIP_VOXELS: Vec3 = Vec3::new(0.10574398, 2.0463712, 0.);
+
+pub fn attached_rotation(response: Vec2, max_angle: f32) -> Quat {
+    let magnitude = response.length();
+    if magnitude <= 1e-6 {
+        return Quat::IDENTITY;
+    }
+    let direction = response / magnitude;
+    Quat::from_axis_angle(
+        Vec3::new(-direction.y, 0., direction.x),
+        magnitude / (1. + magnitude) * max_angle.clamp(0., std::f32::consts::FRAC_PI_2),
+    )
+}
+
+pub fn attached_center(pivot: Vec3, scale: f32, rotation: Quat) -> Vec3 {
+    pivot - rotation * (STEM_TIP_VOXELS * scale)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Appearance {
@@ -38,7 +59,11 @@ mod tests {
         let color = include_str!("../../shader/slang/apple_pixel_tree_pose.slang");
         let shadow = include_str!("../../shader/slang/leaves_shadow.vert.slang");
         assert!(color.contains("output.scale=") && color.contains("*gui_input.apple_size_scale;"));
-        assert!(shadow.contains("applePreviewPosition(input.packed_data)*"));
+        assert!(shadow.contains("applePreviewPosition(input.packed_data)"));
+        assert!(
+            color.contains("appleAttachedPosition(") && shadow.contains("appleAttachedPosition(")
+        );
+        assert!(color.contains("floraAppleRotation(") && shadow.contains("appleHeldRotation("));
         assert!(shadow.contains("*gui_input.apple_size_scale;"));
         // Both native and pre-cache color consumers use this same physical pose.
         for shader in [

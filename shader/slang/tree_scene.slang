@@ -96,17 +96,23 @@ public float3 treeAttachmentPoint(uint3 anchor, float3 position) {
     if (!treeSceneActive()) return position;
     uint index=treeAttachmentIndex(anchor);
     if (index==0u) return position;
-    return rotateTreeVector(tree_attachment_poses[(index-1u)*2u],position)+tree_attachment_poses[(index-1u)*2u+1u].xyz;
+    return rotateTreeVector(tree_attachment_poses[(index-1u)*3u],position)+tree_attachment_poses[(index-1u)*3u+1u].xyz;
+}
+public uint3 treeFruitKey(uint3 anchor) { return anchor | uint3(0x80000000u,0u,0u); }
+public float3 treeFruitPivot(uint3 anchor) {
+    uint index = treeAttachmentIndex(treeFruitKey(anchor));
+    float4 pivot = index == 0u ? float4(0) : tree_attachment_poses[(index-1u)*3u+2u];
+    return pivot.w > 0.0 ? pivot.xyz : float3(anchor) + float3(0.10574398,2.0463712,0);
 }
 public float4 treeAttachmentRotation(uint3 anchor) {
     if (!treeSceneActive()) return float4(0.0, 0.0, 0.0, 1.0);
     uint index = treeAttachmentIndex(anchor);
-    return index == 0u ? float4(0.0, 0.0, 0.0, 1.0) : tree_attachment_poses[(index-1u)*2u];
+    return index == 0u ? float4(0.0, 0.0, 0.0, 1.0) : tree_attachment_poses[(index-1u)*3u];
 }
 public float3 treeAttachmentVector(uint3 anchor, float3 vector) {
     if (!treeSceneActive()) return vector;
     uint index=treeAttachmentIndex(anchor);
-    return index==0u ? vector : rotateTreeVector(tree_attachment_poses[(index-1u)*2u],vector);
+    return index==0u ? vector : rotateTreeVector(tree_attachment_poses[(index-1u)*3u],vector);
 }
 
 [[vk::binding(56,0)]] StructuredBuffer<uint4> tree_scene_rest_cells;

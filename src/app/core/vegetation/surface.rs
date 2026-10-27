@@ -18,7 +18,7 @@ pub(super) struct TreeSurfaceSource {
     cones: Vec<RoundCone>,
     tree: Arc<Tree>,
     poses: Vec<BranchPose>,
-    fruits: Vec<UVec3>,
+    fruits: Vec<(UVec3, usize, Vec3)>,
 }
 impl TreeSurfaceSource {
     pub(super) fn from_records<'a>(
@@ -36,7 +36,12 @@ impl TreeSurfaceSource {
                 fruits: record
                     .fruit_specs
                     .iter()
-                    .map(|fruit| fruit.position_voxels)
+                    .map(|fruit| {
+                        let (branch, pivot) = fruit
+                            .attachment
+                            .expect("published fruit requires wood support");
+                        (fruit.position_voxels, branch, pivot)
+                    })
                     .collect(),
             })
             .collect();
@@ -119,17 +124,21 @@ impl PreparedTreeSurface {
             {
                 let anchor = (leaf.anchor + source.position * 256.).as_uvec3();
                 anchors
-                    .entry(anchor.to_array())
-                    .or_insert((source.id, branch));
+                    .entry((anchor.to_array(), false))
+                    .or_insert((source.id, branch, None, None));
             }
-            for &fruit in &source.fruits {
-                let binding = crate::tree_gen::skin::SkinBinding::at_rest_position(
+            for &(fruit, _, pivot) in &source.fruits {
+                // Bind at the actual woody support, never at the floating body center.
+                let skin = crate::tree_gen::skin::SkinBinding::at_rest_position(
                     &source.tree,
-                    fruit.as_vec3() - source.position * 256.,
+                    pivot - source.position * 256.,
                 )?;
-                anchors
-                    .entry(fruit.to_array())
-                    .or_insert((source.id, binding.branch));
+                anchors.entry((fruit.to_array(), true)).or_insert((
+                    source.id,
+                    skin.branch,
+                    Some(pivot),
+                    Some(skin),
+                ));
             }
         }
         mesh.compile_cpu_deformation()?;
@@ -142,10 +151,14 @@ impl PreparedTreeSurface {
             anchors
                 .into_iter()
                 .map(
-                    |(anchor, (tree_id, branch))| crate::tracer::TreeAttachment {
-                        anchor: UVec3::from(anchor),
-                        tree_id,
-                        branch,
+                    |((anchor, _), (tree_id, branch, fruit_pivot, fruit_skin))| {
+                        crate::tracer::TreeAttachment {
+                            anchor: UVec3::from(anchor),
+                            tree_id,
+                            branch,
+                            fruit_pivot,
+                            fruit_skin,
+                        }
                     },
                 )
                 .collect(),

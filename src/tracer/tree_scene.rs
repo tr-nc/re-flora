@@ -342,9 +342,112 @@ mod tests {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[cfg(test)]
+mod attachment_tests {
+    use super::*;
+    use crate::tree_gen::{pose::BranchPose, skin::SkinBinding};
+    use glam::{Quat, UVec3};
+
+    #[test]
+    fn fruit_support_uses_wood_skin_and_cannot_alias_a_leaf_at_the_same_key() {
+        let pivot = Vec3::new(200.2, 180.35, 150.5);
+        let fruit = TreeAttachment {
+            anchor: UVec3::splat(180),
+            tree_id: 7,
+            branch: 1,
+            fruit_pivot: Some(pivot),
+            fruit_skin: Some(SkinBinding {
+                branch: 1,
+                parent: Some(0),
+                weight: 0.35,
+            }),
+        };
+        let leaf = TreeAttachment {
+            anchor: fruit.anchor,
+            tree_id: 7,
+            branch: 1,
+            fruit_pivot: None,
+            fruit_skin: None,
+        };
+        assert_ne!(fruit.lookup_anchor(), leaf.lookup_anchor());
+        let poses = [
+            BranchPose {
+                rotation: Quat::from_rotation_y(-0.2),
+                translation: Vec3::new(0.01, 0., 0.),
+            },
+            BranchPose {
+                rotation: Quat::from_rotation_z(0.5),
+                translation: Vec3::new(0., 0.02, 0.01),
+            },
+        ];
+        let rest = pivot / 256.;
+        let expected = poses[0]
+            .transform_point(rest)
+            .lerp(poses[1].transform_point(rest), 0.35);
+        let attached = fruit.pose(&poses).unwrap();
+        assert!(attached.transform_point(rest).distance(expected) < 1e-6);
+        assert!(
+            poses[1].transform_point(rest).distance(expected) > 0.01,
+            "using just the child bone must expose this regression"
+        );
+        assert!(
+            leaf.pose(&poses)
+                .unwrap()
+                .transform_point(rest)
+                .distance(poses[1].transform_point(rest))
+                < 1e-6
+        );
+    }
+}
+
+#[derive(PartialEq)]
 pub struct TreeAttachment {
     pub anchor: glam::UVec3,
     pub tree_id: u32,
     pub branch: usize,
+    /// Exact rest-world voxel support for fruit; leaves retain their existing anchor.
+    pub fruit_pivot: Option<Vec3>,
+    pub fruit_skin: Option<crate::tree_gen::skin::SkinBinding>,
+}
+
+impl TreeAttachment {
+    pub(crate) fn pose(
+        &self,
+        poses: &[crate::tree_gen::pose::BranchPose],
+    ) -> anyhow::Result<crate::tree_gen::pose::BranchPose> {
+        use crate::tree_gen::pose::BranchPose;
+        let child = *poses
+            .get(self.branch)
+            .ok_or_else(|| anyhow::anyhow!("missing attachment branch"))?;
+        if let (Some(pivot), Some(binding)) = (self.fruit_pivot, self.fruit_skin) {
+            let parent_rotation = binding
+                .parent
+                .and_then(|i| poses.get(i))
+                .map_or(glam::Quat::IDENTITY, |p| p.rotation);
+            let rotation = parent_rotation.slerp(child.rotation, binding.weight);
+            let rest = pivot / 256.;
+            // Follow the same parent/child skin as the supporting wood, but keep
+            // the apple itself rigid. Only taking the child bone opens a gap.
+            let translation = binding.transform(poses)?.point(rest) - rotation * rest;
+            Ok(BranchPose {
+                rotation,
+                translation,
+            })
+        } else {
+            Ok(child)
+        }
+    }
+
+    pub(crate) fn lookup_anchor(&self) -> glam::UVec3 {
+        let mut anchor = self.anchor;
+        if self.fruit_pivot.is_some() {
+            anchor.x |= 0x8000_0000;
+        }
+        anchor
+    }
+
+    pub(crate) fn gpu_pivot(&self) -> [f32; 4] {
+        self.fruit_pivot
+            .map_or([0.; 4], |p| p.extend(1.).to_array())
+    }
 }

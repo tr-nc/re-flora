@@ -1,7 +1,7 @@
 //! Event-only GPU-to-physics handoff. No second CPU wind solver and no per-frame
 //! readback: detach from the last rendered held pose and its corresponding velocity.
 use super::*;
-use glam::{UVec3, Vec2, Vec3};
+use glam::{UVec3, Vec2};
 use re_flora_vkn::{execute_one_time_command, BufferUse, VulkanContext};
 
 impl VegetationResponse {
@@ -9,10 +9,9 @@ impl VegetationResponse {
         &self,
         context: &VulkanContext,
         allocator: Allocator,
-        gui: &crate::generated::gpu_structs::GuiInput,
         roots: &[UVec3],
-    ) -> Result<Vec<(Vec3, Vec3)>> {
-        let zero = || vec![(Vec3::ZERO, Vec3::ZERO); roots.len()];
+    ) -> Result<Vec<[f32; 4]>> {
+        let zero = || vec![[0.; 4]; roots.len()];
         if roots.is_empty()
             || !self.enabled
             || self.comparison == "legacy"
@@ -47,24 +46,7 @@ impl VegetationResponse {
             .map_err(|e| anyhow::anyhow!("fruit response readback: {e}"))?;
         let result = roots
             .iter()
-            .map(|&root| {
-                let qv = sample_held_field(self.grid, states, root);
-                let offset = |q: Vec2| {
-                    fruit_offset(
-                        q,
-                        gui.fruit_swing_length_voxels,
-                        gui.fruit_swing_max_angle_radians,
-                    )
-                };
-                let q = Vec2::new(qv[0], qv[1]);
-                let velocity = Vec2::new(qv[2], qv[3]);
-                // Differentiate only the pendulum geometry, never reintegrate motion.
-                let dt = 0.001;
-                (
-                    offset(q),
-                    (offset(q + velocity * dt) - offset(q - velocity * dt)) / (2. * dt),
-                )
-            })
+            .map(|&root| sample_held_field(self.grid, states, root))
             .collect();
         log::info!("[VEGETATION_RESPONSE][FRUIT_HANDOFF] count={} readback_bytes={} elapsed_us={} source=last_published_gpu_pose", roots.len(), bytes.len(), started.elapsed().as_micros());
         Ok(result)
@@ -94,26 +76,11 @@ fn sample_held_field(info: ResponseInfo, states: &[[f32; STATE_FLOATS]], root: U
     })
 }
 
-pub(in crate::tracer) fn fruit_offset(q: Vec2, length: f32, max_angle: f32) -> Vec3 {
-    let magnitude = q.length();
-    let angle = magnitude / (1. + magnitude) * max_angle.max(0.);
-    let direction = if magnitude > 0.000001 {
-        q / magnitude
-    } else {
-        Vec2::ZERO
-    };
-    Vec3::new(
-        direction.x * angle.sin(),
-        1. - angle.cos(),
-        direction.y * angle.sin(),
-    ) * length.max(0.)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn fruit_handoff_samples_all_four_corners_and_preserves_pivot_length() {
+    fn fruit_handoff_samples_all_four_corners() {
         let info = ResponseInfo {
             grid: [0., 0., 1., 3.],
             shape: [2, 2, 1, 12],
@@ -129,9 +96,5 @@ mod tests {
             sample_held_field(info, &states, UVec3::new(256, 500, 256)),
             [3.; 4]
         );
-        assert_eq!(fruit_offset(Vec2::ZERO, 2., 1.), Vec3::ZERO);
-        for q in [Vec2::X, Vec2::new(-3., 2.)] {
-            assert!(((fruit_offset(q, 2., 1.) - Vec3::Y * 2.).length() - 2.).abs() < 1e-5);
-        }
     }
 }

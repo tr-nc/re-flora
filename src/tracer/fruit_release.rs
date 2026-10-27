@@ -1,7 +1,7 @@
 //! Sparse, frame-owned held-fruit handoff. Four published float4 corners per fruit,
 //! not a whole response field and not a dedicated GPU submission/wait.
-use super::vegetation_response::fruit_handoff::fruit_offset;
 use super::Tracer;
+use crate::flora::apple::{attached_center, attached_rotation, STEM_TIP_VOXELS};
 use crate::tree_gen::pose::BranchPose;
 use anyhow::{ensure, Result};
 use glam::{Quat, UVec3, Vec2, Vec3};
@@ -31,7 +31,8 @@ struct Sample {
     request: Request,
     blend: Vec2,
     motion: Option<(BranchPose, BranchPose, f32)>,
-    length: f32,
+    pivot: Vec3,
+    scale: f32,
     max_angle: f32,
 }
 struct Flight {
@@ -79,30 +80,53 @@ fn interpolate(q: [[f32; 4]; 4], f: Vec2) -> [f32; 4] {
     })
 }
 fn decode(sample: &Sample, q: [f32; 4]) -> Result<FruitReleasePose> {
+    held_pose(
+        sample.request.root,
+        sample.pivot,
+        sample.scale,
+        q,
+        sample.max_angle,
+        sample.motion,
+    )
+}
+
+pub(super) fn held_pose(
+    root: UVec3,
+    pivot: Vec3,
+    scale: f32,
+    q: [f32; 4],
+    max_angle: f32,
+    motion: Option<(BranchPose, BranchPose, f32)>,
+) -> Result<FruitReleasePose> {
     ensure!(
         q.iter().all(|v| v.is_finite()),
         "invalid held-fruit response"
     );
     let displacement = Vec2::new(q[0], q[1]);
     let velocity = Vec2::new(q[2], q[3]);
-    let offset = |q| fruit_offset(q, sample.length, sample.max_angle);
+    let rotation = |q| attached_rotation(q, max_angle);
+    let offset = |q| attached_center(pivot, scale, rotation(q)) - root.as_vec3();
     let mut pose = FruitReleasePose {
         offset: offset(displacement),
         velocity: (offset(displacement + velocity * 0.001)
             - offset(displacement - velocity * 0.001))
             / 0.002,
-        rotation: Quat::IDENTITY,
-        angular_velocity: Vec3::ZERO,
+        rotation: rotation(displacement),
+        angular_velocity: (rotation(displacement + velocity * 0.001)
+            * rotation(displacement - velocity * 0.001).conjugate())
+        .to_scaled_axis()
+            / 0.002,
     };
-    if let Some((current, previous, dt)) = sample.motion {
-        let rest = (sample.request.root.as_vec3() + pose.offset) / 256.;
+    if let Some((current, previous, dt)) = motion {
+        let rest = (root.as_vec3() + pose.offset) / 256.;
         let world = current.transform_point(rest);
-        pose.offset = world * 256. - sample.request.root.as_vec3();
+        pose.offset = world * 256. - root.as_vec3();
         pose.velocity = current.rotation * pose.velocity;
-        pose.rotation = current.rotation;
+        pose.rotation = current.rotation * pose.rotation;
+        pose.angular_velocity = current.rotation * pose.angular_velocity;
         if dt > 1e-6 {
             pose.velocity += (world - previous.transform_point(rest)) * 256. / dt;
-            pose.angular_velocity =
+            pose.angular_velocity +=
                 (current.rotation * previous.rotation.conjugate()).to_scaled_axis() / dt;
         }
     }
@@ -238,32 +262,39 @@ impl Tracer {
                     );
                 }
             }
-            let motion = self
+            let motion =
+                self.raster_trees
+                    .gpu_wind_active
+                    .then(|| {
+                        let index =
+                            self.raster_trees.attachments.iter().position(|a| {
+                                a.anchor == request.root && a.fruit_pivot.is_some()
+                            })?;
+                        let current = *self.raster_trees.attachment_poses.get(index)?;
+                        Some((
+                            current,
+                            self.raster_trees
+                                .previous_attachment_poses
+                                .get(index)
+                                .copied()
+                                .unwrap_or(current),
+                            self.raster_trees.attachment_dt,
+                        ))
+                    })
+                    .flatten();
+            let pivot = self
                 .raster_trees
-                .gpu_wind_active
-                .then(|| {
-                    let index = self
-                        .raster_trees
-                        .attachments
-                        .iter()
-                        .position(|a| a.anchor == request.root)?;
-                    let current = *self.raster_trees.attachment_poses.get(index)?;
-                    Some((
-                        current,
-                        self.raster_trees
-                            .previous_attachment_poses
-                            .get(index)
-                            .copied()
-                            .unwrap_or(current),
-                        self.raster_trees.attachment_dt,
-                    ))
-                })
-                .flatten();
+                .attachments
+                .iter()
+                .find(|a| a.anchor == request.root && a.fruit_pivot.is_some())
+                .and_then(|a| a.fruit_pivot)
+                .unwrap_or(request.root.as_vec3() + STEM_TIP_VOXELS);
             samples.push(Sample {
                 request,
                 blend,
                 motion,
-                length: gui.fruit_swing_length_voxels,
+                pivot,
+                scale: gui.apple_size_scale,
                 max_angle: gui.fruit_swing_max_angle_radians,
             });
         }
@@ -284,6 +315,27 @@ impl Tracer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn released_pose_preserves_the_stem_pivot_under_scale_wind_and_branch_motion() {
+        let root = UVec3::splat(128);
+        let pivot = Vec3::new(128.3, 131.2, 128.5);
+        let branch = BranchPose {
+            rotation: Quat::from_rotation_z(0.3),
+            translation: Vec3::new(0.02, 0., 0.01),
+        };
+        for scale in [0.25, 0.5, 1., 2.] {
+            for motion in [None, Some((branch, branch, 0.016))] {
+                let pose =
+                    held_pose(root, pivot, scale, [1.5, -0.7, 0.2, 0.4], 1., motion).unwrap();
+                let tip = root.as_vec3() + pose.offset + pose.rotation * (STEM_TIP_VOXELS * scale);
+                let expected =
+                    motion.map_or(pivot, |(b, _, _)| b.transform_point(pivot / 256.) * 256.);
+                assert!(tip.distance(expected) < 1e-4);
+                assert!(pose.velocity.length() > 0. && pose.angular_velocity.length() > 0.);
+            }
+        }
+    }
+
     #[test]
     fn sparse_handoff_reads_only_the_exact_held_bucket_and_four_corners() {
         let root = UVec3::new(128, 37, 128);
@@ -307,7 +359,8 @@ mod tests {
             },
             blend: f,
             motion: None,
-            length: 2.,
+            pivot: root.as_vec3() + STEM_TIP_VOXELS,
+            scale: 1.,
             max_angle: 1.,
         };
         assert_eq!(decode(&sample, [0.; 4]).unwrap().offset, Vec3::ZERO);

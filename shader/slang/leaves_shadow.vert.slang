@@ -1,5 +1,6 @@
 import tree_scene;
 import apple_preview_vertex;
+import apple_attachment;
 import flora_motion;
 import flora_types;
 import hash;
@@ -166,20 +167,32 @@ VertexOutput main(VertexInput input)
         leafInstance.packed_local_pos, pc.chunk_world_offset);
     bool isTreeLeaf = pc.instance_ty == FLORA_SPECIES_TREE_LEAF;
     bool isApple=pc.instance_ty==FLORA_SPECIES_APPLE;
-    float3 appleLocalPosition=float3(0.0);
-    if(isApple){
-        appleLocalPosition=applePreviewPosition(input.packed_data)*
-            (float(unpackTreeFruitRadiusVoxels(leafInstance.packed_leaf_local_pos))/2.0)*gui_input.apple_size_scale;
-        voxelLocalPosition=int3(floor(appleLocalPosition));
+    if (isApple) {
+        VertexOutput output;
+        uint radius = unpackTreeFruitRadiusVoxels(leafInstance.packed_leaf_local_pos);
+        if (radius == 0u) {
+            output.position = float4(2,2,2,1);
+            output.opacity = 0;
+            return output;
+        }
+        uint seed = instanceSeed(leafVoxelWorldPosition);
+        bool inertial = attachedVegetationResponseEnabled();
+        float3 response = inertial ? sampleVegetationResponse(leafVoxelWorldPosition,
+            seed,pc.instance_ty,0u,0u) : float3(0);
+        float4 rotation = appleHeldRotation(gui_input,response,inertial);
+        float size = float(radius)/2.0*gui_input.apple_size_scale;
+        float3 position = appleAttachedPosition(leafVoxelWorldPosition,size,rotation,
+            applePreviewPosition(input.packed_data));
+        output.position = mul(shadow_camera_info.view_proj_mat,float4(position,1));
+        output.opacity = clamp(gui_input.leaf_shadow_fragment_opacity,0.0,1.0);
+        return output;
     }
     int3 leafVoxelLocalPosition = isTreeLeaf
         ? unpackTreeLeafVoxelLocalPosition(leafInstance.packed_leaf_local_pos)
         : voxelLocalPosition;
     uint voxelInfo = lookupFloraVoxelInfo(
         pc.instance_ty, leafVoxelLocalPosition);
-    float windGradient = pc.instance_ty == FLORA_SPECIES_APPLE
-        ? 1.0
-        : floraVoxelWindGradient(voxelInfo);
+    float windGradient = floraVoxelWindGradient(voxelInfo);
 
     uint3 instancePositionVoxels = isTreeLeaf
         ? uint3(int3(leafVoxelWorldPosition) - leafVoxelLocalPosition)
@@ -187,16 +200,7 @@ VertexOutput main(VertexInput input)
     float3 instancePosition =
         float3(instancePositionVoxels) * SCALING_FACTOR;
     uint seed = instanceSeed(instancePositionVoxels);
-    if (isApple && unpackTreeFruitRadiusVoxels(leafInstance.packed_leaf_local_pos)==0u)
-    {
-        VertexOutput output;
-        output.position = float4(2.0, 2.0, 2.0, 1.0);
-        output.opacity = 0.0;
-        return output;
-    }
-    float3 windSamplePosition = isApple
-        ? instancePosition
-        : instancePosition + float3(leafVoxelLocalPosition) * SCALING_FACTOR;
+    float3 windSamplePosition = instancePosition + float3(leafVoxelLocalPosition) * SCALING_FACTOR;
     // Legacy comparison only: the C branch below replaces this spray motion
     // with the average of the actual members' independently published poses.
     uint windSeed = seed;
@@ -205,11 +209,7 @@ VertexOutput main(VertexInput input)
     float3 windOffset = wind * windGradient * windGradient;
     float motionTime = windVolumeBucketUpdateTime(
         gui_input, windVolumeBucketIndex(windSeed), pc.time);
-    if (isApple)
-    {
-        windOffset = appleWindSwing(gui_input, wind, seed, motionTime);
-    }
-    else if (isTreeLeaf)
+    if (isTreeLeaf)
     {
         windOffset += leafShadowSprayPaddling(
             gui_input, wind, windGradient, seed, pc.time);
@@ -252,10 +252,7 @@ VertexOutput main(VertexInput input)
     float billboardSizeVoxels = isTreeLeaf
         ? max(leafInstance.billboard_size_voxels, 0.0)
         : 1.225;
-    float3 vertexPosition = isApple ? anchorPosition +
-        treeAttachmentVector(instancePositionVoxels,
-            (appleLocalPosition-float3(leafVoxelLocalPosition))*SCALING_FACTOR) :
-        billboardVertexPosition(voxelPosition,vertexOffset,billboardSizeVoxels);
+    float3 vertexPosition = billboardVertexPosition(voxelPosition,vertexOffset,billboardSizeVoxels);
     VertexOutput output;
     output.position = mul(
         shadow_camera_info.view_proj_mat, float4(vertexPosition, 1.0));

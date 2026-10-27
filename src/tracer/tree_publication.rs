@@ -63,14 +63,14 @@ impl Tracer {
             attachments
                 .iter()
                 .map(|attachment| {
-                    poses(attachment.tree_id)
-                        .and_then(|p| p.get(attachment.branch))
-                        .copied()
-                        .context("prepared tree attachment refers to missing branch")
+                    attachment.pose(
+                        poses(attachment.tree_id)
+                            .context("prepared tree attachment refers to missing tree")?,
+                    )
                 })
                 .collect::<Result<Vec<_>>>()?
         } else {
-            Vec::new()
+            vec![identity; attachments.len()]
         };
         ensure!(
             attachment_poses
@@ -107,7 +107,7 @@ impl Tracer {
             .iter()
             .enumerate()
             .map(|(i, attachment)| {
-                let p = attachment.anchor.to_array();
+                let p = attachment.lookup_anchor().to_array();
                 Ok([p[0], p[1], p[2], u32::try_from(i + 1)?])
             })
             .collect::<Result<_>>()?;
@@ -213,7 +213,14 @@ impl Tracer {
         if !attachment_poses.is_empty() {
             let palette: Vec<[f32; 4]> = attachment_poses
                 .iter()
-                .flat_map(|p| [p.rotation.to_array(), p.translation.extend(0.).to_array()])
+                .zip(&attachments)
+                .flat_map(|(p, a)| {
+                    [
+                        p.rotation.to_array(),
+                        p.translation.extend(0.).to_array(),
+                        a.gpu_pivot(),
+                    ]
+                })
                 .collect();
             resources.tree_attachment_poses.fill(&palette)?;
         }

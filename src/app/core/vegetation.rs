@@ -1,5 +1,7 @@
 use super::launch_owners;
+mod fruit_attachment;
 mod growth;
+use fruit_attachment::bind_fruit_attachments;
 mod planting_settings;
 mod snapshot;
 pub(super) use growth::SAPLING_AGE;
@@ -406,6 +408,7 @@ fn tree_fruit_specs(
         fruits.push(TreeFruitSpec {
             id: ((id_high as u64) << 32) | id_low as u64,
             position_voxels,
+            attachment: None,
             grow_start_phase,
             full_growth_phase,
             connection_strength: (0.1 + 0.8 * unit_hash(seed, leaf_index, 0x369D_EA0F, leaf_pos))
@@ -530,7 +533,7 @@ impl TreePlacementService {
         } else {
             1.0
         };
-        let fruit_specs = if tree_age >= 0.75 {
+        let mut fruit_specs = if tree_age >= 0.75 {
             tree_fruit_specs(
                 &mature_tree_desc,
                 tree_pos * 256.0,
@@ -540,6 +543,8 @@ impl TreePlacementService {
         } else {
             Vec::new()
         };
+
+        bind_fruit_attachments(&mut fruit_specs, &tree, tree_pos, &round_cones);
 
         let trunk_geometry = TreeTrunkGeometry {
             bvh_nodes: bvh_nodes.clone(),
@@ -3989,7 +3994,7 @@ impl App {
             let mut attachments = Vec::new();
             for attachment in &self.tracer.raster_trees.attachments {
                 let pose =
-                    self.trees.records[&attachment.tree_id].pose.branches()[attachment.branch];
+                    attachment.pose(self.trees.records[&attachment.tree_id].pose.branches())?;
                 attachments.push(pose.rotation.to_array());
                 attachments.push(pose.translation.extend(0.).to_array());
             }
@@ -5626,6 +5631,77 @@ mod tests {
                 assert!(fruit.grow_start_phase < fruit.full_growth_phase);
             }
             assert!(!compiled.quantized_leaf_render_positions.is_empty());
+        }
+    }
+
+    #[test]
+    fn attached_apple_stems_reach_published_wood() {
+        let root = Vec3::new(0.75, 0.5, 0.75);
+        for seed in [0, 7, 122, 907] {
+            let mut desc = TreeDesc::default();
+            desc.branching.seed = seed;
+            desc.fruit_spawn_probability = 1.;
+            if seed == 907 {
+                // Old authored offsets remain readable but cannot force a floating result.
+                desc.fruit_down_offset_voxels = 100.;
+                desc.fruit_side_offset_voxels = 100.;
+            }
+            let compiled = TreePlacementService::compile(desc, root, UAabb3::default(), 1., 1, 16);
+            let wood =
+                crate::geom::RoundConeClearanceIndex::new(&compiled.trunk_geometry.round_cones);
+            assert!(!compiled.fruit_specs.is_empty());
+            for fruit in &compiled.fruit_specs {
+                let (branch, pivot) = fruit.attachment.expect("bound fruit");
+                assert!(compiled.rest_tree.trunk_branch_indices().contains(&branch));
+                assert!(
+                    !wood.has_minimum_clearance(pivot.floor() + Vec3::splat(0.5), 0.),
+                    "support must occupy a visible wood cell, not just a thin skeleton"
+                );
+                for scale in [0.125, 0.25, 0.5, 1., 2.] {
+                    for response in [Vec2::ZERO, Vec2::new(3., -2.)] {
+                        let rotation = crate::flora::apple::attached_rotation(response, 1.);
+                        let center = crate::flora::apple::attached_center(pivot, scale, rotation);
+                        let tip =
+                            center + rotation * (crate::flora::apple::STEM_TIP_VOXELS * scale);
+                        assert!(tip.distance(pivot) < 1e-4);
+                        assert!(
+                            !wood.has_minimum_clearance(tip, 0.),
+                            "seed={seed} fruit={} stem tip {tip:?} has no supporting wood",
+                            fruit.id
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fruit_support_is_checked_again_during_growth_and_tiny_trees_have_no_floating_fallback() {
+        let root = Vec3::splat(0.75);
+        for size_scale in [0.05, 0.5, 1., 2.] {
+            let mut desc = TreeDesc::default();
+            desc.size *= size_scale;
+            desc.fruit_spawn_probability = 1.;
+            for age in [0.75, 0.9, 1.] {
+                let compiled = TreePlacementService::compile(
+                    desc.clone(),
+                    root,
+                    UAabb3::default(),
+                    age,
+                    1,
+                    16,
+                );
+                let wood =
+                    crate::geom::RoundConeClearanceIndex::new(&compiled.trunk_geometry.round_cones);
+                if size_scale == 0.05 {
+                    assert!(compiled.fruit_specs.is_empty());
+                }
+                for fruit in &compiled.fruit_specs {
+                    let (branch, pivot) = fruit.attachment.unwrap();
+                    assert!(compiled.rest_tree.trunk_branch_indices().contains(&branch));
+                    assert!(!wood.has_minimum_clearance(pivot, 0.));
+                }
+            }
         }
     }
 

@@ -7143,36 +7143,50 @@ impl Tracer {
 
     pub(crate) fn attached_fruit_handoff(&self, roots: &[UVec3]) -> Result<Vec<(Vec3, Vec3)>> {
         let bytes = self.resources.uniforms.gui_input.read_back()?;
-        let gui = bytemuck::pod_read_unaligned(&bytes);
-        let mut handoffs = self.vegetation_response.fruit_handoff(
+        let gui: crate::generated::gpu_structs::GuiInput = bytemuck::pod_read_unaligned(&bytes);
+        let samples = self.vegetation_response.fruit_handoff(
             &self.vulkan_ctx,
             self.allocator.clone(),
-            &gui,
             roots,
         )?;
-        if self.raster_trees.gpu_wind_active {
-            for (&root, (offset, velocity)) in roots.iter().zip(&mut handoffs) {
-                if let Some(index) = self
+        roots
+            .iter()
+            .zip(samples)
+            .map(|(&root, q)| {
+                let attachment = self
                     .raster_trees
                     .attachments
                     .iter()
-                    .position(|a| a.anchor == root)
-                {
-                    let pose = self.raster_trees.attachment_poses[index];
-                    let rest = (root.as_vec3() + *offset) / 256.;
-                    let world = pose.transform_point(rest);
-                    *offset = world * 256. - root.as_vec3();
-                    *velocity = pose.rotation * *velocity;
-                    if let Some(previous) = self.raster_trees.previous_attachment_poses.get(index) {
-                        let dt = self.raster_trees.attachment_dt;
-                        if dt > 1e-6 {
-                            *velocity += (world - previous.transform_point(rest)) * 256. / dt;
-                        }
-                    }
-                }
-            }
-        }
-        Ok(handoffs)
+                    .enumerate()
+                    .find(|(_, a)| a.anchor == root && a.fruit_pivot.is_some());
+                let pivot = attachment
+                    .and_then(|(_, a)| a.fruit_pivot)
+                    .unwrap_or(root.as_vec3() + crate::flora::apple::STEM_TIP_VOXELS);
+                let motion = attachment
+                    .filter(|_| self.raster_trees.gpu_wind_active)
+                    .and_then(|(i, _)| {
+                        let current = *self.raster_trees.attachment_poses.get(i)?;
+                        Some((
+                            current,
+                            self.raster_trees
+                                .previous_attachment_poses
+                                .get(i)
+                                .copied()
+                                .unwrap_or(current),
+                            self.raster_trees.attachment_dt,
+                        ))
+                    });
+                let pose = fruit_release::held_pose(
+                    root,
+                    pivot,
+                    gui.apple_size_scale,
+                    q,
+                    gui.fruit_swing_max_angle_radians,
+                    motion,
+                )?;
+                Ok((pose.offset, pose.velocity))
+            })
+            .collect()
     }
 
     pub fn project_screen_point_to_world(
@@ -7412,7 +7426,12 @@ impl Tracer {
             .collect();
         self.raster_trees.attachment_dt = dt;
         if !poses.is_empty() {
-            self.resources.tree.tree_attachment_poses.fill(poses)?;
+            let palette: Vec<_> = poses
+                .chunks_exact(2)
+                .zip(&self.raster_trees.attachments)
+                .flat_map(|(p, a)| [p[0], p[1], a.gpu_pivot()])
+                .collect();
+            self.resources.tree.tree_attachment_poses.fill(&palette)?;
         }
         Ok(())
     }
