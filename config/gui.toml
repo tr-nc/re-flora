@@ -1180,7 +1180,7 @@ label = "Sun Lighting Strength"
 type = "Float"
 
 [section.param.data]
-value = 1.5
+value = 2
 min = 0
 max = 10
 
@@ -2864,7 +2864,7 @@ label = "Apple density (new trees)"
 type = "Float"
 
 [section.param.data]
-value = 0.25
+value = 0.1
 min = 0
 max = 1
 
