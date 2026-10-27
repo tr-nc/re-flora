@@ -328,6 +328,96 @@ mod tests {
     }
 
     #[test]
+    fn foraging_model_stream_faces_published_motion_at_low_and_high_display_rates() {
+        use crate::particles::{
+            flower_visits::{FlowerId, FlowerTarget},
+            ButterflyEmitter, ButterflyEmitterDesc, ButterflyFlightVariant, ButterflyFrame,
+            ButterflySpawnSource, ParticleForces, ParticleSystem,
+        };
+        for fps in [8, 60] {
+            for coupled in [false, true] {
+                let mut desc = ButterflyEmitterDesc::default();
+                desc.flight_variant = ButterflyFlightVariant::Darting;
+                desc.flight_tuning.speed = 0.25;
+                desc.flight_tuning.vertical_strength = 4.;
+                desc.flight_tuning.wingbeat_coupling = coupled;
+                desc.foraging.dwell_seconds = 0.5;
+                desc.lifetime_min = 100.;
+                desc.lifetime_max = 100.;
+                let mut emitter = ButterflyEmitter::new(17, &desc);
+                let mut system = ParticleSystem::new(2);
+                emitter
+                    .spawn_at(&mut system, ButterflySpawnSource::tree_leaf(Vec3::ONE))
+                    .unwrap();
+                let mut flowers = [0, 1].map(|i| FlowerTarget {
+                    id: FlowerId {
+                        epoch: 1,
+                        plant: i + 1,
+                        head: 0,
+                    },
+                    species: i as u32,
+                    position: Vec3::ONE + Vec3::X * i as f32 * 0.1,
+                    normal: Vec3::Y,
+                    tangent: Vec3::Z,
+                    radius: 0.01,
+                    velocity: Vec3::ZERO,
+                    observed_at: 0.,
+                });
+                let mut renderer = ButterflyMeshRenderer::default();
+                let mut snapshots = Vec::new();
+                let mut checked = 0;
+                for tick in 1..=1200 {
+                    let dt = 1. / 120.;
+                    let time = tick as f32 * dt;
+                    for f in &mut flowers {
+                        f.observed_at = time;
+                    }
+                    emitter.set_flowers(&flowers);
+                    emitter.synchronize_animation_clock(time, dt);
+                    system.update(dt, ParticleForces::default());
+                    emitter.advance_guided_flight(
+                        &mut system,
+                        dt,
+                        Vec3::splat(2.),
+                        &crate::wind_field::WindFieldFrame::uniform(glam::Vec2::X * 0.3),
+                        |_, _| None,
+                    );
+                    system.write_snapshots_for_frame(&mut snapshots, ButterflyFrame::at(time, fps));
+                    let s = snapshots[0];
+                    renderer
+                        .prepare_frame_models(
+                            &snapshots,
+                            ButterflyMeshSettings { fps, ..settings() },
+                            Vec3::ZERO,
+                        )
+                        .unwrap();
+                    renderer
+                        .publish_mesh_frame(|bytes| {
+                            if !bytes.is_empty()
+                                && s.velocity.length_squared() > 1e-10
+                                && !s.butterfly_body_pose.is_some_and(|p| p.host.is_some())
+                            {
+                                let instance: Instance = bytemuck::pod_read_unaligned(
+                                    &bytes[..std::mem::size_of::<Instance>()],
+                                );
+                                let forward =
+                                    Quat::from_array(instance.view_orientation) * Vec3::NEG_Z;
+                                assert!(
+                                    forward.dot(s.velocity.normalize()) > 0.99999,
+                                    "tick={tick} fps={fps} coupling={coupled}"
+                                );
+                                checked += 1;
+                            }
+                            Ok(())
+                        })
+                        .unwrap();
+                }
+                assert!(checked > 100);
+            }
+        }
+    }
+
+    #[test]
     fn bees_use_their_own_cached_sources() {
         let mut renderer = ButterflyMeshRenderer::default();
         renderer

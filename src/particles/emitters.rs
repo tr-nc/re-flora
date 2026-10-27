@@ -700,12 +700,6 @@ impl ButterflyEmitter {
                     butterfly.darting_flight.resume(attachment_velocity);
                     continue;
                 }
-                system.set_body_pose(
-                    butterfly.handle,
-                    intent
-                        .filter(|i| i.goal.is_some())
-                        .map(|_| butterfly.behavior.body_pose()),
-                );
                 let next_velocity = butterfly.darting_flight.advance(
                     position,
                     velocity,
@@ -718,6 +712,15 @@ impl ButterflyEmitter {
                 );
                 system.advance_guided_flight(butterfly.handle, next_velocity, step as f32);
                 let pose = butterfly.darting_flight.wingbeat.pose;
+                butterfly
+                    .behavior
+                    .observe_flight(next_velocity, pose.bank * pose.blend);
+                system.set_body_pose(
+                    butterfly.handle,
+                    intent
+                        .filter(|i| i.goal.is_some())
+                        .map(|_| butterfly.behavior.body_pose()),
+                );
                 system.set_wingbeat_pose(butterfly.handle, (pose.blend > 0.).then_some(pose));
                 if let Some(position) = system.position(butterfly.handle) {
                     butterfly.darting_flight.publish_render_pose(position);
@@ -838,6 +841,30 @@ mod tests {
                     after.is_finite() && before.distance(after) < 0.004,
                     "flight must integrate, not teleport"
                 );
+                let mut snapshots = Vec::new();
+                system.write_snapshots(&mut snapshots);
+                let snapshot = snapshots[0];
+                if !snapshot
+                    .butterfly_body_pose
+                    .is_some_and(|p| p.host.is_some())
+                    && (after - before).length_squared() > 1e-12
+                {
+                    let facing = snapshot.butterfly_body_pose.map_or_else(
+                        || {
+                            super::super::butterfly_wingbeat::flight_orientation(
+                                snapshot.velocity,
+                                0.,
+                            )
+                        },
+                        |p| p.orientation,
+                    ) * Vec3::NEG_Z;
+                    let alignment = facing.dot((after - before).normalize());
+                    assert!(
+                        alignment > 0.995,
+                        "tick={tick} wind={strength} phase={:?} facing/travel dot={alignment}",
+                        emitter.active_butterflies[0].behavior.phase
+                    );
+                }
             }
             let stats = emitter.foraging_stats();
             assert!(

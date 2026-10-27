@@ -129,6 +129,14 @@ impl ButterflyBehavior {
             stats: Default::default(),
         }
     }
+    /// Observe the completed integrator step, not the navigation target. The
+    /// target may be behind an insect that is still braking or drifting.
+    pub fn observe_flight(&mut self, velocity: Vec3, bank: f32) {
+        if velocity.is_finite() && velocity.length_squared() > 1e-12 {
+            self.heading = super::butterfly_wingbeat::flight_orientation(velocity, bank);
+        }
+    }
+
     pub fn reset(&mut self) {
         self.phase = Phase::Search;
         self.target = None;
@@ -192,7 +200,7 @@ impl ButterflyBehavior {
         if let Some(id) = self.target.take() {
             Self::remember(&mut self.failed, id, time);
         }
-        self.escape = position + Vec3::Y * 0.025 + self.heading * Vec3::Z * 0.025;
+        self.escape = position + Vec3::Y * 0.025 + self.heading * Vec3::NEG_Z * 0.025;
         self.transition(Phase::Recover);
     }
     #[expect(
@@ -277,6 +285,7 @@ impl ButterflyBehavior {
                 * (1.53125 / 3.4);
         let distance = position.distance(contact);
         if self.phase == Phase::Feed {
+            self.heading = orientation(flower.normal, flower.tangent, self.yaw);
             if distance > 0.04 {
                 self.stats.lost_targets += 1;
                 self.recover(position, time);
@@ -286,7 +295,7 @@ impl ButterflyBehavior {
             {
                 Self::remember(&mut self.memory, id, time);
                 self.stats.departures += 1;
-                self.escape = contact + flower.normal * 0.035 + self.heading * Vec3::Z * 0.025;
+                self.escape = contact + flower.normal * 0.035 + self.heading * Vec3::NEG_Z * 0.025;
                 self.transition(Phase::Takeoff);
                 result.goal = Some(FlightGoal {
                     position: self.escape,
@@ -330,16 +339,19 @@ impl ButterflyBehavior {
             // Keep full-speed flight strokes through capture: two or more braking
             // beats, then adopt the relaxed feeding articulation only on attachment.
             if self.settle_time > 0.30 {
-                let forward = self.heading * Vec3::Z;
-                self.yaw = forward
+                // The surface basis stores local +Z (the model's back). Preserve
+                // this basis on landing; flight and departure use forward -Z.
+                let model_back = self.heading * Vec3::Z;
+                self.yaw = model_back
                     .dot(flower.normal.cross(flower.tangent))
-                    .atan2(forward.dot(flower.tangent));
+                    .atan2(model_back.dot(flower.tangent));
                 self.stats.landings += 1;
                 if self.last_landing.is_some_and(|last| last != id) {
                     self.stats.different_flowers += 1;
                 }
                 self.last_landing = Some(id);
                 self.transition(Phase::Feed);
+                self.heading = orientation(flower.normal, flower.tangent, self.yaw);
                 result.attached = Some((
                     contact,
                     ButterflyBodyPose {
@@ -363,11 +375,6 @@ impl ButterflyBehavior {
             goal += Vec3::new(angle.cos() * radius, 0.018 * (1. - t), angle.sin() * radius);
             goal_velocity += Vec3::new(-angle.sin(), 0., angle.cos())
                 * (sign * std::f32::consts::TAU * radius / self.orbit_duration);
-        }
-        let direction = goal - position;
-        if direction.length_squared() > 1e-7 {
-            let desired = super::butterfly_wingbeat::flight_orientation(direction, 0.);
-            self.heading = self.heading.slerp(desired, 1. - (-dt * 14.).exp());
         }
         result.goal = Some(FlightGoal {
             position: goal,
@@ -596,6 +603,58 @@ mod tests {
             }
         }
         assert!(saw_orbit && saw_direct);
+    }
+
+    #[test]
+    fn flight_heading_tracks_observed_motion_not_a_goal_behind_it_and_holds_at_rest() {
+        let mut brain = ButterflyBehavior::new(3., Vec3::X);
+        brain.observe_flight(Vec3::X * 0.02, 0.3);
+        let heading = brain.body_pose().orientation;
+        brain.observe_flight(Vec3::ZERO, 0.);
+        brain.observe_flight(Vec3::NAN, 0.);
+        assert_eq!(brain.body_pose().orientation, heading);
+        let f = flower(1, -Vec3::X * 0.3);
+        brain.phase = Phase::Travel;
+        brain.target = Some(f.id);
+        let intent = brain.advance(
+            Vec3::ZERO,
+            Vec3::X * 0.02,
+            1. / 120.,
+            0.,
+            Vec3::ZERO,
+            &[f],
+            settings(),
+        );
+        assert!(intent.goal.unwrap().position.x < 0.);
+        assert!((brain.body_pose().orientation * Vec3::NEG_Z).dot(Vec3::X) > 0.99999);
+        brain.observe_flight(-Vec3::X * 0.01, -0.3);
+        assert!((brain.body_pose().orientation * Vec3::NEG_Z).dot(-Vec3::X) > 0.99999);
+    }
+
+    #[test]
+    fn departure_and_recovery_use_the_model_front_not_its_back() {
+        let mut brain = ButterflyBehavior::new(3., Vec3::X);
+        brain.recover(Vec3::ONE, 0.);
+        assert!((brain.escape - Vec3::ONE).dot(Vec3::X) > 0.02);
+        let mut f = flower(1, Vec3::ONE);
+        f.normal = Quat::from_rotation_x(0.2) * Vec3::Y;
+        f.tangent = Quat::from_rotation_x(0.2) * Vec3::Z;
+        brain.target = Some(f.id);
+        brain.phase = Phase::Feed;
+        brain.elapsed = 20.;
+        brain.yaw = 0.7;
+        let expected = orientation(f.normal, f.tangent, brain.yaw) * Vec3::NEG_Z;
+        let intent = brain.advance(
+            f.position,
+            Vec3::ZERO,
+            1. / 120.,
+            0.,
+            Vec3::ZERO,
+            &[f],
+            settings(),
+        );
+        assert_eq!(brain.phase, Phase::Takeoff);
+        assert!((intent.goal.unwrap().position - f.position).dot(expected) > 0.02);
     }
 
     #[test]
