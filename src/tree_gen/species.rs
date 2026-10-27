@@ -103,7 +103,7 @@ impl TreeSpecies {
                 label: "London Plane",
                 growth: rules::PLANE,
                 apples: false,
-                planting_size: 20.,
+                planting_size: 20. * 0.66,
                 authoring: AuthoringDefaults::Garden(GardenDefaults {
                     trunk_thickness: 0.31,
                     leaf_size_level: 5,

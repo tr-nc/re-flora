@@ -124,14 +124,14 @@ mod tests {
     }
 
     #[test]
-    fn neutral_planting_scale_uses_larger_apple_baseline_only() {
+    fn neutral_planting_scale_uses_species_native_baselines() {
         let mut settings = crate::app::gui_config::DebugSettings::load();
         settings.adjustables.tree_planting_scale.value = 1.;
         let planting = TreePlantingSettings::from_gui(&settings.adjustables);
         for (species, expected_size) in [
             (TreeSpecies::AppleTree, 5.8 * 1.1),
             (TreeSpecies::Pine, 20.),
-            (TreeSpecies::LondonPlane, 20.),
+            (TreeSpecies::LondonPlane, 20. * 0.66),
         ] {
             let planted = planting.apply(species.default_desc());
             assert_eq!(planted.size, expected_size);

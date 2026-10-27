@@ -158,7 +158,7 @@ fn plane_has_a_clear_trunk_broad_crown_and_its_own_bark_without_apples() {
             .map(|(b, _)| b.start.y)
             .fold(f32::INFINITY, f32::min);
         assert!(
-            first_lateral_height > 35.,
+            first_lateral_height > 35. * 0.66,
             "do not grow willow skirts at ground level"
         );
         let mut low = Vec3::splat(f32::INFINITY);
@@ -242,8 +242,13 @@ fn species_switches_use_native_sizes_without_resizing_current_authoring_or_retir
             );
             if from != to && to != TreeSpecies::AppleTree {
                 assert_eq!(
-                    switched.size, 20.,
-                    "keep the former configured non-Apple scale"
+                    switched.size,
+                    if to == TreeSpecies::LondonPlane {
+                        20. * 0.66
+                    } else {
+                        20.
+                    },
+                    "only London Plane has a reduced non-Apple planting size"
                 );
             }
         }
