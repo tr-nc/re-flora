@@ -316,6 +316,18 @@ mod tests {
     }
 
     #[test]
+    fn allium_is_a_plantable_nectar_flower_after_carrot() {
+        let index = species().iter().position(|s| s.key == "allium").unwrap();
+        let allium = &species()[index];
+        assert_eq!(species()[index - 1].key, "carrot");
+        assert_eq!(allium.display_name, "Allium");
+        assert!(allium.provides_nectar());
+        assert!(!allium.is_root_crop());
+        assert!(is_authored_plant_species_index(index as u32));
+        assert!(PLAYER_FLORA_PAINT_SELECTIONS.contains(&FloraPaintSelection::Species(index as u32)));
+    }
+
+    #[test]
     fn carrot_is_a_plantable_root_crop_not_a_nectar_flower() {
         let carrot = species().iter().find(|s| s.key == "carrot").unwrap();
         assert!(carrot.is_root_crop());

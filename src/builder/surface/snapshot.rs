@@ -493,10 +493,31 @@ mod tests {
             .push([0xff01_0203, 42]);
         expected.chunks[0].species[2].authored.push([12, 55]);
         let mut old = expected.clone();
-        assert_eq!(old.chunks[0].species.pop().unwrap().key, "carrot");
+        old.chunks[0]
+            .species
+            .retain(|species| !matches!(species.key.as_str(), "carrot" | "allium"));
         assert_eq!(old.migrate_species_schema(), 0);
         old.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
         assert_eq!(old, expected);
+    }
+
+    #[test]
+    fn pre_allium_garden_preserves_carrots_and_adds_an_empty_flower_slot() {
+        let mut expected = fixture();
+        let carrot = expected.chunks[0]
+            .species
+            .iter_mut()
+            .find(|species| species.key == "carrot")
+            .unwrap();
+        carrot.instances.push([0xff01_0203, 42]);
+        carrot.authored.push([12, 55]);
+        let mut old = expected.clone();
+        assert_eq!(old.chunks[0].species.pop().unwrap().key, "allium");
+        let encoded = serde_json::to_vec(&old).unwrap();
+        let mut decoded: FloraSnapshot = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(decoded.migrate_species_schema(), 0);
+        decoded.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
+        assert_eq!(decoded, expected);
     }
 
     #[test]

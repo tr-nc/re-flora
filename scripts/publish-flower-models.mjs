@@ -9,7 +9,7 @@ import {completeFlowerHead} from '../assets/models/flower-head.mjs';
 import {maskValue,resolvePalette} from '../assets/models/palette-mask.mjs';
 
 export async function publishedFlowers(){
-  const sources=await Promise.all(['../assets/models/flower-source.mjs','../assets/models/flower-head.mjs','../assets/models/parametric-flower.mjs','../assets/models/carrot-source.mjs','../assets/models/palette-mask.mjs','./publish-flower-models.mjs'].map(file=>readFile(new URL(file,import.meta.url))));
+  const sources=await Promise.all(['../assets/models/flower-source.mjs','../assets/models/flower-head.mjs','../assets/models/parametric-flower.mjs','../assets/models/carrot-source.mjs','../assets/models/umbel-flower.mjs','../assets/models/palette-mask.mjs','./publish-flower-models.mjs'].map(file=>readFile(new URL(file,import.meta.url))));
   const flowers=flowerCatalog.map(spec=>{
     const recipe=completeFlowerHead(flowerGeometry(spec.id));
     const colors=['paletteA','paletteB','paletteC','paletteD'].map(key=>spec.defaults[key]);

@@ -66,7 +66,7 @@ test('transverse cupping follows upright, horizontal and hanging petal surfaces'
 });
 
 test('all six species carry multi-texel depth and keep their complete head/socket contract',()=>{
-  for(const spec of flowerCatalog.filter(s=>s.kind!=='root_crop')){
+  for(const spec of flowerCatalog.filter(s=>s.morphology==='radial')){
     const model=head(spec.id),petals=points(model.parts[0]);
     const depth=petals.map(p=>p[2]);
     const diameter=2*Math.max(...petals.map(p=>Math.hypot(p[0],p[1])));

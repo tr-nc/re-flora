@@ -1557,6 +1557,7 @@ fn validate_shared_flower_assets() {
         "assets/models/flower-head.mjs",
         "assets/models/parametric-flower.mjs",
         "assets/models/carrot-source.mjs",
+        "assets/models/umbel-flower.mjs",
         "assets/models/palette-mask.mjs",
         "scripts/publish-flower-models.mjs",
     ] {

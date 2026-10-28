@@ -372,6 +372,33 @@ mod tests {
         bag.validate().unwrap();
     }
     #[test]
+    fn allium_uses_flower_seed_and_reusable_seedling_ownership() {
+        let allium = species::species()
+            .iter()
+            .position(|s| s.key == "allium")
+            .unwrap() as u32;
+        let selection = FloraPaintSelection::Species(allium);
+        assert_eq!(
+            product("seeds/allium").unwrap().goods,
+            PlantGoods::Seeds(selection)
+        );
+        assert_eq!(
+            product("seedling/allium").unwrap().goods,
+            PlantGoods::Seedling(selection)
+        );
+        let mut bag = GardenEconomy::default();
+        bag.buy("seeds/allium").unwrap();
+        assert_eq!(bag.count("seeds/allium"), PRICES.flower_seed_packet_size);
+        assert!(bag.collect_plant(allium, 255, || true).unwrap());
+        assert_eq!(bag.count("seedling/allium"), 1);
+        assert!(!bag.crops.contains_key("allium"));
+        let saved: GardenEconomy =
+            serde_json::from_str(&serde_json::to_string(&bag).unwrap()).unwrap();
+        assert_eq!(saved, bag);
+        saved.validate().unwrap();
+    }
+
+    #[test]
     fn carrots_are_seed_grown_mature_produce_not_reusable_seedlings() {
         let carrot = species::species()
             .iter()

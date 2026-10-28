@@ -1,8 +1,8 @@
 # Shared model assets
 
 This directory is the **one published model/animation source** for models shared by the game and preview.
-Flowers now share `parametric-flower.mjs`, `palette-mask.mjs` and the seven presets in `flower-source.mjs`
-between the game and web. Extra flower studies and bee/bird models remain web-only; they are not
+Single-whorl flowers share `parametric-flower.mjs`, `palette-mask.mjs` and the seven radial presets in `flower-source.mjs`
+between the game and web. The native bank also includes the spherical Allium umbel and carrot root crop. Extra flower studies and bee/bird models remain web-only; they are not
 parallel game implementations or automatically published assets.
 `butterfly.glb` is read directly by Three.js `GLTFLoader` and embedded/read by
 `src/model_assets.rs`. Do not export a separate game mesh or a separate table of animation angles.
@@ -57,6 +57,37 @@ rises from about 12.14 to 22.39 terrain voxels (player body: 24). Random height,
 growth and user scale controls still apply; this is not a uniform height guarantee.
 The original `garden-sunflower.png` in the offline delivery report predates this
 adjustment. See [height research and validation](../../docs/research/sunflower-player-height.md).
+
+## Allium (大葱花)
+
+- Stable ID `allium`, appended after `carrot`; existing saved species retain their
+  identity. Select **Grow → Flora → Allium**. The shop derives seed packets and
+  seedlings from the same registry. Allium follows ordinary flower collection
+  and nectar rules, not carrot produce rules.
+- Original code-authored topology in [`umbel-flower.mjs`](umbel-flower.mjs):
+  120 outward-facing six-tepal stars on a Fibonacci sphere, radial pedicels and
+  a closed green receptacle. Purple/lilac palette and 68 native stem layers are
+  owned by `flower-source.mjs`. No imported artwork, external model, texture or
+  AI-generation service was used; existing repository licensing applies.
+- This is a stylized ornamental Allium, not a botanical simulation. Basal leaves
+  are not modeled. Growth, native analytic scape, lighting and wind use the
+  existing flower pipeline; no species-specific rendering or runtime mesh fork.
+- The single-whorl web editor deliberately excludes this compound morphology
+  rather than displaying an incorrect radial flower. Its controls have not been
+  extended to author umbels.
+- Reproduce with `node scripts/publish-flower-models.mjs`, then `cargo check`.
+  The publisher and build fingerprint include the umbel source. Test with
+  `node --test experiments/model-preview/tests/allium.test.mjs`.
+  An unsaved native fixture is available with
+  `RE_FLORA_GARDEN_PLANT_REVIEW=allium` and `--screenshot garden-arrival`.
+- Validation: 66 Node asset tests passed; Rust tests passed 1708, with 9 failures
+  reproduced unchanged on baseline `39313d87` (two GUI-default tests and seven
+  tree-surface tests; baseline passed 1705). The three new native tests cover
+  planting/nectar classification, shop/collection ownership and old-garden
+  migration. Release build and hidden muted startup passed on Apple M4 Pro;
+  `target/allium-garden.png` is an inspected native fixture showing the purple
+  globes on long scapes. This is correctness/appearance evidence, not a
+  performance benchmark or final visual approval.
 
 ## Carrot root crop
 
@@ -129,7 +160,7 @@ proposal, not the current placement behavior.
 
 ## Publish the flower bank
 
-The seven published flowers are data presets in `flower-source.mjs` (Corn Poppy and Bellflower remain retired). The same native bank additionally contains one explicitly typed carrot root crop; its separate morphology/provenance is described above.
+The seven radial flowers are data presets in `flower-source.mjs` (Corn Poppy and Bellflower remain retired). The same native bank additionally contains Allium's spherical umbel and one explicitly typed carrot root crop; their separate morphology/provenance is described above.
 Both the native publisher and web studio call the one `parametric-flower.mjs` generator; it also
 publishes the head's `socket_normal` for the analytic stem's closed attachment-plane cut. Source
 hits and world-direction texel display points must remain on the inward side, rather than relying

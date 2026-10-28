@@ -1,7 +1,8 @@
-// The one shared head generator for web and native publication. Species are
-// presets. Root crops use an explicit morphology family; game owns placement.
+// Shared authoring catalog for native publication and supported web presets.
+// Geometry dispatches by morphology; the game owns placement and stem assembly.
 import {parametricFlower,flowerShapeDefaults} from './parametric-flower.mjs';
 import {carrotGeometry} from './carrot-source.mjs';
+import {sphericalUmbel} from './umbel-flower.mjs';
 export const flowerShapes={
   // Five broad spoons form an open bowl; separated shoulders and rolled lips.
   'wild-geranium':{petalCount:5,petalWidth:.34,petalShoulder:.60,tipSharpness:0,opening:.64,petalCup:.23,petalArch:.04,tipCurl:-.26,poseVariation:.085,centerHeight:.17},
@@ -18,11 +19,10 @@ export const flowerShapes={
   sunflower:{flowerSize:1.3,petalCount:20,petalWidth:.16,petalLength:.85,petalShoulder:.56,tipSharpness:.65,opening:.08,petalCup:.045,petalArch:.1,tipCurl:-.10,poseVariation:.035,centerRadius:.35,centerHeight:.19},
 };
 const entry=(id,displayName,stemLayers,label,latin,tilt,palette)=>({id,displayName,stemLayers,label,latin,
-  cacheFamily:id,defaults:{...flowerShapeDefaults,...flowerShapes[id],tilt,
+  morphology:'radial',cacheFamily:id,defaults:{...flowerShapeDefaults,...flowerShapes[id],tilt,
     paletteA:palette[0],paletteB:palette[1],paletteC:palette[2],paletteD:palette[3],weightMap:'root-tip'}});
 // Stable IDs/order preserve old gardens; layers are species-owned art tuning.
-// Species silhouettes share the
-// same surface mechanism; no per-species mesh or rendering branches.
+// Morphology families share the same published surface format and renderer.
 export const flowerCatalog=[
   entry('wild-geranium','Wild Geranium',41,'五瓣野花 · 野老鹳草','Geranium maculatum',38,['#be78a6','#d695c5','#ecd18a','#52734a']),
   entry('forget-me-not','Forget-me-not',42,'勿忘草','Myosotis sylvatica',28,['#e5ecda','#83b9eb','#e7ba48','#52734a']),
@@ -31,10 +31,16 @@ export const flowerCatalog=[
   entry('coneflower','Coneflower',43,'紫松果菊','Echinacea purpurea',55,['#b36c98','#d18bb4','#b77c3c','#52734a']),
   entry('tulip','Tulip',37,'郁金香','Tulipa',70,['#f3c38e','#e8a075','#755048','#52734a']),
   entry('sunflower','Sunflower',136,'向日葵','Helianthus annuus',70,['#d99922','#ffdc52','#664323','#4f7135']),
-  {...entry('carrot','Carrot',1,'胡萝卜','Daucus carota subsp. sativus',0,['#a84918','#e67c24','#55943f','#337240']),kind:'root_crop'},
+  {...entry('carrot','Carrot',1,'胡萝卜','Daucus carota subsp. sativus',0,['#a84918','#e67c24','#55943f','#337240']),kind:'root_crop',morphology:'root_crop'},
+  {...entry('allium','Allium',68,'大葱花','Allium',0,['#8750ad','#d6a3eb','#eee0f5','#52734a']),morphology:'spherical_umbel'},
 ];
 export function flowerGeometry(id,settings={}){
   const spec=flowerCatalog.find(spec=>spec.id===id);
   if(!spec)throw new Error(`Unknown flower: ${id}`);
-  return spec.kind==='root_crop'?carrotGeometry():parametricFlower({...spec.defaults,...settings});
+  switch(spec.morphology){
+    case 'root_crop':return carrotGeometry();
+    case 'spherical_umbel':return sphericalUmbel();
+    case 'radial':return parametricFlower({...spec.defaults,...settings});
+    default:throw new Error(`Unknown flower morphology: ${spec.morphology}`);
+  }
 }

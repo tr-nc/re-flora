@@ -9,7 +9,7 @@ test('native flower publication regenerates byte-for-byte from shared geometry a
   const json=await publishedFlowers();
   assert.equal(await readFile(new URL('../../../assets/models/flowers.json',import.meta.url),'utf8'),json);
   const {flowers}=JSON.parse(json);
-  assert.deepEqual(flowers.map(f=>[f.id,f.stem_layers]),[['wild-geranium',41],['forget-me-not',42],['oxeye-daisy',42],['cosmos',42],['coneflower',43],['tulip',37],['sunflower',136],['carrot',1]]);
+  assert.deepEqual(flowers.map(f=>[f.id,f.stem_layers]),[['wild-geranium',41],['forget-me-not',42],['oxeye-daisy',42],['cosmos',42],['coneflower',43],['tulip',37],['sunflower',136],['carrot',1],['allium',68]]);
   for(const [i,f]of flowers.entries()){
     const spec=flowerCatalog[i],recipe=flowerGeometry(spec.id);
     assert.deepEqual(f.socket_normal,recipe.socketNormal.map(v=>Number(v.toFixed(9))||0));
@@ -37,7 +37,7 @@ test('published species are distinct presets with one complete head and no legac
       count+=part.indices.length/3;
     }
     assert.ok(count>100&&count<3000);assert.equal(recipe.heads.length,1);
-    if(spec.kind!=='root_crop') assert.deepEqual(recipe.parts.map(p=>p.name),['Flower petals','Flower center','Flower calyx']);
+    if(spec.morphology==='radial') assert.deepEqual(recipe.parts.map(p=>p.name),['Flower petals','Flower center','Flower calyx']);
     assert.equal(spec.cacheTemplate,undefined);
     assert.equal(spec.heads,undefined,'old whole-plant flower recipes removed');
   }
@@ -46,7 +46,7 @@ test('published species are distinct presets with one complete head and no legac
 test('shared geometry responds only to shape settings, never palette or weight-map edits',()=>{
   for(const spec of flowerCatalog){
     const original=flowerGeometry(spec.id);
-    if(spec.kind==='root_crop'){ assert.deepEqual(flowerGeometry(spec.id,{petalCount:24,opening:1}),original);continue; }
+    if(spec.morphology!=='radial'){ assert.deepEqual(flowerGeometry(spec.id,{petalCount:24,opening:1}),original);continue; }
     for(const [key,value]of Object.entries({petalCount:3,flowerSize:.65,opening:-1,tilt:-15,petalLength:1.4,petalWidth:.08})){
       const changed=flowerGeometry(spec.id,{[key]:value});assert.notDeepEqual(changed,original);
       assert.ok(changed.parts.every(part=>part.positions.every(Number.isFinite)));
