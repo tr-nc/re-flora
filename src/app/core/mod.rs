@@ -1920,6 +1920,7 @@ impl App {
             self.cancel_pointer_pick();
             self.mower.cancel_drag();
             self.cancel_pavement_stroke();
+            self.camera_control.reset_mode_transition_motion();
         }
         if matches!(
             &event,
@@ -1998,6 +1999,19 @@ impl App {
             }
         }
 
+        // Precision gestures have one destination. In particular, a scene pinch
+        // must not also be forwarded as an egui Zoom event.
+        let trackpad_dispatch = self.handle_trackpad_camera_event(&event);
+        if matches!(
+            trackpad_dispatch,
+            Some(
+                camera_control::trackpad::Dispatch::Camera { .. }
+                    | camera_control::trackpad::Dispatch::Ignore
+            )
+        ) {
+            return;
+        }
+
         // Feed GUI-visible events to egui first. Keep keyboard movement available while panels are
         // merely open, but reserve keyboard input for egui while a text/numeric edit has focus.
         if self.window_state.is_cursor_visible() {
@@ -2056,6 +2070,10 @@ impl App {
                 }
                 return;
             }
+        }
+
+        if trackpad_dispatch == Some(camera_control::trackpad::Dispatch::Ui) {
+            return;
         }
 
         if !is_keyboard_event && self.handle_wind_prototype_event(&event) {

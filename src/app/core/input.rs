@@ -1,3 +1,4 @@
+use super::camera_control::trackpad::{Dispatch as TrackpadDispatch, Gesture as TrackpadGesture};
 use super::placeables::PlaceableKind;
 use super::player_tools::{ContinuousTerrainToolAction, PlayerTool, PlayerToolSelectionUpdate};
 use super::App;
@@ -7,7 +8,7 @@ use crate::flora::species;
 use crate::tracer::TerrainEditPreviewShape;
 use glam::{Vec2, Vec3};
 use std::time::{Duration, Instant};
-use winit::event::{DeviceEvent, ElementState, MouseButton, MouseScrollDelta};
+use winit::event::{DeviceEvent, ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::KeyCode;
 
@@ -480,6 +481,59 @@ impl App {
             .set_camera_pose_looking_at(new_position, new_focus);
     }
 
+    /// Called before egui receives an event: scene gestures must not also zoom UI.
+    /// UI-owned gestures are forwarded unchanged and may not fall through to tools.
+    pub(super) fn handle_trackpad_camera_event(
+        &mut self,
+        event: &WindowEvent,
+    ) -> Option<TrackpadDispatch> {
+        let gesture = TrackpadGesture::from_window_event(event, cfg!(target_os = "macos"))?;
+        let tool_scroll = self.terrain_edit_pointer_available()
+            && ((self.modifiers.control_key()
+                && self.player_tools.selected_tool() == PlayerTool::Wall)
+                || (self.modifiers.shift_key()
+                    && (self.player_tools.selected_tool().is_construction()
+                        || self.is_terrain_edit_radius_tool_selected())));
+        if matches!(gesture, TrackpadGesture::Drag(..)) && tool_scroll {
+            // Shift/Control tool adjustments are not camera controls. Keep their
+            // existing wheel behavior, including precision scrolling.
+            self.camera_control.trackpad.cancel_scroll();
+            self.camera_control.cancel_trackpad_motion(gesture);
+            return None;
+        }
+        let available = match gesture {
+            TrackpadGesture::Drag(..) => self.orbit_mouse_drag_available(),
+            TrackpadGesture::Pinch(..) => self.camera_scroll_available(),
+        };
+        let ui_owned = self.gui_blocks_world_pointer() || self.blocking_panel_open();
+        let dispatch = self
+            .camera_control
+            .trackpad
+            .route(gesture, ui_owned, available);
+        if let TrackpadDispatch::Camera { began } = dispatch {
+            match gesture {
+                TrackpadGesture::Drag(delta, _) => {
+                    if began {
+                        self.stop_terrain_edit_loop_sound();
+                        self.camera_control.begin_trackpad_rotation();
+                    }
+                    let (_, elevation, _) = self.orbit_camera_spherical();
+                    self.camera_control
+                        .queue_orbit_rotation_delta(delta, elevation);
+                }
+                TrackpadGesture::Pinch(delta, _) => {
+                    let lines = self
+                        .camera_control
+                        .pinch_dolly_lines(delta, self.tracer.camera_position());
+                    self.handle_camera_zoom(lines);
+                }
+            }
+        } else {
+            self.camera_control.cancel_trackpad_motion(gesture);
+        }
+        Some(dispatch)
+    }
+
     pub(super) fn handle_mouse_wheel(&mut self, delta: MouseScrollDelta) {
         let scroll_lines = scroll_delta_lines(delta);
         if self.modifiers.control_key()
@@ -503,6 +557,10 @@ impl App {
             return;
         }
 
+        self.handle_camera_zoom(scroll_lines);
+    }
+
+    fn handle_camera_zoom(&mut self, scroll_lines: f32) {
         if self.camera_scroll_available() {
             if self.is_walk_camera_mode() {
                 if scroll_lines.is_finite() && scroll_lines < 0. {
@@ -1695,6 +1753,112 @@ mod panel_input_tests {
             ctx.egui_wants_pointer_input(),
             owned
         ));
+    }
+
+    #[test]
+    fn trackpad_over_debug_panel_keeps_real_egui_scrolling_and_zoom_events() {
+        use super::super::camera_control::trackpad::{Dispatch, Gesture, TrackpadGestures};
+        use winit::event::TouchPhase;
+        let ctx = egui::Context::default();
+        ctx.set_pixels_per_point(2.0);
+        let mut style = (*ctx.global_style()).clone();
+        super::super::ui_style::apply_gui_style(&mut style);
+        ctx.set_global_style(style);
+        let mut point = egui::Pos2::ZERO;
+        let mut offset = 0.0;
+        let mut draw = |events: Vec<egui::Event>, frame: usize| {
+            let _ = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(frame as f64 * 0.05),
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(800., 600.),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |_| {
+                    egui::Window::new("Debug trackpad test")
+                        .fixed_pos(egui::pos2(20., 20.))
+                        .fixed_size(egui::vec2(360., 300.))
+                        .show(&ctx, |ui| {
+                            let response = super::super::debug_panel::show_scroll_area(
+                                super::super::debug_panel::scroll_area().max_height(180.),
+                                ui,
+                                |ui| {
+                                    for row in 0..40 {
+                                        ui.label(format!("Setting {row}"));
+                                    }
+                                },
+                            );
+                            point = response.inner_rect.center();
+                            offset = response.state.offset.y;
+                        });
+                },
+            );
+            (point, offset)
+        };
+        let mut pointer = egui::Pos2::ZERO;
+        for frame in 0..3 {
+            pointer = draw(vec![], frame).0;
+        }
+        let mut router = TrackpadGestures::default();
+        let mut final_offset = 0.0;
+        for frame in 3..8 {
+            let owned = gui_owns_pointer(
+                &ctx,
+                Some(glam::Vec2::new(pointer.x, pointer.y) * ctx.pixels_per_point()),
+            );
+            assert!(owned);
+            let phase = if frame == 3 {
+                TouchPhase::Started
+            } else {
+                TouchPhase::Moved
+            };
+            assert_eq!(
+                router.route(
+                    Gesture::Drag(glam::Vec2::new(4., -120.), phase),
+                    owned,
+                    false
+                ),
+                Dispatch::Ui
+            );
+            // The existing egui-winit path retains point deltas and DPI conversion;
+            // forwarding the original event must still move the actual scroll area.
+            final_offset = draw(
+                vec![
+                    egui::Event::PointerMoved(pointer),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(2., -60.),
+                        phase: if frame == 3 {
+                            egui::TouchPhase::Start
+                        } else {
+                            egui::TouchPhase::Move
+                        },
+                        modifiers: egui::Modifiers::default(),
+                    },
+                ],
+                frame,
+            )
+            .1;
+        }
+        assert!(final_offset > 0., "Debug scroll area must still scroll");
+        assert_eq!(
+            router.route(Gesture::Pinch(0.1, TouchPhase::Started), true, false),
+            Dispatch::Ui
+        );
+        let mut zoom = 0.;
+        let _ = ctx.run_ui(
+            egui::RawInput {
+                events: vec![egui::Event::Zoom(1.1)],
+                ..Default::default()
+            },
+            |ui| {
+                zoom = ui.input(|input| input.zoom_delta());
+            },
+        );
+        assert!((zoom - 1.1).abs() < 0.0001);
     }
 
     #[test]

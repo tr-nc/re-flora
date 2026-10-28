@@ -1,3 +1,4 @@
+pub(super) mod trackpad;
 mod zoom;
 
 use crate::app::terrain_edit_bounds::INITIAL_EDITABLE_TERRAIN_BOUNDS;
@@ -234,6 +235,7 @@ pub(super) struct CameraControlRuntime {
     orbit_focus: Vec3,
     keyboard_pan: OrbitKeyboardPanInput,
     orbit_drag: Option<OrbitDrag>,
+    pub(super) trackpad: trackpad::TrackpadGestures,
     pan_smoother: OrbitDeltaSmoother,
     rotation_smoother: OrbitDeltaSmoother,
     dolly_smoother: MouseWheelDollySmoother,
@@ -259,6 +261,7 @@ impl Default for CameraControlRuntime {
             orbit_focus: ORBIT_CAMERA_DEFAULT_FOCUS,
             keyboard_pan: OrbitKeyboardPanInput::default(),
             orbit_drag: None,
+            trackpad: trackpad::TrackpadGestures::default(),
             pan_smoother: OrbitDeltaSmoother::default(),
             rotation_smoother: OrbitDeltaSmoother::default(),
             dolly_smoother: MouseWheelDollySmoother::default(),
@@ -461,6 +464,7 @@ impl CameraControlRuntime {
     }
 
     pub(super) fn reset_mode_transition_motion(&mut self) {
+        self.trackpad.cancel();
         self.orbit_drag = None;
         self.pan_smoother.reset();
         self.rotation_smoother.reset();
@@ -600,16 +604,56 @@ impl CameraControlRuntime {
                 .pan_smoother
                 .add_delta(orbit_focus_pan_delta(drag_delta, camera_front)),
             OrbitDragKind::Rotate => {
-                let mut rotation_delta = orbit_rotation_delta(drag_delta);
-                rotation_delta.y = clamp_orbit_elevation_delta(
-                    current_elevation,
-                    self.rotation_smoother.pending_delta().y,
-                    rotation_delta.y,
-                    self.max_orbit_elevation,
-                );
-                self.rotation_smoother.add_delta(rotation_delta);
+                self.queue_orbit_rotation_delta(drag_delta, current_elevation);
             }
         }
+    }
+
+    pub(super) fn begin_trackpad_rotation(&mut self) {
+        // A gesture owns camera rotation without pretending a mouse button is held.
+        // macOS can emit Started for both mayBegin/began and again for momentum.
+        // Keep queued gesture deltas across these phase boundaries.
+        if self.orbit_drag.take().is_some() {
+            self.rotation_smoother.reset();
+        }
+        self.pan_smoother.reset();
+    }
+
+    pub(super) fn queue_orbit_rotation_delta(
+        &mut self,
+        delta_physical: Vec2,
+        current_elevation: f32,
+    ) {
+        let mut rotation_delta = orbit_rotation_delta(delta_physical);
+        rotation_delta.y = clamp_orbit_elevation_delta(
+            current_elevation,
+            self.rotation_smoother.pending_delta().y,
+            rotation_delta.y,
+            self.max_orbit_elevation,
+        );
+        self.rotation_smoother.add_delta(rotation_delta);
+    }
+
+    pub(super) fn cancel_trackpad_motion(&mut self, gesture: trackpad::Gesture) {
+        match gesture {
+            trackpad::Gesture::Drag(..) => self.rotation_smoother.reset(),
+            trackpad::Gesture::Pinch(..) => self.dolly_smoother.reset(),
+        }
+    }
+
+    /// Pinch changes distance proportionally. Include queued dolly so splitting the
+    /// same pinch into many OS events does not change its final target distance.
+    pub(super) fn pinch_dolly_lines(&self, magnification: f64, camera_position: Vec3) -> f32 {
+        if !magnification.is_finite() {
+            return 0.0;
+        }
+        let units_per_line = ORBIT_CAMERA_DOLLY_SPEED * MOUSE_WHEEL_DOLLY_SECONDS_PER_LINE;
+        let pending_lines = self.dolly_smoother.target_lines - self.dolly_smoother.current_lines;
+        let distance = (self.orbit_spherical(camera_position).2 - pending_lines * units_per_line)
+            .clamp(ORBIT_CAMERA_MIN_DISTANCE, ORBIT_CAMERA_MAX_DISTANCE);
+        // Bound a malformed/very large input before converting to f32 or exp().
+        let factor = (-(magnification.clamp(-2.0, 2.0) as f32)).exp();
+        distance * (1.0 - factor) / units_per_line
     }
 
     pub(super) fn zoom_in_progress(&self) -> bool {

@@ -129,6 +129,8 @@ planting places mature plants immediately.
 | **Middle mouse drag** | Pan the orbit camera |
 | **Right mouse drag** | Rotate the orbit camera |
 | **Mouse wheel** | Zoom the orbit camera or adjust the active edit radius |
+| **macOS two-finger slide over the garden** | Rotate the orbit camera like a right-button drag; horizontal, vertical, and diagonal motion all work |
+| **macOS pinch over the garden** | Spread to zoom in; pinch together to zoom out |
 | **G** | Switch between orbit editing and free-look camera modes |
 | **Left Shift** | Move faster in free-look mode |
 | **F** | Toggle fullscreen |
@@ -136,6 +138,14 @@ planting places mature plants immediately.
 | **P** | Copy a screenshot to the clipboard |
 | **R** | Toggle the prototype configuration panel |
 | **Esc** | Quit |
+
+On macOS, these gesture mappings apply to **camera input over the garden**, not UI controls.
+Over the Debug Panel or another UI surface, two-finger scrolling still scrolls that UI normally,
+and pinching does not move the camera. Existing Shift/Control scrolling for tool size/height
+adjustments is unchanged. Ordinary mouse-wheel notches and other platforms keep their controls.
+The macOS mapping uses precision scrolling events; devices such as a touch-sensitive mouse that
+emit the same precision events may behave like a trackpad. Direction follows macOS scrolling
+settings. Pinch shares the existing orbit/walk zoom transitions.
 
 Ordinary walking can step up at most half the collision body's height: **12 terrain voxels**
 for the current 24-voxel player. A narrow ridge is not a usable foothold; normal wide stairs and
