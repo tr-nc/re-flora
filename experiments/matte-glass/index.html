@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#eeeee5">
+  <title>Matte study — Re: Flora</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.mjs"></script>
+</head>
+<body>
+  <header class="masthead">
+    <a class="wordmark" href="./" aria-label="Re: Flora material study"><span class="brand-mark" aria-hidden="true">✳</span> re: flora <span class="wordmark-divider">/</span> <span class="study-label">material studies</span></a>
+    <span class="edition">01 <span>—</span> PIXEL MATTE</span>
+  </header>
+  <main class="workspace">
+    <aside class="inspector" aria-label="Material controls">
+      <div class="intro"><p class="eyebrow">THE MATERIAL LAB</p><h1>A softer<br>kind of glass.</h1><p>Soft light. Quiet texture.<br>A little less real, a little more pixel.</p></div>
+      <section class="control-section">
+        <div class="section-title"><h2>Material</h2><button id="reset" class="text-button">Reset</button></div>
+        <div class="presets" aria-label="Material presets">
+          <button data-preset="soft" aria-pressed="true">Soft frost</button><button data-preset="chalk" aria-pressed="false">Chalk</button><button data-preset="clear" aria-pressed="false">Thin glass</button>
+        </div>
+        <div class="switch-row"><label for="tinted">Tint the glass</label><input id="tinted" type="checkbox" role="switch" checked></div>
+        <fieldset id="tint-options"><legend class="sr-only">Glass tint</legend><div class="swatches">
+          <button class="swatch" data-tint="fern" style="--swatch:#b3c29d" aria-label="Fern tint" aria-pressed="true"><span></span></button>
+          <button class="swatch" data-tint="honey" style="--swatch:#ddc69b" aria-label="Honey tint" aria-pressed="false"><span></span></button>
+          <button class="swatch" data-tint="rose" style="--swatch:#d4b7b8" aria-label="Rose tint" aria-pressed="false"><span></span></button>
+          <button class="swatch" data-tint="mist" style="--swatch:#b3c7d1" aria-label="Mist tint" aria-pressed="false"><span></span></button>
+          <span id="tint-name">Fern</span>
+        </div></fieldset>
+        <div class="range-control"><label for="opacity">Body <output for="opacity" id="opacity-value"></output></label><input id="opacity" type="range" min="10" max="95" step="1"></div>
+        <div class="range-control"><label for="frost">Frost <output for="frost" id="frost-value"></output></label><input id="frost" type="range" min="0" max="30" step="1"></div>
+        <div class="range-control"><label for="grain">Dither <output for="grain" id="grain-value"></output></label><input id="grain" type="range" min="0" max="30" step="1"></div>
+        <div class="range-control"><label for="pixel">Pixel size <output for="pixel" id="pixel-value"></output></label><input id="pixel" type="range" min="1" max="5" step="1"></div>
+      </section>
+      <section class="control-section environment-controls">
+        <h2>In the garden</h2>
+        <div class="segmented" aria-label="Scene lighting"><button data-scene="day" aria-pressed="true">Daylight</button><button data-scene="dusk" aria-pressed="false">Dusk</button><button data-scene="night" aria-pressed="false">Night</button></div>
+        <div class="switch-row"><label for="compare">Compare with untinted</label><input id="compare" type="checkbox" role="switch"></div>
+        <label class="upload-button" for="backdrop">＋ Try your screenshot<input id="backdrop" type="file" accept="image/png,image/jpeg,image/webp"></label>
+        <button id="restore-backdrop" class="text-button" hidden>Use garden backdrop</button>
+      </section>
+      <div class="inspector-footer"><button id="export" class="export-button">Export material <span aria-hidden="true">↗</span></button><p>Just a study. Nothing changes in your game.</p></div>
+    </aside>
+    <section class="preview-column" aria-label="Live material preview">
+      <div class="preview-heading"><div><span class="live-dot"></span><h2>In context</h2></div><span>LIVE PREVIEW <span class="heading-divider">/</span> <span id="material-name">FERN · SOFT FROST</span></span></div>
+      <div class="stage" id="stage" data-scene="day">
+        <div class="landscape" id="landscape"></div>
+        <div class="scene-wash"></div>
+        <div class="scene-topline"><span class="scene-location"><span aria-hidden="true">✳</span> The quiet garden</span><span class="scene-coordinate">A LITTLE ROOM TO GROW</span></div>
+        <div class="game-ui">
+          <div class="hud glass"><span class="pixel-sun" aria-hidden="true">☼</span><div><strong id="scene-time">A slow afternoon</strong><span id="scene-weather">Day 12 · Clear skies</span></div><span class="hud-separator"></span><span class="seed-counter">✦ <span id="seed-count">128</span></span></div>
+          <article class="seed-panel glass">
+            <div class="panel-kicker"><span>YOUR POCKET GARDEN</span><span aria-hidden="true">✳</span></div>
+            <h2>Something<br>good will grow.</h2>
+            <p>A handful of seeds.<br>A little patience. All you need.</p>
+            <div class="seed-grid" aria-label="Choose a seed">
+              <button class="seed-option" data-seed="daisy" aria-pressed="true"><span class="plant-art daisy" aria-hidden="true"></span><span>Daisy</span><small>× 12</small></button>
+              <button class="seed-option" data-seed="poppy" aria-pressed="false"><span class="plant-art poppy" aria-hidden="true"></span><span>Poppy</span><small>× 8</small></button>
+              <button class="seed-option" data-seed="fern" aria-pressed="false"><span class="plant-art fern" aria-hidden="true"></span><span>Fern</span><small>× 6</small></button>
+            </div>
+            <div class="plant-info"><span id="plant-description">Daisy · happiest in the sunshine</span><span>✦ 4</span></div>
+            <button id="plant" class="plant-button">Plant a little joy <span aria-hidden="true">↗</span></button>
+          </article>
+          <article class="specimen glass" id="specimen"><div class="specimen-icon" aria-hidden="true">✳</div><p class="panel-kicker" id="specimen-label">A QUIET LITTLE DETAIL</p><h3 id="specimen-title">Light comes through.<br>The noise stays out.</h3><p id="specimen-copy">Frosted, not glossy.<br>Made to belong in the garden.</p><div class="specimen-rule"></div><span class="specimen-meta" id="specimen-meta">01 / MATTE SURFACE</span></article>
+          <div class="toast glass" role="status" id="toast" hidden></div>
+          <div class="hotbar glass" aria-label="Garden tools"><button data-tool="Hand" aria-label="Hand tool" aria-pressed="false"><span aria-hidden="true">✥</span><kbd>1</kbd></button><button data-tool="Seeds" aria-label="Seeds tool" aria-pressed="true"><span aria-hidden="true">✿</span><kbd>2</kbd></button><button data-tool="Water" aria-label="Water tool" aria-pressed="false"><span aria-hidden="true">♧</span><kbd>3</kbd></button><button data-tool="Spade" aria-label="Spade tool" aria-pressed="false"><span aria-hidden="true">⚒</span><kbd>4</kbd></button><span class="tool-name" id="tool-name">Seeds</span></div>
+        </div>
+        <div class="scene-bottomline"><span>RE: FLORA</span><span id="scene-note">DAYLIGHT / GARDEN STUDY</span></div>
+      </div>
+      <footer class="preview-footer"><span><span class="tiny-square"></span> Crisp edges. Diffused light.</span><span>CSS material sketch · not an engine shader</span></footer>
+      <p id="compatibility" class="compatibility" hidden>Your browser does not support backdrop blur. The tint and texture still work, but frost needs a current Safari, Chrome, or Firefox.</p>
+    </section>
+  </main>
+  <dialog id="recipe-dialog" aria-labelledby="recipe-title"><div class="section-title"><h2 id="recipe-title">Your material recipe</h2><button id="close-recipe" aria-label="Close recipe">×</button></div><p>Visual parameters for the next iteration. Not a game config.</p><textarea id="recipe" readonly aria-label="Material recipe JSON" spellcheck="false"></textarea><div class="dialog-actions"><span id="copy-status" role="status"></span><button id="copy-recipe" class="export-button">Copy JSON</button><button id="download-recipe" class="export-button">Download</button></div></dialog>
+</body>
+</html>
