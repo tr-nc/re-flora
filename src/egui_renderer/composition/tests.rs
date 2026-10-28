@@ -123,6 +123,65 @@ fn backdrop_footprint_uses_clipped_glass_not_its_contents() {
     assert_offsets_and_coverage(&primitives, &passes);
 }
 
+#[test]
+fn dragging_a_real_window_moves_its_unclipped_grid_anchor() {
+    use crate::egui_renderer::matte_glass::MatteWindowExt;
+    let ctx = egui::Context::default();
+    let mut time = 0.0;
+    let mut draw = |events| {
+        time += 0.1;
+        let output = ctx.run_ui(
+            egui::RawInput {
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |_| {
+                egui::Window::new("Drag glass")
+                    .default_pos(egui::pos2(50.0, 50.0))
+                    .resizable(false)
+                    .show_matte(
+                        &ctx,
+                        egui::Id::new("drag_glass"),
+                        egui::Frame::window(&ctx.global_style()),
+                        |ui| {
+                            ui.set_min_size(egui::vec2(250.0, 120.0));
+                            ui.label("Sharp contents");
+                        },
+                    );
+            },
+        );
+        let primitives = ctx.tessellate(output.shapes, output.pixels_per_point);
+        draw_passes(&primitives)
+            .into_iter()
+            .find(|p| p.blur_before)
+            .map(|p| p.surface_origin)
+    };
+    for _ in 0..4 {
+        draw(vec![]);
+    }
+    let before = draw(vec![]).unwrap();
+    let pointer = before + egui::vec2(100.0, 12.0);
+    draw(vec![
+        egui::Event::PointerMoved(pointer),
+        egui::Event::PointerButton {
+            pos: pointer,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        },
+    ]);
+    let delta = egui::vec2(7.0, 5.0);
+    draw(vec![egui::Event::PointerMoved(pointer + delta)]);
+    let after = draw(vec![egui::Event::PointerButton {
+        pos: pointer + delta,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    }]);
+    assert_eq!(after.unwrap() - before, delta);
+}
+
 fn assert_offsets_and_coverage(primitives: &[ClippedPrimitive], passes: &[DrawPass]) {
     let (mut indices, mut vertices) = (0, 0);
     for pass in passes {

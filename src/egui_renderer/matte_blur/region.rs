@@ -26,7 +26,13 @@ pub(super) struct FilterPlan {
 }
 
 impl FilterPlan {
-    pub fn new(bounds: Rect, viewport: [u32; 2], scale: f32, cell: u32) -> Self {
+    pub fn new(
+        bounds: Rect,
+        viewport: [u32; 2],
+        scale: f32,
+        cell: u32,
+        grid_origin: [i32; 2],
+    ) -> Self {
         let sigma = FROST_POINTS * scale;
         let radius = (3.0 * sigma).ceil() as u32;
         let mut plan = Self {
@@ -65,14 +71,24 @@ impl FilterPlan {
                 Region::between(lo, hi),
             ];
         } else {
-            let start = [lo[0] / cell, lo[1] / cell];
-            let end = [hi[0].div_ceil(cell), hi[1].div_ceil(cell)];
+            let start =
+                std::array::from_fn::<_, 2, _>(|a| (lo[a] as i32 - grid_origin[a]) as u32 / cell);
+            let end = std::array::from_fn::<_, 2, _>(|a| {
+                ((hi[a] as i32 - grid_origin[a]) as u32).div_ceil(cell)
+            });
             // Horizontal means are packed by cell-column/source-row; vertical
             // means by cell-column/cell-row. Read entire cells, not panel crops.
             plan.passes = [
                 Region::between(
-                    [start[0], start[1] * cell],
-                    [end[0], end[1].saturating_mul(cell).min(viewport[1])],
+                    [
+                        start[0],
+                        (start[1] as i32 * cell as i32 + grid_origin[1]).max(0) as u32,
+                    ],
+                    [
+                        end[0],
+                        (end[1] as i32 * cell as i32 + grid_origin[1]).clamp(0, viewport[1] as i32)
+                            as u32,
+                    ],
                 ),
                 Region::between(start, end),
             ];
@@ -99,6 +115,7 @@ mod tests {
                 [5120, 2880],
                 scale,
                 0,
+                [0, 0],
             );
             assert_eq!(p.sigma, 7.0 * scale);
             let [h, v] = p.passes;
@@ -124,6 +141,7 @@ mod tests {
             [37, 29],
             1.0,
             12,
+            [0, 0],
         );
         assert_eq!(
             p.passes[0],
@@ -149,6 +167,33 @@ mod tests {
     }
 
     #[test]
+    fn shifted_cell_dispatch_covers_all_visible_samples_after_clipping() {
+        for cell in [4, 12, 21, 48] {
+            for origin in [[0, 0], [-1, -2], [1 - cell as i32, 1 - cell as i32]] {
+                let p = FilterPlan::new(
+                    Rect::from_min_max(egui::pos2(3.2, 5.7), egui::pos2(36.3, 28.8)),
+                    [37, 29],
+                    1.0,
+                    cell,
+                    origin,
+                );
+                for y in 6..29 {
+                    for x in 4..37 {
+                        let cx = (x as i32 - origin[0]) as u32 / cell;
+                        let cy = (y as i32 - origin[1]) as u32 / cell;
+                        assert!(contains(p.passes[1], cx, cy));
+                        let first_y = (origin[1] + (cy * cell) as i32).max(0) as u32;
+                        let end_y = (origin[1] + ((cy + 1) * cell) as i32).min(29) as u32;
+                        for sy in first_y..end_y {
+                            assert!(contains(p.passes[0], cx, sy));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn offscreen_empty_and_viewport_edges_do_not_create_invalid_dispatches() {
         for cell in [0, 12, 48] {
             for bounds in [
@@ -156,7 +201,7 @@ mod tests {
                 Rect::from_min_max(egui::pos2(-50.0, -50.0), egui::pos2(-1.0, -1.0)),
             ] {
                 assert_eq!(
-                    FilterPlan::new(bounds, [37, 29], 1.0, cell).passes,
+                    FilterPlan::new(bounds, [37, 29], 1.0, cell, [0, 0]).passes,
                     [Region::default(); 2]
                 );
             }
@@ -165,6 +210,7 @@ mod tests {
                 [37, 29],
                 1.0,
                 cell,
+                [0, 0],
             );
             assert_eq!(p.passes[0].origin, [0, 0]);
             assert_eq!(p.passes[1].origin, [0, 0]);

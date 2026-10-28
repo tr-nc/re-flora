@@ -17,6 +17,7 @@ pub(super) struct MattePipeline {
     blur: MatteBlur,
     generation: u64,
     pixel_cell_size: u32,
+    grid_origin: [i32; 2],
 }
 
 impl MattePipeline {
@@ -37,6 +38,7 @@ impl MattePipeline {
             blur: MatteBlur::new(device, allocator, pool),
             generation: 0,
             pixel_cell_size: 0,
+            grid_origin: [0; 2],
         }
     }
 
@@ -71,15 +73,22 @@ impl MattePipeline {
         pixels_per_point: f32,
         pixel_cell_size: u32,
         bounds: egui::Rect,
+        surface_origin: egui::Pos2,
         retirement: &FrameRetirementSink,
     ) {
         self.pixel_cell_size = pixel_cell_size;
+        self.grid_origin = super::matte_glass::pixel_grid_origin(
+            surface_origin,
+            pixels_per_point,
+            pixel_cell_size,
+        );
         let texture = self.blur.prepare(
             cmdbuf,
             texture,
             pixels_per_point,
             pixel_cell_size,
             bounds,
+            self.grid_origin,
             retirement,
         );
         let unchanged = self.backdrop.as_ref().is_some_and(|backdrop| {
@@ -116,7 +125,8 @@ impl MattePipeline {
         let push = crate::generated::gpu_structs::PushConstantUiMatte {
             ortho: bytemuck::cast(*projection),
             pixel_cell_size: self.pixel_cell_size,
-            _pad0: [0; 12],
+            _pad0: [0; 4],
+            grid_origin: self.grid_origin,
         };
         cmdbuf.push_vertex_constants(&self.pipeline, bytemuck::bytes_of(&push));
         let backdrop = self

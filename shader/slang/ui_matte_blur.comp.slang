@@ -11,6 +11,7 @@ struct MatteBlurPush
     uint radius;
     uint2 dispatch_origin;
     uint2 dispatch_extent;
+    int2 grid_origin;
 };
 [[vk::push_constant]] ConstantBuffer<MatteBlurPush> blur_push;
 [[vk::binding(0, 0)]]
@@ -52,11 +53,12 @@ void main(uint3 thread : SV_DispatchThreadID)
         // Every source pixel contributes once, rather than repeating NxN work
         // for every fragment of the block. Existing images are reused on toggles.
         bool horizontal = blur_push.horizontal != 0u;
-        uint2 cells = (uint2(width, height) + cellSize - 1u) / cellSize;
+        uint2 cells = (uint2(int2(width, height) - blur_push.grid_origin) + cellSize - 1u) / cellSize;
         uint2 dispatchExtent = horizontal ? uint2(cells.x, height) : cells;
         if (any(thread.xy >= dispatchExtent)) return;
         uint2 range = uiMatteCellRange(horizontal ? thread.x : thread.y,
-            cellSize, horizontal ? width : height);
+            cellSize, horizontal ? width : height,
+            horizontal ? blur_push.grid_origin.x : blur_push.grid_origin.y);
         int2 origin = horizontal ? int2(range.x, thread.y) : int2(thread.x, range.x);
         SceneLine cellLine = { origin, int2(width, height) };
         blur_output.Store(thread.xy, float4(uiMatteCellMean(cellLine, range.y - range.x), 1.0));

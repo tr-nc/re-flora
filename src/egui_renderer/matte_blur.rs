@@ -60,6 +60,7 @@ impl MatteBlur {
         pixels_per_point: f32,
         pixel_cell_size: u32,
         bounds: egui::Rect,
+        grid_origin: [i32; 2],
         retirement: &FrameRetirementSink,
     ) -> &Texture {
         let unchanged = self.images.as_ref().is_some_and(|images| {
@@ -136,6 +137,7 @@ impl MatteBlur {
             [viewport.width, viewport.height],
             pixels_per_point,
             pixel_cell_size,
+            grid_origin,
         );
         for (index, pipeline) in self.passes.iter().enumerate() {
             let region = plan.passes[index];
@@ -149,6 +151,8 @@ impl MatteBlur {
                 radius: plan.radius,
                 dispatch_origin: region.origin,
                 dispatch_extent: region.extent,
+                grid_origin,
+                _pad0: [0; 8],
             };
             // Dependencies still cover composite -> H -> V -> fragment and all
             // surfaces/frames. Only the spatial workload changes.

@@ -8,6 +8,7 @@ struct FragmentInput
     [[vk::location(1)]] float2 local_points : TEXCOORD0;
     [[vk::location(2)]] float2 screen_uv : TEXCOORD1;
     [[vk::location(3)]] nointerpolation uint pixel_cell_size : TEXCOORD2;
+    [[vk::location(4)]] nointerpolation int2 grid_origin : TEXCOORD3;
 };
 
 [[vk::binding(0, 0)]] Sampler2D backdrop_sampler;
@@ -22,7 +23,7 @@ float4 main(FragmentInput input) : SV_Target0
     {
         uint width, height;
         backdrop_sampler.GetDimensions(width, height);
-        uint2 cell = uint2(input.position.xy) / input.pixel_cell_size;
+        uint2 cell = uint2(int2(input.position.xy) - input.grid_origin) / input.pixel_cell_size;
         // Read exactly one packed cell texel. No interpolation across cells and
         // no per-pixel grain: every covered fragment in a cell gets one color.
         float2 uv = (float2(cell) + 0.5) / float2(width, height);

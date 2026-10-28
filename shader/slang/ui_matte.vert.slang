@@ -1,5 +1,5 @@
 // Same egui vertex layout/projection; only material meshes use this pipeline.
-struct Matrices { float4x4 ortho; uint pixel_cell_size; };
+struct Matrices { float4x4 ortho; uint pixel_cell_size; int2 grid_origin; };
 [[vk::push_constant]] ConstantBuffer<Matrices> matrices;
 
 struct VertexInput
@@ -15,6 +15,7 @@ struct VertexOutput
     [[vk::location(1)]] float2 local_points : TEXCOORD0;
     [[vk::location(2)]] float2 screen_uv : TEXCOORD1;
     [[vk::location(3)]] nointerpolation uint pixel_cell_size : TEXCOORD2;
+    [[vk::location(4)]] nointerpolation int2 grid_origin : TEXCOORD3;
 };
 
 [shader("vertex")]
@@ -26,5 +27,6 @@ VertexOutput main(VertexInput input)
     output.local_points = input.uv;
     output.screen_uv = output.position.xy * 0.5 + 0.5;
     output.pixel_cell_size = matrices.pixel_cell_size;
+    output.grid_origin = matrices.grid_origin;
     return output;
 }

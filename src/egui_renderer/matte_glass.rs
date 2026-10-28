@@ -10,7 +10,7 @@ pub const TEXTURE_ID: TextureId = TextureId::User(0x7266_6d61_7474_6501);
 const PIXEL: f32 = 1.0;
 
 /// Saved UI controls enter rendering here; zero physical cell size is the
-/// unchanged Gaussian material. The screen-anchored grid aligns stacked panels.
+/// unchanged Gaussian material. Each surface owns its pixel grid anchor.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct MatteSettings {
     pub pixelated: bool,
@@ -37,9 +37,36 @@ impl MatteSettings {
 /// batching distinct glass surfaces and tells the compositor to refresh frost.
 struct BackdropBoundary;
 
+pub(super) fn backdrop_boundary_rect(primitive: &egui::epaint::Primitive) -> Option<Rect> {
+    if let egui::epaint::Primitive::Callback(callback) = primitive {
+        if callback.callback.is::<BackdropBoundary>() {
+            return Some(callback.rect);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
 pub(super) fn is_backdrop_boundary(primitive: &egui::epaint::Primitive) -> bool {
-    matches!(primitive, egui::epaint::Primitive::Callback(callback)
-        if callback.callback.is::<BackdropBoundary>())
+    backdrop_boundary_rect(primitive).is_some()
+}
+
+/// Preserve a surface's unclipped origin, snapped only to physical pixels.
+/// An equivalent non-positive origin keeps viewport cell indices non-negative,
+/// including panels dragged partly offscreen. Clipping never resets the phase.
+pub(super) fn pixel_grid_origin(origin: egui::Pos2, scale: f32, cell: u32) -> [i32; 2] {
+    if cell == 0 {
+        return [0, 0];
+    }
+    [origin.x, origin.y].map(|point| {
+        let pixel = (point * scale + 0.5).floor() as i32;
+        let phase = pixel.rem_euclid(cell as i32);
+        if phase == 0 {
+            0
+        } else {
+            phase - cell as i32
+        }
+    })
 }
 
 fn surface(rect: Rect, opacity: f32) -> Shape {
@@ -207,6 +234,39 @@ mod tests {
         assert_eq!(settings.cell_pixels(1.0), 4);
         settings.pixelated = false;
         assert_eq!(settings.cell_pixels(1.0), 0);
+    }
+
+    #[test]
+    fn panel_grid_phase_tracks_translation_and_dpi_even_offscreen() {
+        for scale in [0.75, 1.0, 1.75, 2.0] {
+            let cell = MatteSettings {
+                pixelated: true,
+                cell_points: 12,
+            }
+            .cell_pixels(scale);
+            for origin in [-25.25, -1.5, 0.0, 17.25, 100.5] {
+                let anchor = egui::pos2(origin, origin + 3.0);
+                let phase = pixel_grid_origin(anchor, scale, cell);
+                for (point, phase) in [anchor.x, anchor.y].into_iter().zip(phase) {
+                    assert!(phase <= 0 && phase > -(cell as i32));
+                    assert_eq!(
+                        ((point * scale + 0.5).floor() as i32 - phase).rem_euclid(cell as i32),
+                        0
+                    );
+                }
+                // A whole physical-pixel drag moves grid edges by that amount.
+                let shifted =
+                    pixel_grid_origin(anchor + egui::vec2(3.0 / scale, 5.0 / scale), scale, cell);
+                assert_eq!(
+                    (shifted[0] - phase[0]).rem_euclid(cell as i32),
+                    3 % cell as i32
+                );
+                assert_eq!(
+                    (shifted[1] - phase[1]).rem_euclid(cell as i32),
+                    5 % cell as i32
+                );
+            }
+        }
     }
 
     fn has_material(shape: &Shape) -> bool {

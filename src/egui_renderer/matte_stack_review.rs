@@ -8,6 +8,8 @@ pub(crate) fn draw_if_requested(ctx: &egui::Context) -> bool {
     assert!(matches!(
         mode.as_str(),
         "grid"
+            | "grid-moved"
+            | "grid-moved-clip"
             | "red"
             | "blue"
             | "red-reverse"
@@ -39,7 +41,11 @@ pub(crate) fn draw_if_requested(ctx: &egui::Context) -> bool {
                 [0, 1, 2]
             };
             for index in order {
-                let origin = origins[index];
+                let origin = if index == 1 && mode.starts_with("grid-moved") {
+                    origins[index] + egui::vec2(7.0, 5.0)
+                } else {
+                    origins[index]
+                };
                 let mut panel = ui.new_child(
                     egui::UiBuilder::new()
                         .max_rect(egui::Rect::from_min_size(origin, egui::vec2(400.0, 260.0))),
@@ -47,12 +53,18 @@ pub(crate) fn draw_if_requested(ctx: &egui::Context) -> bool {
                 if index == 2 && mode.ends_with("-fade") {
                     panel.set_opacity(0.5);
                 }
-                if index == 2 && mode.ends_with("-clip") {
+                if index == 2 && mode.ends_with("-clip") && !mode.starts_with("grid") {
                     panel.set_clip_rect(egui::Rect::from_min_max(origin, egui::pos2(280.0, 420.0)));
+                }
+                if index == 1 && mode == "grid-moved-clip" {
+                    panel.set_clip_rect(egui::Rect::from_min_max(
+                        egui::pos2(120.0, 128.0),
+                        egui::pos2(500.0, 360.0),
+                    ));
                 }
                 egui::Frame::new().show_matte(&mut panel, |ui| {
                     ui.set_min_size(egui::vec2(400.0, 260.0));
-                    if index == 0 && mode == "grid" {
+                    if index == 0 && mode.starts_with("grid") {
                         let rect = ui.min_rect().shrink(24.0);
                         for y in 0..53 {
                             for x in 0..88 {

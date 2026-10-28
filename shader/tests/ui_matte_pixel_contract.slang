@@ -31,11 +31,13 @@ export __extern_cpp int main()
     uint width = 37u, height = 29u;
     for (uint s = 0u; s < 7u; ++s) {
         uint size = sizes[s];
+        for (uint phase = 0u; phase < size; ++phase) {
+        int2 origin = -int2(phase, (phase * 3u) % size);
         uint visited = 0u;
-        for (uint cy = 0u; cy * size < height; ++cy)
-        for (uint cx = 0u; cx * size < width; ++cx) {
-            uint2 xr = uiMatteCellRange(cx, size, width);
-            uint2 yr = uiMatteCellRange(cy, size, height);
+        for (uint cy = 0u; int(cy * size) + origin.y < int(height); ++cy)
+        for (uint cx = 0u; int(cx * size) + origin.x < int(width); ++cx) {
+            uint2 xr = uiMatteCellRange(cx, size, width, origin.x);
+            uint2 yr = uiMatteCellRange(cy, size, height, origin.y);
             Column column = { xr.x, yr.x, xr.y - xr.x };
             float3 actual = uiMatteCellMean(column, yr.y - yr.x);
             float3 expected = float3(0.0);
@@ -44,13 +46,14 @@ export __extern_cpp int main()
             for (uint x = xr.x; x < xr.y; ++x) {
                 expected += pattern(x, y);
                 ++count;
-                if (x / size != cx || y / size != cy) return 1;
+                if (uint(int(x) - origin.x) / size != cx || uint(int(y) - origin.y) / size != cy) return 1;
             }
             expected /= float(count);
             if (any(abs(actual - expected) > float3(0.00001))) return 2;
             visited += count;
         }
         if (visited != width * height) return 3;
+        }
     }
     return 0;
 }

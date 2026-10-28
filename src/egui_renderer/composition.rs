@@ -18,6 +18,7 @@ pub(super) struct DrawPass {
     pub index_offset: u32,
     pub vertex_offset: i32,
     pub blur_before: bool,
+    pub surface_origin: egui::Pos2,
 }
 
 impl DrawPass {
@@ -49,10 +50,11 @@ pub(super) fn draw_passes(primitives: &[ClippedPrimitive]) -> Vec<DrawPass> {
         index_offset: 0,
         vertex_offset: 0,
         blur_before: false,
+        surface_origin: egui::Pos2::ZERO,
     };
     let (mut index_offset, mut vertex_offset) = (0, 0);
     for (i, primitive) in primitives.iter().enumerate() {
-        if matte_glass::is_backdrop_boundary(&primitive.primitive) {
+        if let Some(rect) = matte_glass::backdrop_boundary_rect(&primitive.primitive) {
             if current.primitives.start < i {
                 current.primitives.end = i;
                 result.push(current);
@@ -62,6 +64,7 @@ pub(super) fn draw_passes(primitives: &[ClippedPrimitive]) -> Vec<DrawPass> {
                 index_offset,
                 vertex_offset,
                 blur_before: true,
+                surface_origin: rect.min,
             };
         } else if let Primitive::Mesh(mesh) = &primitive.primitive {
             index_offset += mesh.indices.len() as u32;

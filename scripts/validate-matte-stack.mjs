@@ -12,7 +12,8 @@ Captures three overlapping glass panels in hidden/muted Release mode, changes
 bottom color, reverses paint order, fades and clips the upper panel.
 Default: original Gaussian glass. --pixelated: saved pixel-glass setting enabled;
 also verifies cell uniformity and exact area averages of a patterned lower panel
-through one and two glass layers at cell sizes 12 and 21, including resize.
+through independently anchored panels at sizes 12 and 21, including panel movement,
+clipping (which must not reset grid phase), and viewport resize.
 Uses an isolated config; never changes your saved settings.
 Artifacts: target/matte-stack/run-*/. Exit: 0 pass/help, 1 failure, 2 usage error.`;
 const args = process.argv.slice(2);
@@ -60,23 +61,37 @@ function capture(mode, name = mode, extra = []) {
     assert.match(log, /\[SHUTDOWN\] phase=complete failures=0/);
     return image;
 }
-function gridCheck(image, size) {
+function gridCheck(image, size, moved = false) {
     const width = Number(execFileSync('magick', [image, '-format', '%w', 'info:'], {encoding: 'utf8'}));
     const bytes = execFileSync('magick', [image, '-depth', '8', 'rgb:-'], {maxBuffer: 32 * 1024 * 1024});
     const tint = rgb => {
         const luminance = rgb[0] * 0.213 + rgb[1] * 0.715 + rgb[2] * 0.072;
         return rgb.map((v, c) => (v * 0.5 + luminance * 0.5) * 0.82 + [217, 228, 194][c] / 255 * 0.18);
     };
-    let worstError = 0;
-    for (const [sx, sy, layers] of [[125, 135, 1], [300, 210, 2]]) {
-        const x0 = Math.floor(sx / size) * size, y0 = Math.floor(sy / size) * size;
-        let average = [0, 0, 0];
-        for (let y = y0; y < y0 + size; y++) for (let x = x0; x < x0 + size; x++) {
+    const origins = [null, moved ? [107, 105] : [100, 100], [180, 160]];
+    const cellStart = (x, y, layer) => origins[layer].map((o, a) =>
+        o + Math.floor(([x, y][a] - o) / size) * size);
+    const cache = new Map();
+    function expected(x, y, layer) {
+        if (layer === 0) {
             const tx = Math.floor((x - 64) / 4), ty = Math.floor((y - 64) / 4);
-            const rgb = [(tx * 17 + ty * 29) % 251, (tx * 43 + ty * 7) % 251, (tx * 3 + ty * 61) % 251];
-            average = average.map((v, c) => v + rgb[c] / (255 * size * size));
+            return [(tx * 17 + ty * 29) % 251, (tx * 43 + ty * 7) % 251, (tx * 3 + ty * 61) % 251].map(v => v / 255);
         }
-        for (let i = 0; i < layers; i++) average = tint(average);
+        const [x0, y0] = cellStart(x, y, layer), key = [layer, x0, y0].join(',');
+        if (cache.has(key)) return cache.get(key);
+        let average = [0, 0, 0];
+        for (let sy = y0; sy < y0 + size; sy++) for (let sx = x0; sx < x0 + size; sx++) {
+            const rgb = expected(sx, sy, layer - 1);
+            average = average.map((v, c) => v + rgb[c] / (size * size));
+        }
+        const result = tint(average);
+        cache.set(key, result);
+        return result;
+    }
+    let worstError = 0;
+    for (const [sx, sy, layers] of [[145, 150, 1], [300, 210, 2]]) {
+        const [x0, y0] = cellStart(sx, sy, layers);
+        const average = expected(sx, sy, layers);
         const first = [...bytes.subarray((y0 * width + x0) * 3, (y0 * width + x0) * 3 + 3)];
         for (let y = y0; y < y0 + size; y++) for (let x = x0; x < x0 + size; x++) {
             const rgb = [...bytes.subarray((y * width + x) * 3, (y * width + x) * 3 + 3)];
@@ -85,7 +100,7 @@ function gridCheck(image, size) {
         }
     }
     assert.ok(worstError <= 2, `area average differs by ${worstError} bytes; inspect ${image}`);
-    return {size, worstError};
+    return {size, moved, worstError};
 }
 try {
     settings(12);
@@ -111,7 +126,9 @@ try {
     const grids = [];
     if (pixelated) for (const size of [12, 21]) {
         settings(size);
-        grids.push(gridCheck(capture('grid', `grid-${size}`, size === 21 ? ['--resize-lifecycle-test'] : []), size));
+        for (const mode of ['grid', 'grid-moved', 'grid-moved-clip']) {
+            grids.push(gridCheck(capture(mode, `${mode}-${size}`, size === 21 && mode === 'grid' ? ['--resize-lifecycle-test'] : []), size, mode !== 'grid'));
+        }
     }
     fs.writeFileSync(path.join(output, 'summary.json'), JSON.stringify({pixelated, means, response, reversed, faded, clipped, grids}, null, 2));
     console.log(`PASS: ${pixelated ? 'pixelated' : 'Gaussian'} bottom-color response 0/1/2 layers = ${response.join(', ')}; grids = ${JSON.stringify(grids)}`);

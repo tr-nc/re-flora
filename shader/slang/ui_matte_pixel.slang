@@ -1,12 +1,12 @@
 module ui_matte_pixel;
 import ui_matte_blur_kernel;
 
-// The final viewport cell is cropped: count only its real pixels, never pad it
-// with black or repeated edge pixels. Caller dispatches ceil(extent / cellSize).
-public uint2 uiMatteCellRange(uint cell, uint cellSize, uint extent)
+// Panel-local cells crossing either viewport edge count only their real pixels,
+// never black padding or repeated edges. gridOrigin is in (-cellSize, 0].
+public uint2 uiMatteCellRange(uint cell, uint cellSize, uint extent, int gridOrigin)
 {
-    uint begin = cell * cellSize;
-    return uint2(begin, min(begin + cellSize, extent));
+    int begin = gridOrigin + int(cell * cellSize);
+    return uint2(clamp(begin, 0, int(extent)), clamp(begin + int(cellSize), 0, int(extent)));
 }
 
 public float3 uiMatteCellMean<T : IMatteBlurLine>(T line, uint count)

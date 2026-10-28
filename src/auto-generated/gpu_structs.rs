@@ -718,7 +718,8 @@ pub struct PushConstantSprinklerWetting {
 pub struct PushConstantUiMatte {
     pub ortho: [[f32; 4]; 4],
     pub pixel_cell_size: u32,
-    pub _pad0: [u8; 12],
+    pub _pad0: [u8; 4],
+    pub grid_origin: [i32; 2],
 }
 
 /// Auto-generated from `PushConstantUiMatteBlur` (native Slang source of truth).
@@ -731,6 +732,8 @@ pub struct PushConstantUiMatteBlur {
     pub radius: u32,
     pub dispatch_origin: [u32; 2],
     pub dispatch_extent: [u32; 2],
+    pub grid_origin: [i32; 2],
+    pub _pad0: [u8; 8],
 }
 
 /// Auto-generated from `PushConstantVegetationResponse` (native Slang source of truth).
