@@ -1,5 +1,6 @@
 //! One-time adapter from the pure opening recipe into ordinary editing transactions.
 mod audit;
+mod grass_review;
 use super::{planting::AuthoredFloraPlacementBatch, App, VOXEL_DIM_PER_CHUNK};
 use crate::{
     app::world_edits::{TerrainBrushEdit, TreeAddOptions, TreePlacement, TreePlacementEdit},
@@ -18,7 +19,8 @@ impl App {
         );
         let world = self.world_chunk_dim * VOXEL_DIM_PER_CHUNK;
         let size = Vec2::new(world.x as f32, world.z as f32) / 256.;
-        // Establish a low meadow through the ordinary Grow occupancy path, once.
+        // Use the player's world-space Grass Mix distribution, not a separate
+        // all-short meadow that would leave a species seam when extended.
         let center = Vec3::new(size.x * 0.5, 0.53, size.y * 0.5);
         self.seed_opening_grass(
             TerrainBrushEdit {
@@ -27,10 +29,8 @@ impl App {
                 radius: size.length() * 0.49,
             },
             seed,
-            crate::flora::species::FloraPaintSelection::Species(
-                crate::flora::species::SHORT_GRASS_SPECIES_INDEX,
-            ),
         )?;
+        self.review_opening_grass_distribution()?;
         for (i, p) in [
             Vec2::new(0.21, 0.40),
             Vec2::new(0.77, 0.46),
@@ -48,7 +48,6 @@ impl App {
                     radius: 0.17,
                 },
                 layout::hash(seed ^ i as u32),
-                crate::flora::species::FloraPaintSelection::GrassMix,
             )?;
         }
         // Established trees do not depend on the user's tuning-tree settings/age.

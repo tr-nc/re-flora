@@ -11,8 +11,8 @@ pub const REVIEW_PRESETS: &[&str] = &[
 pub fn is_review_preset(name: &str) -> bool {
     REVIEW_PRESETS.contains(&name)
 }
-pub const VERSION: u32 = 3;
-// Keep the established flower stream stable when only the tree recipe changes.
+pub const VERSION: u32 = 4;
+// Keep the established flower stream stable when only the tree/grass recipe changes.
 const FLOWER_SEED_SALT: u32 = 1;
 pub const DEFAULT_SEED: u32 = 20260519;
 pub const ARRIVAL: Vec2 = Vec2::new(0.36, 0.73);

@@ -3323,13 +3323,11 @@ impl App {
         Ok(status)
     }
 
-    /// Explicit selection for deterministic authored startup, independent of the active UI brush.
-    pub(super) fn seed_opening_grass(
-        &mut self,
-        edit: TerrainBrushEdit,
-        seed: u32,
-        selection: species::FloraPaintSelection,
-    ) -> Result<()> {
+    /// Opening grass uses the same world-space mix as player grass painting,
+    /// independent of the active UI selection. Both delegate species placement
+    /// to selectPaintedFloraType; startup must not choose a separate grass recipe.
+    pub(super) fn seed_opening_grass(&mut self, edit: TerrainBrushEdit, seed: u32) -> Result<()> {
+        let selection = species::FloraPaintSelection::GrassMix;
         let compiled = TerrainSurfaceRemovalService::compile_surface_brush_in_world(
             edit,
             self.world_chunk_dim,
