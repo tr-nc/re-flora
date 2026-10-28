@@ -5,9 +5,12 @@ import ui_matte_pixel;
 
 struct MatteBlurPush
 {
-    float pixels_per_point;
+    float sigma;
     uint horizontal;
     uint pixel_cell_size;
+    uint radius;
+    uint2 dispatch_origin;
+    uint2 dispatch_extent;
 };
 [[vk::push_constant]] ConstantBuffer<MatteBlurPush> blur_push;
 [[vk::binding(0, 0)]]
@@ -37,6 +40,8 @@ struct SceneLine : IMatteBlurLine
 [numthreads(8, 8, 1)]
 void main(uint3 thread : SV_DispatchThreadID)
 {
+    if (any(thread.xy >= blur_push.dispatch_extent)) return;
+    thread.xy += blur_push.dispatch_origin;
     uint width, height;
     blur_output.GetDimensions(width, height);
     uint cellSize = blur_push.pixel_cell_size;
@@ -59,6 +64,5 @@ void main(uint3 thread : SV_DispatchThreadID)
     }
     if (any(thread.xy >= uint2(width, height))) return;
     SceneLine line = { int2(thread.xy), int2(width, height) };
-    float sigma = UI_MATTE_FROST_POINTS * blur_push.pixels_per_point;
-    blur_output.Store(thread.xy, float4(uiMatteBlur(line, sigma), 1.0));
+    blur_output.Store(thread.xy, float4(uiMatteBlur(line, blur_push.sigma, int(blur_push.radius)), 1.0));
 }

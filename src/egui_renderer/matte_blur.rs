@@ -5,6 +5,9 @@ use re_flora_vkn::{
     ResourceLookup, SamplerDesc, ShaderModule, Texture,
 };
 
+mod region;
+use region::FilterPlan;
+
 struct PassResources<'a> {
     source: &'a Texture,
     output: &'a Texture,
@@ -56,6 +59,7 @@ impl MatteBlur {
         source: &Texture,
         pixels_per_point: f32,
         pixel_cell_size: u32,
+        bounds: egui::Rect,
         retirement: &FrameRetirementSink,
     ) -> &Texture {
         let unchanged = self.images.as_ref().is_some_and(|images| {
@@ -126,22 +130,31 @@ impl MatteBlur {
                 .expect("matte blur generation overflow");
         }
         let images = self.images.as_ref().unwrap();
+        let viewport = source.get_image().get_desc().extent;
+        let plan = FilterPlan::new(
+            bounds,
+            [viewport.width, viewport.height],
+            pixels_per_point,
+            pixel_cell_size,
+        );
         for (index, pipeline) in self.passes.iter().enumerate() {
+            let region = plan.passes[index];
+            if region.extent.contains(&0) {
+                continue;
+            }
             let push = crate::generated::gpu_structs::PushConstantUiMatteBlur {
-                pixels_per_point,
+                sigma: plan.sigma,
                 horizontal: u32::from(index == 0),
                 pixel_cell_size,
-                _pad0: [0; 4],
+                radius: plan.radius,
+                dispatch_origin: region.origin,
+                dispatch_extent: region.extent,
             };
-            // The reflected resource tracker inserts composite -> H -> V -> fragment
-            // barriers, and the next frame's read/write dependencies.
-            let mut extent = source.get_image().get_desc().extent;
-            if pixel_cell_size != 0 {
-                extent.width = extent.width.div_ceil(pixel_cell_size);
-                if index == 1 {
-                    extent.height = extent.height.div_ceil(pixel_cell_size);
-                }
-            }
+            // Dependencies still cover composite -> H -> V -> fragment and all
+            // surfaces/frames. Only the spatial workload changes.
+            let mut extent = viewport;
+            extent.width = region.extent[0];
+            extent.height = region.extent[1];
             pipeline.record(cmd, extent, Some(bytemuck::bytes_of(&push)));
         }
         &images.blurred

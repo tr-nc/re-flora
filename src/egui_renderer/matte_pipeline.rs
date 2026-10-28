@@ -70,6 +70,7 @@ impl MattePipeline {
         texture: &Texture,
         pixels_per_point: f32,
         pixel_cell_size: u32,
+        bounds: egui::Rect,
         retirement: &FrameRetirementSink,
     ) {
         self.pixel_cell_size = pixel_cell_size;
@@ -78,6 +79,7 @@ impl MattePipeline {
             texture,
             pixels_per_point,
             pixel_cell_size,
+            bounds,
             retirement,
         );
         let unchanged = self.backdrop.as_ref().is_some_and(|backdrop| {

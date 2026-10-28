@@ -20,6 +20,26 @@ pub(super) struct DrawPass {
     pub blur_before: bool,
 }
 
+impl DrawPass {
+    /// Only the actual clipped glass meshes consume the backdrop. Own text and
+    /// later ordinary UI must not enlarge this surface's filter footprint.
+    pub fn backdrop_bounds(&self, primitives: &[ClippedPrimitive]) -> egui::Rect {
+        primitives[self.primitives.clone()]
+            .iter()
+            .fold(egui::Rect::NOTHING, |bounds, p| {
+                if let Primitive::Mesh(mesh) = &p.primitive {
+                    if mesh.texture_id == matte_glass::TEXTURE_ID {
+                        let visible = mesh.calc_bounds().intersect(p.clip_rect);
+                        if visible.is_positive() {
+                            return bounds.union(visible);
+                        }
+                    }
+                }
+                bounds
+            })
+    }
+}
+
 /// Callbacks are explicit surface boundaries: equal-texture adjacent meshes must
 /// not be merged into one backdrop evaluation by egui's tessellator.
 pub(super) fn draw_passes(primitives: &[ClippedPrimitive]) -> Vec<DrawPass> {

@@ -88,6 +88,41 @@ fn empty_or_ordinary_ui_needs_no_backdrop_refresh() {
     assert_offsets_and_coverage(&primitives, &passes);
 }
 
+#[test]
+fn backdrop_footprint_uses_clipped_glass_not_its_contents() {
+    let ctx = egui::Context::default();
+    let output = ctx.run_ui(Default::default(), |ui| {
+        ui.set_clip_rect(egui::Rect::from_min_max(
+            egui::pos2(0.0, 0.0),
+            egui::pos2(80.0, 90.0),
+        ));
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(egui::Rect::from_min_size(
+            egui::pos2(20.0, 20.0),
+            egui::vec2(100.0, 100.0),
+        )));
+        egui::Frame::new().show_matte(&mut child, |ui| {
+            ui.set_min_size(egui::vec2(100.0, 100.0));
+            ui.label("Panel contents");
+        });
+        // This belongs to the same draw pass but does not sample its backdrop.
+        ui.painter()
+            .with_clip_rect(egui::Rect::EVERYTHING)
+            .rect_filled(
+                egui::Rect::from_min_size(egui::pos2(300.0, 300.0), egui::vec2(1000.0, 1000.0)),
+                0.0,
+                egui::Color32::RED,
+            );
+    });
+    let primitives = ctx.tessellate(output.shapes, output.pixels_per_point);
+    let passes = draw_passes(&primitives);
+    let pass = passes.iter().find(|p| p.blur_before).unwrap();
+    let bounds = pass.backdrop_bounds(&primitives);
+    assert!(bounds.is_positive());
+    assert!(bounds.min.x >= 19.0 && bounds.min.y >= 19.0);
+    assert_eq!(bounds.max, egui::pos2(80.0, 90.0));
+    assert_offsets_and_coverage(&primitives, &passes);
+}
+
 fn assert_offsets_and_coverage(primitives: &[ClippedPrimitive], passes: &[DrawPass]) {
     let (mut indices, mut vertices) = (0, 0);
     for pass in passes {

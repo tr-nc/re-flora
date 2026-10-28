@@ -14,7 +14,8 @@ recipe from `experiments/matte-glass/`:
 | Texture | `seeded-monochrome-32x32-v1` | Exact 32×32 LCG sequence, evaluated procedurally |
 
 This remains the default (unchecked) native surface. The approved material
-constants live in `shader/slang/ui_matte_material.slang`. The optional pixelated
+color constants live in `shader/slang/ui_matte_material.slang`; the spatial frost
+recipe and dispatch footprint live together in `matte_blur/region.rs`. The optional pixelated
 A/B mode below is declaratively saved; no per-setting save hooks are used.
 
 ## Scope
@@ -97,13 +98,13 @@ mechanism instead of hiding it with a more opaque tint or temporal noise.
 
 The accumulation target plus two reusable full-resolution RGBA16F blur images
 cost 24 bytes per viewport pixel combined (about 47.5 MiB at 1920×1080), independent
-of panel count, excluding in-flight retired generations. The two compute passes
-in Gaussian mode cover the viewport **for each glass surface**; blur work grows with the
-number of surfaces, even when their bounds do not overlap. This is the correctness
-baseline, not a performance optimization. Regional filtering/batching can be
-considered after visual approval, while preserving lower-UI backdrop dependencies.
-No asynchronous captures or stale-frame readbacks are involved. This change is a
-visual correction, **not a measured performance win or budget acceptance**.
+of panel count, excluding in-flight retired generations. Each surface now filters
+only its actual clipped glass footprint, with the full dependency halo/cell support
+(see the performance fix below). Work still grows with the total covered area and
+number of overlapping surfaces; full-screen stacked glass remains expensive.
+Allocations are unchanged. No asynchronous captures or stale-frame readbacks are
+involved. The measured improvement below applies to the tested ordinary panels,
+not a universal performance-budget acceptance.
 
 At 18% body opacity, backdrop brightness still strongly affects contrast, as it
 would in the approved web preset. Selected and hovered inset controls have a
@@ -114,6 +115,88 @@ No external image/audio resources were added. The procedural grain uses the
 browser's documented seed `1837`, multiplier `1664525`, increment `1013904223`,
 RGB levels `90/220`, and alpha `140`. Shader affine skip-ahead produces the same
 texels as the sequential browser generator; no generated texture file is needed.
+
+## 10 FPS regression: bounded filter dispatch (2026-10-29)
+
+**Impact.** Release on the RTX 3060 Ti at 5120×2880, ordinary initial garden with
+Debug Panel searching UI Glass: Gaussian mode reproduced **104–106 ms/frame,
+about 9.5 FPS**. Closing Debug Panel still left ~96 ms/frame because other panels
+also refreshed the full viewport. Pixelated mode was already ~60 FPS. The
+`egui.render` GPU scope isolated the bottleneck: ~98.4 ms of ~102 ms total GPU
+time. No second game process was running. These were native Release measurements,
+not debug tests or inferred operation counts.
+
+**Cause and introduction.** The painter-order composition change `d5415831`
+(2026-10-29) refreshed two full-viewport Gaussian passes at every glass boundary.
+Even small panels processed the entire 5K image, repeatedly. Dense sampling and
+DPI-scaled radius amplified that unnecessary work. The observed baseline is the
+pre-fix `1955a3e5` Release binary; the introducing change is identified by source
+history, not an independently benchmarked historical build. The later pixelated
+switch exposed the slow unchecked path rather than causing it.
+
+**Fix and ownership.** Each compositor draw pass derives its backdrop demand
+from actual glass mesh bounds intersected with egui clipping; ordinary text and
+controls do not enlarge it. `matte_blur/region.rs` owns the sigma/radius and
+dispatch plan together, and passes both to the shader:
+- Gaussian vertical outputs cover that footprint plus one conservative sampler
+  texel. Horizontal outputs include every row the vertical kernel can read,
+  clamped only at the viewport boundary. Horizontal input still reads the full
+  kernel from the authoritative current composite.
+- Pixelated dispatch rounds outward to complete screen-anchored cells, including
+  pixels outside the panel/clip within each cell; only viewport-edge cells are
+  cropped. Packed intermediate coordinates remain unchanged.
+- Rounded-up workgroups are checked against exact dispatch extent before applying
+  origin. Empty/offscreen requests do not dispatch. Every sampled intermediate
+  is written for the current surface; unrelated stale pixels cannot leak in.
+
+No downsampling, reduced radius, sparse taps, opacity workaround or skipped
+lower-panel content. Existing material, painter order, images and GPU retirement
+are unchanged. Runtime region tests cover fractional DPI, clip bounds, offscreen
+surfaces, partial cells, and every horizontal texel required by vertical reads.
+
+**Measured results and validation.**
+
+| Native case, Debug open | Before frame / UI GPU | After frame / UI GPU |
+| --- | --- | --- |
+| 5120×2880, Gaussian | 104.48 / 98.426 ms | 16.88 / 7.171 ms |
+| 5120×2880, pixelated | 16.77 / 3.354 ms | 17.38 / 1.526 ms |
+| 4096×2560, Gaussian | 69.03 / 62.667 ms | 17.09 / 5.771 ms |
+| 4096×2560, pixelated | 17.03 / 2.521 ms | 17.22 / 1.615 ms |
+
+At the default present mode, restored frame delivery is around 58–60 FPS; frame
+intervals are not uncapped throughput. The script keeps the last 30 frame samples
+and up to three GPU scope samples per short run, so these are diagnostic results,
+not broad scene/population acceptance. Larger actually covered areas still cost
+more. Initial evidence: `target/matte-perf/{before,after}.json` and matching logs.
+A longer alternating run in `paired-3SDNkj/` detected a live monitor-resolution
+change (5120×2880 → 4096×2560) and correctly aborted rather than aggregate unmatched
+cases. Its first cold baseline was also slower; that incomplete run is not used
+for the table. A fresh complete four-case pair at 4096×2560 is retained in
+`target/matte-perf/paired-ymga5q/`.
+
+Reproduce matched measurements with two built Release binaries:
+
+```sh
+node scripts/benchmark-ui-glass.mjs --before /path/to/before --after target/release/re-flora
+```
+
+Stop other GPU workloads; do not build concurrently or change monitor resolution.
+The script alternates binaries, checks dimensions/quality, isolates config, records
+input hashes and preserves raw logs. It does not set a universal FPS threshold.
+
+- Both native transmission suites pass under Vulkan synchronization validation:
+  `target/matte-stack/run-fDZwY6/` (Gaussian, eight cases) and
+  `target/matte-stack/run-NdmkaA/` (pixelated, ten including resize and area means).
+  Responses and pixel-cell errors are unchanged from the unbounded implementation.
+- Compared Gaussian overlap crops to pre-fix screenshots: reversed order is exact;
+  remaining tested red/blue/fade/clip crops differ by at most one 8-bit channel
+  step, with mean difference below 0.00000014. No new edge contamination observed.
+- `cargo fmt --check`, `cargo check`, `cargo build --release`, hidden/muted
+  smoke and three Slang UI contracts pass. Full Rust: **1,743 passed, 9 failed,
+  13 ignored**, plus four collision tests. The same pre-existing config-default
+  and raster-tree assertions fail. Twelve renderer tests pass.
+- Shader-derived push structs regenerated by `cargo check`; no saved config
+  changes or image/audio assets.
 
 ## Pixelated glass A/B (2026-10-29)
 
@@ -133,8 +216,8 @@ remain sharp and are not part of that uniform-background promise; normal egui
 visibility fades and antialiased boundaries still blend with the lower composite.
 
 The existing two compute passes now also support compact separable area means:
-horizontal produces one mean per cell-column/source-row; vertical produces one
-mean per final cell. Both results are packed into the upper-left region of the
+horizontal produces one mean per needed cell-column/source-row; vertical produces
+one mean per needed final cell. Both results are packed into the upper-left region of the
 existing float images. Fragments fetch the exact texel center of their cell.
 This reads each source pixel once in the horizontal pass rather than repeating
 NxN samples for every output fragment. Partial viewport-edge cells use only their

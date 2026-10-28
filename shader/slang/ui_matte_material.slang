@@ -3,7 +3,6 @@ module ui_matte_material;
 // Approved re-flora/matte-glass-study/v1 recipe. CSS pixels become egui points.
 public static const float3 UI_MATTE_TINT_SRGB = float3(217.0 / 255.0, 228.0 / 255.0, 194.0 / 255.0);
 public static const float UI_MATTE_BODY = 0.18;
-public static const float UI_MATTE_FROST_POINTS = 7.0;
 public static const float UI_MATTE_SATURATION = 0.5;
 public static const float UI_MATTE_DITHER = 0.09;
 

@@ -7,11 +7,6 @@ public interface IMatteBlurLine
     float3 sample(int offset);
 }
 
-public int uiMatteBlurRadius(float sigma)
-{
-    return int(ceil(3.0 * sigma));
-}
-
 public float uiMatteBlurWeight(int offset, float sigma)
 {
     float x = float(offset) / sigma;
@@ -19,9 +14,8 @@ public float uiMatteBlurWeight(int offset, float sigma)
 }
 
 // Shared by the GPU pass and CPU impulse/edge regressions.
-public float3 uiMatteBlur<T : IMatteBlurLine>(T line, float sigma)
+public float3 uiMatteBlur<T : IMatteBlurLine>(T line, float sigma, int radius)
 {
-    int radius = uiMatteBlurRadius(sigma);
     float3 sum = float3(0.0);
     float total = 0.0;
     for (int offset = -radius; offset <= radius; ++offset)

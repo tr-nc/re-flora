@@ -14,7 +14,7 @@ export __extern_cpp int main()
         if (abs(uiMatteGrain(point) - expectedGrain) > 0.000001) return 2;
         if (uiMatteGrain(point) != uiMatteGrain(point + float2(32.0))) return 3;
     }
-    if (UI_MATTE_BODY != 0.18 || UI_MATTE_FROST_POINTS != 7.0 ||
+    if (UI_MATTE_BODY != 0.18 ||
         UI_MATTE_DITHER != 0.09 || UI_MATTE_SATURATION != 0.5) return 4;
 
     // Source-over arithmetic from the approved browser recipe, not linear-space

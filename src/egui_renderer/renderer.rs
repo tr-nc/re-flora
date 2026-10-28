@@ -544,6 +544,7 @@ impl EguiRenderer {
                     &target.image,
                     pixels_per_point,
                     pixel_cell_size,
+                    pass.backdrop_bounds(primitives),
                     &self.frame_retirement_sink,
                 );
             }

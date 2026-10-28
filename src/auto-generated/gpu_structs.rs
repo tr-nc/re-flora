@@ -725,10 +725,12 @@ pub struct PushConstantUiMatte {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PushConstantUiMatteBlur {
-    pub pixels_per_point: f32,
+    pub sigma: f32,
     pub horizontal: u32,
     pub pixel_cell_size: u32,
-    pub _pad0: [u8; 4],
+    pub radius: u32,
+    pub dispatch_origin: [u32; 2],
+    pub dispatch_extent: [u32; 2],
 }
 
 /// Auto-generated from `PushConstantVegetationResponse` (native Slang source of truth).
