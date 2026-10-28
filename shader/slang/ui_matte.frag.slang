@@ -13,8 +13,8 @@ struct FragmentInput
 [shader("fragment")]
 float4 main(FragmentInput input) : SV_Target0
 {
-    // Both dense Gaussian passes completed before the UI render pass. All
-    // panels share this current-frame, scene-only, encoded-sRGB backdrop.
+    // Both dense Gaussian passes completed before this surface's render pass.
+    // The encoded-sRGB backdrop includes the scene and all earlier UI layers.
     float3 blurred = backdrop_sampler.Sample(saturate(input.screen_uv)).rgb;
     float3 surface = uiMatteSurfaceSrgb(blurred, uiMatteGrain(input.local_points));
     // This is the resolved backdrop, not an 18%-alpha flat overlay. Opacity here

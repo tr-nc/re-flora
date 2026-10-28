@@ -1,3 +1,4 @@
+use super::composition::{draw_passes, UiCompositor};
 use super::matte_glass;
 use super::matte_pipeline::MattePipeline;
 use super::mesh::{Mesh, RetiredMeshBuffers};
@@ -37,6 +38,7 @@ pub struct EguiRenderer {
     allocator: Allocator,
     gui_ppl: GraphicsPipeline,
     matte: MattePipeline,
+    compositor: UiCompositor,
     egui_vert_sm: ShaderModule,
     egui_frag_sm: ShaderModule,
 
@@ -87,7 +89,14 @@ impl EguiRenderer {
             &pool,
         );
 
-        let matte = MattePipeline::new(device, allocator.clone(), render_pass, &pool);
+        let compositor = UiCompositor::new(
+            vulkan_ctx.clone(),
+            allocator.clone(),
+            &pool,
+            &egui_vert_sm,
+            &egui_frag_sm,
+        );
+        let matte = MattePipeline::new(device, allocator.clone(), &compositor.render_pass, &pool);
         let egui_context = egui::Context::default();
         let egui_winit_state = egui_winit::State::new(
             egui_context.clone(),
@@ -103,6 +112,7 @@ impl EguiRenderer {
             allocator,
             gui_ppl,
             matte,
+            compositor,
             egui_vert_sm,
             egui_frag_sm,
             pool,
@@ -128,12 +138,8 @@ impl EguiRenderer {
     ///
     /// This is an expensive operation.
     pub fn set_render_pass(&mut self, render_pass: &RenderPass) {
-        self.matte.set_render_pass(
-            self.vulkan_context.device(),
-            render_pass,
-            &self.pool,
-            &self.frame_retirement_sink,
-        );
+        // Scene composition uses its own fixed-format render pass; only the
+        // loading-screen pipeline follows swapchain format changes.
         self.gui_ppl = GraphicsPipeline::new_uninitialized(
             self.vulkan_context.device(),
             &self.egui_vert_sm,
@@ -335,6 +341,8 @@ impl EguiRenderer {
         extent: Extent2D,
         pixels_per_point: f32,
         primitives: &[ClippedPrimitive],
+        mut index_offset: u32,
+        mut vertex_offset: i32,
     ) {
         if primitives.is_empty() {
             return;
@@ -363,8 +371,6 @@ impl EguiRenderer {
         cmdbuf.bind_index_buffer_u32(&frame.indices_buffer);
         cmdbuf.bind_vertex_buffers(0, &[&frame.vertices_buffer]);
 
-        let mut index_offset = 0u32;
-        let mut vertex_offset = 0i32;
         let mut current_texture_id: Option<TextureId> = None;
 
         for p in primitives {
@@ -457,12 +463,7 @@ impl EguiRenderer {
     }
 
     /// Prepare CPU-written mesh buffers and declare their frame uses before the GUI render pass.
-    pub fn prepare_command_buffer(
-        &mut self,
-        device: &Device,
-        cmdbuf: &CommandBuffer,
-        backdrop: Option<&Texture>,
-    ) {
+    pub fn prepare_command_buffer(&mut self, device: &Device, cmdbuf: &CommandBuffer) {
         let Some(primitives) = self.clipped_primitives.as_ref() else {
             return;
         };
@@ -477,12 +478,8 @@ impl EguiRenderer {
             };
             if prepared_textures.insert(mesh.texture_id) {
                 if mesh.texture_id == matte_glass::TEXTURE_ID {
-                    self.matte.prepare(
-                        cmdbuf,
-                        backdrop.expect("UI glass requires the current scene"),
-                        self.pixels_per_point.expect("prepared UI scale"),
-                        &self.frame_retirement_sink,
-                    );
+                    // Prepared at each painter-order surface boundary, after
+                    // earlier panels and their contents have been composited.
                     continue;
                 }
                 let managed = self
@@ -525,6 +522,52 @@ impl EguiRenderer {
         cmdbuf.use_buffer(&frame.indices_buffer, re_flora_vkn::BufferUse::IndexRead);
     }
 
+    /// Composite the scene and UI without modifying the tracer's scene image.
+    /// Every blur runs outside a render pass and reads only already-painted UI.
+    pub fn composite_scene(
+        &mut self,
+        device: &Device,
+        cmd: &CommandBuffer,
+        scene: &Texture,
+    ) -> &Texture {
+        self.prepare_command_buffer(device, cmd);
+        self.compositor
+            .prepare(cmd, scene, &self.frame_retirement_sink);
+        let target = self.compositor.target();
+        let primitives = self.clipped_primitives.as_deref().unwrap_or_default();
+        let pixels_per_point = self.pixels_per_point.expect("prepared UI scale");
+        for pass in draw_passes(primitives) {
+            if pass.blur_before {
+                self.matte.prepare(
+                    cmd,
+                    &target.image,
+                    pixels_per_point,
+                    &self.frame_retirement_sink,
+                );
+            }
+            target.render_target.record_begin(cmd, &[]);
+            Self::cmd_draw(
+                &mut self.frames,
+                &self.compositor.pipeline,
+                &self.matte,
+                &self.managed_textures,
+                cmd,
+                scene
+                    .get_image()
+                    .get_desc()
+                    .extent
+                    .as_extent_2d()
+                    .expect("2D UI scene"),
+                pixels_per_point,
+                &primitives[pass.primitives],
+                pass.index_offset,
+                pass.vertex_offset,
+            );
+            target.render_target.record_end(cmd);
+        }
+        &target.image
+    }
+
     pub fn record_command_buffer_scaled(
         &mut self,
         _device: &Device,
@@ -541,6 +584,8 @@ impl EguiRenderer {
             render_area,
             self.pixels_per_point.unwrap() * output_scale,
             self.clipped_primitives.as_ref().unwrap(),
+            0,
+            0,
         );
     }
 }

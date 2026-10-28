@@ -1,4 +1,4 @@
-//! Explicit scene-backed UI surfaces. No fill-color detection and no scene feedback.
+//! Explicit backdrop-backed UI surfaces. No fill-color detection or frame feedback.
 use egui::{
     epaint::Vertex, Color32, Frame, Id, InnerResponse, LayerId, Order, Rect, Shape, TextureId, Ui,
 };
@@ -8,6 +8,15 @@ pub const TEXTURE_ID: TextureId = TextureId::User(0x7266_6d61_7474_6501);
 
 /// One logical pixel, like the approved browser recipe (scales with UI DPI).
 const PIXEL: f32 = 1.0;
+
+/// Typed paint marker, not an external rendering callback. It prevents egui
+/// batching distinct glass surfaces and tells the compositor to refresh frost.
+struct BackdropBoundary;
+
+pub(super) fn is_backdrop_boundary(primitive: &egui::epaint::Primitive) -> bool {
+    matches!(primitive, egui::epaint::Primitive::Callback(callback)
+        if callback.callback.is::<BackdropBoundary>())
+}
 
 fn surface(rect: Rect, opacity: f32) -> Shape {
     if !rect.is_positive() || opacity <= 0.0 {
@@ -57,7 +66,13 @@ fn surface(rect: Rect, opacity: f32) -> Shape {
         mesh.indices
             .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     }
-    Shape::mesh(mesh)
+    Shape::Vec(vec![
+        Shape::Callback(egui::PaintCallback {
+            rect,
+            callback: std::sync::Arc::new(BackdropBoundary),
+        }),
+        Shape::mesh(mesh),
+    ])
 }
 
 fn clear_body(mut frame: Frame) -> Frame {
@@ -161,7 +176,10 @@ mod tests {
     #[test]
     fn material_is_explicit_and_has_pixel_steps_without_overlapping_triangles() {
         let rect = Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(100.0, 60.0));
-        let Shape::Mesh(mesh) = surface(rect, 1.0) else {
+        let Shape::Vec(shapes) = surface(rect, 1.0) else {
+            panic!("missing material boundary")
+        };
+        let Shape::Mesh(mesh) = &shapes[1] else {
             panic!("missing material mesh")
         };
         assert_eq!(mesh.texture_id, TEXTURE_ID);

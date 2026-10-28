@@ -13,8 +13,6 @@ struct Backdrop {
 
 pub(super) struct MattePipeline {
     pub pipeline: GraphicsPipeline,
-    vertex: ShaderModule,
-    fragment: ShaderModule,
     backdrop: Option<Backdrop>,
     blur: MatteBlur,
     generation: u64,
@@ -34,8 +32,6 @@ impl MattePipeline {
         let pipeline = Self::create_pipeline(device, render_pass, pool, &vertex, &fragment);
         Self {
             pipeline,
-            vertex,
-            fragment,
             backdrop: None,
             blur: MatteBlur::new(device, allocator, pool),
             generation: 0,
@@ -64,30 +60,6 @@ impl MattePipeline {
             None,
             pool,
         )
-    }
-
-    pub fn set_render_pass(
-        &mut self,
-        device: &Device,
-        render_pass: &RenderPass,
-        pool: &DescriptorPool,
-        retirement: &FrameRetirementSink,
-    ) {
-        let pipeline =
-            Self::create_pipeline(device, render_pass, pool, &self.vertex, &self.fragment);
-        let old = std::mem::replace(&mut self.pipeline, pipeline);
-        retirement.retire(FrameRetirement::new(
-            "egui.matte.pipeline",
-            self.generation,
-            old,
-        ));
-        if let Some(backdrop) = self.backdrop.take() {
-            retirement.retire(FrameRetirement::new(
-                "egui.matte.backdrop",
-                self.generation,
-                backdrop,
-            ));
-        }
     }
 
     pub fn prepare(

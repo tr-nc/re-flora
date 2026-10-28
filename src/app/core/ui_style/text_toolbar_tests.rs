@@ -261,12 +261,15 @@ fn text_toolbar_wraps_without_icons_boxes_or_lost_tools() {
             labels.push(label);
         }
         // One explicitly tagged material surface; no per-tool/keycap boxes or icons.
-        let mut materials = 0;
-        for shape in &output.shapes {
-            match &shape.shape {
+        fn check_surface(shape: &egui::Shape, panel: egui::Rect) -> usize {
+            match shape {
+                egui::Shape::Vec(shapes) => {
+                    shapes.iter().map(|shape| check_surface(shape, panel)).sum()
+                }
                 egui::Shape::Rect(rect) => {
                     assert!(rect.stroke.is_empty());
                     assert_eq!(rect.fill, Color32::TRANSPARENT);
+                    0
                 }
                 egui::Shape::Mesh(mesh) => {
                     assert_eq!(
@@ -274,11 +277,16 @@ fn text_toolbar_wraps_without_icons_boxes_or_lost_tools() {
                         crate::egui_renderer::matte_glass::TEXTURE_ID
                     );
                     assert_eq!(mesh.calc_bounds(), panel);
-                    materials += 1;
+                    1
                 }
-                _ => {}
+                _ => 0,
             }
         }
+        let materials: usize = output
+            .shapes
+            .iter()
+            .map(|shape| check_surface(&shape.shape, panel))
+            .sum();
         assert_eq!(materials, 1);
     }
 }

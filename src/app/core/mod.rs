@@ -2693,6 +2693,9 @@ impl App {
                         apply_gui_style(&mut style);
                         ui_style::apply_panel_outline_preference(&mut style, false);
                         ctx.set_global_style(style);
+                        if crate::egui_renderer::matte_stack_review::draw_if_requested(ctx) {
+                            return;
+                        }
 
                         if let Some(transition) = self.splash_transition.as_mut() {
                             let visible = !hide_ui_for_environment_test_capture
@@ -3748,20 +3751,7 @@ impl App {
                     );
                 }
 
-                self.swapchain.record_blit(
-                    self.tracer.get_screen_output_tex().get_image(),
-                    cmdbuf,
-                    &frame,
-                );
                 let device = self.vulkan_ctx.device();
-                self.egui_renderer.prepare_command_buffer(
-                    device,
-                    cmdbuf,
-                    Some(self.tracer.get_screen_output_tex()),
-                );
-                self.swapchain
-                    .record_begin_render_pass_cmdbuf(cmdbuf, &frame);
-
                 let egui_gpu_scope = self.gpu_profiler.as_mut().and_then(|profiler| {
                     profiler.begin_scope(
                         frame_slot,
@@ -3770,8 +3760,17 @@ impl App {
                         PipelineStage::ALL_COMMANDS,
                     )
                 });
-                self.egui_renderer
-                    .record_command_buffer(device, cmdbuf, render_area);
+                let composite = self.egui_renderer.composite_scene(
+                    device,
+                    cmdbuf,
+                    self.tracer.get_screen_output_tex(),
+                );
+                self.swapchain
+                    .record_blit(composite.get_image(), cmdbuf, &frame);
+                // Keep the swapchain's existing load/store and present-layout
+                // contract. UI rendering itself has finished in the compositor.
+                self.swapchain
+                    .record_begin_render_pass_cmdbuf(cmdbuf, &frame);
                 if let Some(scope) = egui_gpu_scope {
                     if let Some(profiler) = self.gpu_profiler.as_mut() {
                         profiler.end_scope(frame_slot, cmdbuf, scope, PipelineStage::ALL_COMMANDS);

@@ -1,4 +1,4 @@
-//! Current-frame separable frost, shared by every explicit glass surface.
+//! Current-composite separable frost, refreshed at each glass paint boundary.
 use re_flora_vkn::{
     vk, Allocator, CommandBuffer, ComputePipeline, DescriptorPool, DescriptorResource,
     DescriptorUpdate, Device, FrameRetirement, FrameRetirementSink, ImageDesc, ResourceContainer,
