@@ -16,6 +16,7 @@ pub(super) struct MattePipeline {
     backdrop: Option<Backdrop>,
     blur: MatteBlur,
     generation: u64,
+    pixel_cell_size: u32,
 }
 
 impl MattePipeline {
@@ -35,6 +36,7 @@ impl MattePipeline {
             backdrop: None,
             blur: MatteBlur::new(device, allocator, pool),
             generation: 0,
+            pixel_cell_size: 0,
         }
     }
 
@@ -67,11 +69,17 @@ impl MattePipeline {
         cmdbuf: &CommandBuffer,
         texture: &Texture,
         pixels_per_point: f32,
+        pixel_cell_size: u32,
         retirement: &FrameRetirementSink,
     ) {
-        let texture = self
-            .blur
-            .prepare(cmdbuf, texture, pixels_per_point, retirement);
+        self.pixel_cell_size = pixel_cell_size;
+        let texture = self.blur.prepare(
+            cmdbuf,
+            texture,
+            pixels_per_point,
+            pixel_cell_size,
+            retirement,
+        );
         let unchanged = self.backdrop.as_ref().is_some_and(|backdrop| {
             backdrop.texture.get_image().as_raw() == texture.get_image().as_raw()
         });
@@ -102,7 +110,13 @@ impl MattePipeline {
             .prepare_descriptor_set_resources(cmdbuf, &self.backdrop.as_ref().unwrap().descriptor);
     }
 
-    pub fn bind(&self, cmdbuf: &CommandBuffer) {
+    pub fn bind(&self, cmdbuf: &CommandBuffer, projection: &[f32; 16]) {
+        let push = crate::generated::gpu_structs::PushConstantUiMatte {
+            ortho: bytemuck::cast(*projection),
+            pixel_cell_size: self.pixel_cell_size,
+            _pad0: [0; 12],
+        };
+        cmdbuf.push_vertex_constants(&self.pipeline, bytemuck::bytes_of(&push));
         let backdrop = self
             .backdrop
             .as_ref()

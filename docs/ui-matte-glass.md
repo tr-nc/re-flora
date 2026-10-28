@@ -13,9 +13,9 @@ recipe from `experiments/matte-glass/`:
 | Pixel size | `1` CSS px | One logical point; two-step corner cuts |
 | Texture | `seeded-monochrome-32x32-v1` | Exact 32×32 LCG sequence, evaluated procedurally |
 
-This is the default native surface, not an A/B experiment. The approved material
-constants live in `shader/slang/ui_matte_material.slang`; there are no new Debug
-settings or save hooks. Existing user configuration files are unchanged.
+This remains the default (unchecked) native surface. The approved material
+constants live in `shader/slang/ui_matte_material.slang`. The optional pixelated
+A/B mode below is declaratively saved; no per-setting save hooks are used.
 
 ## Scope
 
@@ -98,7 +98,7 @@ mechanism instead of hiding it with a more opaque tint or temporal noise.
 The accumulation target plus two reusable full-resolution RGBA16F blur images
 cost 24 bytes per viewport pixel combined (about 47.5 MiB at 1920×1080), independent
 of panel count, excluding in-flight retired generations. The two compute passes
-currently cover the viewport **for each glass surface**; blur work grows with the
+in Gaussian mode cover the viewport **for each glass surface**; blur work grows with the
 number of surfaces, even when their bounds do not overlap. This is the correctness
 baseline, not a performance optimization. Regional filtering/batching can be
 considered after visual approval, while preserving lower-UI backdrop dependencies.
@@ -114,6 +114,62 @@ No external image/audio resources were added. The procedural grain uses the
 browser's documented seed `1837`, multiplier `1664525`, increment `1013904223`,
 RGB levels `90/220`, and alpha `140`. Shader affine skip-ahead produces the same
 texels as the sequential browser generator; no generated texture file is needed.
+
+## Pixelated glass A/B (2026-10-29)
+
+Debug Panel → **UI Glass** owns two saved declarations:
+- **Panels: pixelated glass (A/B)**: unchecked retains the original Gaussian
+  frost and grain, checked selects area-averaged square cells. Default is off.
+- **Panels: glass cell size (points)**: 4–48 logical points, default 12; enabled
+  only in pixelated mode. The renderer rounds points × UI scale to whole physical
+  pixels. One viewport-anchored grid aligns all panels, including overlapping ones.
+
+The experimental mode averages **every physical pixel** of the current lower
+composite within each cell, in the same encoded-sRGB reference space as the
+original material. It does not Gaussian-blur first or pick one nearest pixel.
+Desaturation and fern tint are retained; per-pixel grain is omitted to keep the
+fully covered glass background exactly one RGB color per cell. Own text/controls
+remain sharp and are not part of that uniform-background promise; normal egui
+visibility fades and antialiased boundaries still blend with the lower composite.
+
+The existing two compute passes now also support compact separable area means:
+horizontal produces one mean per cell-column/source-row; vertical produces one
+mean per final cell. Both results are packed into the upper-left region of the
+existing float images. Fragments fetch the exact texel center of their cell.
+This reads each source pixel once in the horizontal pass rather than repeating
+NxN samples for every output fragment. Partial viewport-edge cells use only their
+actual pixels. Toggling changes dispatch and sampling, not descriptor ownership,
+scene history, resources, or painter-order dependencies. Intermediate allocation
+remains the same 24 bytes/viewport pixel including composition; no new image is
+allocated for the experiment. No measured frame-time speedup or performance-budget
+acceptance is claimed.
+
+Old config files gain the declarations in memory without being rewritten.
+The real egui checkbox test clicks on/off/on in one UI context, saves/reloads the
+checked state and cell size, and checks that old settings remain Gaussian.
+
+Validation:
+- `cargo fmt --check`, `cargo check`, `cargo build --release`, hidden/muted
+  Release smoke passed. Full Rust tests: **1,739 passed, 9 failed, 13 ignored**,
+  plus 4 passing collision tests. The same two config-default and seven raster-tree
+  baseline assertions fail; no new failures.
+- Direct Slang CPU executions of `ui_matte_pixel_contract`,
+  `ui_matte_blur_contract` and `ui_matte_material_contract` pass. Area means match
+  brute-force 2D sums, including odd viewport dimensions, partial edge cells,
+  one-pixel cells, cells larger than the viewport, and DPI-rounded sizes.
+- `node scripts/validate-matte-stack.mjs --pixelated` passes ten native captures
+  with Vulkan synchronization validation. These cover red/blue lower contents,
+  paint-order reversal, fades, clips, and a patterned source at 12- and 21-pixel
+  cell sizes, the latter with startup resize. Every tested cell is byte-for-byte
+  uniform; one/two-layer results match the independently calculated area mean
+  plus tint to within **0.49 of one 8-bit channel step**. No ERROR/VUID/hazard/panic;
+  shutdown `failures=0`. Evidence: `target/matte-stack/run-Kipyd0/`.
+- The default eight-case script retains exactly the Gaussian transmission
+  responses **0.764706 / 0.339209 / 0.164689**. Evidence:
+  `target/matte-stack/run-ZJ3Pwa/`. Native pixelated captures were inspected.
+- Generated GUI fields and shader push structs were regenerated with `cargo check`.
+  Native validation uses isolated config copies and verifies the user's config hash.
+  No imported/generated image or audio assets; screenshots are local test artifacts.
 
 ## Stacked-panel transmission validation (2026-10-29)
 

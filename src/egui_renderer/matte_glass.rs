@@ -9,6 +9,30 @@ pub const TEXTURE_ID: TextureId = TextureId::User(0x7266_6d61_7474_6501);
 /// One logical pixel, like the approved browser recipe (scales with UI DPI).
 const PIXEL: f32 = 1.0;
 
+/// Saved UI controls enter rendering here; zero physical cell size is the
+/// unchanged Gaussian material. The screen-anchored grid aligns stacked panels.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct MatteSettings {
+    pub pixelated: bool,
+    pub cell_points: u32,
+}
+
+impl MatteSettings {
+    pub(super) fn cell_pixels(self, pixels_per_point: f32) -> u32 {
+        if !self.pixelated {
+            return 0;
+        }
+        let scale = if pixels_per_point.is_finite() && pixels_per_point > 0.0 {
+            pixels_per_point
+        } else {
+            1.0
+        };
+        (self.cell_points.clamp(4, 48) as f32 * scale)
+            .round()
+            .max(1.0) as u32
+    }
+}
+
 /// Typed paint marker, not an external rendering callback. It prevents egui
 /// batching distinct glass surfaces and tells the compositor to refresh frost.
 struct BackdropBoundary;
@@ -164,6 +188,26 @@ impl MatteWindowExt for egui::Window<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pixel_grid_follows_ui_scale_and_unchecked_restores_gaussian() {
+        let mut settings = MatteSettings {
+            pixelated: false,
+            cell_points: 12,
+        };
+        assert_eq!(settings.cell_pixels(2.0), 0);
+        settings.pixelated = true;
+        for (scale, pixels) in [(0.75, 9), (1.0, 12), (1.75, 21), (2.0, 24)] {
+            assert_eq!(settings.cell_pixels(scale), pixels);
+        }
+        assert_eq!(settings.cell_pixels(f32::NAN), 12);
+        settings.cell_points = u32::MAX;
+        assert_eq!(settings.cell_pixels(2.0), 96);
+        settings.cell_points = 0;
+        assert_eq!(settings.cell_pixels(1.0), 4);
+        settings.pixelated = false;
+        assert_eq!(settings.cell_pixels(1.0), 0);
+    }
 
     fn has_material(shape: &Shape) -> bool {
         match shape {

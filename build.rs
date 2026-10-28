@@ -671,6 +671,7 @@ fn generate_gui_adjustables() {
 /// Logical native Slang entry points reflected for CPU/GPU struct generation.
 const SHADER_FILES: &[&str] = &[
     "shader/egui/ui_matte_blur.comp",
+    "shader/egui/ui_matte.vert",
     "shader/builder/chunk_writer/buffer_setup.comp",
     "shader/builder/chunk_writer/chunk_heightmap.comp",
     "shader/builder/chunk_writer/chunk_modify.comp",

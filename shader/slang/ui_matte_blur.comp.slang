@@ -1,11 +1,13 @@
 import color;
 import ui_matte_material;
 import ui_matte_blur_kernel;
+import ui_matte_pixel;
 
 struct MatteBlurPush
 {
     float pixels_per_point;
     uint horizontal;
+    uint pixel_cell_size;
 };
 [[vk::push_constant]] ConstantBuffer<MatteBlurPush> blur_push;
 [[vk::binding(0, 0)]]
@@ -37,6 +39,24 @@ void main(uint3 thread : SV_DispatchThreadID)
 {
     uint width, height;
     blur_output.GetDimensions(width, height);
+    uint cellSize = blur_push.pixel_cell_size;
+    if (cellSize != 0u)
+    {
+        // Horizontal: one mean per cell-column and source row, packed at x=cell.
+        // Vertical: one mean per complete cell, packed at (cellX, cellY).
+        // Every source pixel contributes once, rather than repeating NxN work
+        // for every fragment of the block. Existing images are reused on toggles.
+        bool horizontal = blur_push.horizontal != 0u;
+        uint2 cells = (uint2(width, height) + cellSize - 1u) / cellSize;
+        uint2 dispatchExtent = horizontal ? uint2(cells.x, height) : cells;
+        if (any(thread.xy >= dispatchExtent)) return;
+        uint2 range = uiMatteCellRange(horizontal ? thread.x : thread.y,
+            cellSize, horizontal ? width : height);
+        int2 origin = horizontal ? int2(range.x, thread.y) : int2(thread.x, range.x);
+        SceneLine cellLine = { origin, int2(width, height) };
+        blur_output.Store(thread.xy, float4(uiMatteCellMean(cellLine, range.y - range.x), 1.0));
+        return;
+    }
     if (any(thread.xy >= uint2(width, height))) return;
     SceneLine line = { int2(thread.xy), int2(width, height) };
     float sigma = UI_MATTE_FROST_POINTS * blur_push.pixels_per_point;

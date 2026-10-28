@@ -1219,6 +1219,66 @@ mod search_tests {
     }
 
     #[test]
+    fn pixel_glass_checkbox_is_live_saved_and_legacy_configs_stay_gaussian() {
+        let mut legacy = GuiConfigLoader::load();
+        legacy.section.retain(|s| s.name != "UI Glass");
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        let text = toml::to_string_pretty(&legacy).unwrap();
+        std::fs::write(&path, &text).unwrap();
+        let mut settings = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+        assert!(!settings.adjustables.ui_glass_pixelated.value);
+        assert_eq!(settings.adjustables.ui_glass_cell_size.value, 12);
+        settings.search.query = "panels pixelated glass".into();
+        let context = egui::Context::default();
+        let mut click_toggle = || {
+            let mut draw = |events| {
+                context.run_ui(
+                    egui::RawInput {
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        settings.draw(ui, |_, _| {});
+                    },
+                )
+            };
+            draw(vec![]);
+            let output = draw(vec![]);
+            let point = output
+                .shapes
+                .iter()
+                .find_map(|s| text_rect(&s.shape, "Panels: pixelated glass (A/B)"))
+                .expect("declared searchable checkbox")
+                .center();
+            for pressed in [true, false] {
+                draw(vec![
+                    egui::Event::PointerMoved(point),
+                    egui::Event::PointerButton {
+                        pos: point,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ]);
+            }
+        };
+        // Exercise both directions without restarting the UI context.
+        click_toggle();
+        click_toggle();
+        click_toggle();
+        assert!(settings.adjustables.ui_glass_pixelated.value);
+        settings.adjustables.ui_glass_cell_size.value = 28;
+        assert!(settings.is_dirty());
+        settings.save_to_path(&path).unwrap();
+        let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert!(loaded.adjustables.ui_glass_pixelated.value);
+        assert_eq!(loaded.adjustables.ui_glass_cell_size.value, 28);
+        assert!(!settings.is_dirty());
+    }
+
+    #[test]
     fn tree_planting_sliders_edit_and_save_without_requesting_live_tree_rebuilds() {
         let mut settings = DebugSettings::load();
         let tree = settings.tree.desc.clone();

@@ -377,6 +377,7 @@ impl GuiConfigLoader {
                 )
             });
         }
+        Self::add_missing_section_params(&mut config, "UI Glass");
         Self::add_missing_section_params(&mut config, "Tree Planting");
         Self::add_missing_section_params(&mut config, "Terrain Material");
         // Old saves gain new flower controls from the declarations, without

@@ -7,7 +7,8 @@ pub(crate) fn draw_if_requested(ctx: &egui::Context) -> bool {
     };
     assert!(matches!(
         mode.as_str(),
-        "red"
+        "grid"
+            | "red"
             | "blue"
             | "red-reverse"
             | "blue-reverse"
@@ -51,7 +52,26 @@ pub(crate) fn draw_if_requested(ctx: &egui::Context) -> bool {
                 }
                 egui::Frame::new().show_matte(&mut panel, |ui| {
                     ui.set_min_size(egui::vec2(400.0, 260.0));
-                    if index == 0 {
+                    if index == 0 && mode == "grid" {
+                        let rect = ui.min_rect().shrink(24.0);
+                        for y in 0..53 {
+                            for x in 0..88 {
+                                let color = egui::Color32::from_rgb(
+                                    ((x * 17 + y * 29) % 251) as u8,
+                                    ((x * 43 + y * 7) % 251) as u8,
+                                    ((x * 3 + y * 61) % 251) as u8,
+                                );
+                                ui.painter().rect_filled(
+                                    egui::Rect::from_min_size(
+                                        rect.min + egui::vec2(x as f32 * 4.0, y as f32 * 4.0),
+                                        egui::vec2(4.0, 4.0),
+                                    ),
+                                    0.0,
+                                    color,
+                                );
+                            }
+                        }
+                    } else if index == 0 {
                         ui.painter()
                             .rect_filled(ui.min_rect().shrink(24.0), 0.0, color);
                     }

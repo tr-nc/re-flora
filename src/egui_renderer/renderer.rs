@@ -393,8 +393,7 @@ impl EguiRenderer {
                     if Some(m.texture_id) != current_texture_id {
                         if m.texture_id == matte_glass::TEXTURE_ID {
                             cmdbuf.bind_graphics_pipeline(&matte.pipeline);
-                            cmdbuf.push_vertex_constants(&matte.pipeline, push);
-                            matte.bind(cmdbuf);
+                            matte.bind(cmdbuf, &projection);
                         } else {
                             cmdbuf.bind_graphics_pipeline(pipeline);
                             cmdbuf.push_vertex_constants(pipeline, push);
@@ -529,6 +528,7 @@ impl EguiRenderer {
         device: &Device,
         cmd: &CommandBuffer,
         scene: &Texture,
+        settings: matte_glass::MatteSettings,
     ) -> &Texture {
         self.prepare_command_buffer(device, cmd);
         self.compositor
@@ -536,12 +536,14 @@ impl EguiRenderer {
         let target = self.compositor.target();
         let primitives = self.clipped_primitives.as_deref().unwrap_or_default();
         let pixels_per_point = self.pixels_per_point.expect("prepared UI scale");
+        let pixel_cell_size = settings.cell_pixels(pixels_per_point);
         for pass in draw_passes(primitives) {
             if pass.blur_before {
                 self.matte.prepare(
                     cmd,
                     &target.image,
                     pixels_per_point,
+                    pixel_cell_size,
                     &self.frame_retirement_sink,
                 );
             }

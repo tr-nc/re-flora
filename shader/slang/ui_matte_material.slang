@@ -32,12 +32,17 @@ public float uiMatteGrain(float2 localPoints)
     return ((state >> 24u) < 128u ? 90.0 : 220.0) / 255.0;
 }
 
-public float3 uiMatteSurfaceSrgb(float3 blurredSrgb, float grain)
+public float3 uiMatteTintSrgb(float3 blurredSrgb)
 {
     // CSS saturate() and source-over tint/grain operate in the encoded reference
     // space. The fragment converts the result back to linear for the game target.
     float luminance = dot(blurredSrgb, float3(0.213, 0.715, 0.072));
     float3 frosted = lerp(float3(luminance), blurredSrgb, UI_MATTE_SATURATION);
-    float3 body = lerp(frosted, UI_MATTE_TINT_SRGB, UI_MATTE_BODY);
+    return lerp(frosted, UI_MATTE_TINT_SRGB, UI_MATTE_BODY);
+}
+
+public float3 uiMatteSurfaceSrgb(float3 blurredSrgb, float grain)
+{
+    float3 body = uiMatteTintSrgb(blurredSrgb);
     return lerp(body, float3(grain), UI_MATTE_DITHER * (140.0 / 255.0));
 }

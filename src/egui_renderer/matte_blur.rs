@@ -1,4 +1,4 @@
-//! Current-composite separable frost, refreshed at each glass paint boundary.
+//! Current-composite Gaussian frost or compact cell means, refreshed per surface.
 use re_flora_vkn::{
     vk, Allocator, CommandBuffer, ComputePipeline, DescriptorPool, DescriptorResource,
     DescriptorUpdate, Device, FrameRetirement, FrameRetirementSink, ImageDesc, ResourceContainer,
@@ -55,6 +55,7 @@ impl MatteBlur {
         cmd: &CommandBuffer,
         source: &Texture,
         pixels_per_point: f32,
+        pixel_cell_size: u32,
         retirement: &FrameRetirementSink,
     ) -> &Texture {
         let unchanged = self.images.as_ref().is_some_and(|images| {
@@ -129,15 +130,19 @@ impl MatteBlur {
             let push = crate::generated::gpu_structs::PushConstantUiMatteBlur {
                 pixels_per_point,
                 horizontal: u32::from(index == 0),
-                _pad0: [0; 8],
+                pixel_cell_size,
+                _pad0: [0; 4],
             };
-            // The reflected resource tracker inserts scene -> H -> V -> fragment
+            // The reflected resource tracker inserts composite -> H -> V -> fragment
             // barriers, and the next frame's read/write dependencies.
-            pipeline.record(
-                cmd,
-                source.get_image().get_desc().extent,
-                Some(bytemuck::bytes_of(&push)),
-            );
+            let mut extent = source.get_image().get_desc().extent;
+            if pixel_cell_size != 0 {
+                extent.width = extent.width.div_ceil(pixel_cell_size);
+                if index == 1 {
+                    extent.height = extent.height.div_ceil(pixel_cell_size);
+                }
+            }
+            pipeline.record(cmd, extent, Some(bytemuck::bytes_of(&push)));
         }
         &images.blurred
     }

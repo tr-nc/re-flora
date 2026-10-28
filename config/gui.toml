@@ -2835,6 +2835,33 @@ type = "Color"
 value = "#7A7D80"
 
 [[section]]
+name = "UI Glass"
+
+[[section.param]]
+id = "ui_glass_pixelated"
+kind = "bool"
+label = "Panels: pixelated glass (A/B)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "ui_glass_cell_size"
+kind = "uint"
+label = "Panels: glass cell size (points)"
+type = "Uint"
+
+[section.param.enabled_if]
+param = "ui_glass_pixelated"
+equals = true
+
+[section.param.data]
+value = 12
+min = 4
+max = 48
+
+[[section]]
 name = "Tree Planting"
 
 [[section.param]]
