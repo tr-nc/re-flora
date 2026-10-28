@@ -1,5 +1,6 @@
 use super::*;
 use crate::app::core::ui_style::{GOLD_ACCENT, PANEL_DARK};
+use crate::egui_renderer::matte_glass::{MatteFrameExt, MatteWindowExt};
 
 pub(in crate::app::core) fn shop_open_after_key(
     key: winit::keyboard::PhysicalKey,
@@ -49,7 +50,7 @@ pub(in crate::app::core) fn draw_garden_shop(
             egui::Frame::new()
                 .fill(PANEL_DARK)
                 .inner_margin(10)
-                .show(ui, |ui| {
+                .show_matte(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(&wallet).color(GOLD_ACCENT));
                         if ui
@@ -74,7 +75,7 @@ pub(in crate::app::core) fn draw_garden_shop(
         .default_pos(egui::pos2(30., 105.))
         .default_width(440.)
         .resizable(false)
-        .show(ctx, |ui| {
+        .show_matte(ctx, egui::Id::new("garden_shop"), egui::Frame::window(&ctx.global_style()), |ui| {
             ui.heading(&wallet);
             ui.horizontal(|ui| {
                 ui.label(format!(

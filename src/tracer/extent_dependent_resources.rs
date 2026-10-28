@@ -468,12 +468,22 @@ impl ExtentDependentResources {
             format: vk::Format::R16G16B16A16_SFLOAT,
             usage: vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::TRANSFER_SRC
+                | vk::ImageUsageFlags::SAMPLED
                 | vk::ImageUsageFlags::COLOR_ATTACHMENT,
             initial_layout: TextureLayout::UNDEFINED,
             aspect: vk::ImageAspectFlags::COLOR,
             ..Default::default()
         };
-        Texture::new(device, allocator, &tex_desc, &Default::default())
+        Texture::new(
+            device,
+            allocator,
+            &tex_desc,
+            &SamplerDesc {
+                min_filter: vk::Filter::LINEAR,
+                mag_filter: vk::Filter::LINEAR,
+                ..Default::default()
+            },
+        )
     }
 
     fn create_screenshot_output_tex(

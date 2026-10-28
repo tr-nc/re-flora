@@ -1,3 +1,5 @@
+use super::matte_glass;
+use super::matte_pipeline::MattePipeline;
 use super::mesh::{Mesh, RetiredMeshBuffers};
 use egui::ViewportId;
 use egui::{
@@ -34,6 +36,7 @@ pub struct EguiRenderer {
     vulkan_context: VulkanContext,
     allocator: Allocator,
     gui_ppl: GraphicsPipeline,
+    matte: MattePipeline,
     egui_vert_sm: ShaderModule,
     egui_frag_sm: ShaderModule,
 
@@ -84,6 +87,7 @@ impl EguiRenderer {
             &pool,
         );
 
+        let matte = MattePipeline::new(device, render_pass, &pool);
         let egui_context = egui::Context::default();
         let egui_winit_state = egui_winit::State::new(
             egui_context.clone(),
@@ -98,6 +102,7 @@ impl EguiRenderer {
             vulkan_context: vulkan_ctx,
             allocator,
             gui_ppl,
+            matte,
             egui_vert_sm,
             egui_frag_sm,
             pool,
@@ -123,6 +128,12 @@ impl EguiRenderer {
     ///
     /// This is an expensive operation.
     pub fn set_render_pass(&mut self, render_pass: &RenderPass) {
+        self.matte.set_render_pass(
+            self.vulkan_context.device(),
+            render_pass,
+            &self.pool,
+            &self.frame_retirement_sink,
+        );
         self.gui_ppl = GraphicsPipeline::new_uninitialized(
             self.vulkan_context.device(),
             &self.egui_vert_sm,
@@ -318,6 +329,7 @@ impl EguiRenderer {
     fn cmd_draw(
         frames: &mut Option<Mesh>,
         pipeline: &GraphicsPipeline,
+        matte: &MattePipeline,
         managed_textures: &HashMap<TextureId, ManagedTexture>,
         cmdbuf: &CommandBuffer,
         extent: Extent2D,
@@ -327,8 +339,6 @@ impl EguiRenderer {
         if primitives.is_empty() {
             return;
         }
-
-        cmdbuf.bind_graphics_pipeline(pipeline);
 
         let screen_width = extent.width as f32;
         let screen_height = extent.height as f32;
@@ -346,7 +356,6 @@ impl EguiRenderer {
         .to_cols_array();
 
         let push = bytemuck::bytes_of(&projection);
-        cmdbuf.push_vertex_constants(pipeline, push);
 
         let frame = frames
             .as_ref()
@@ -376,10 +385,22 @@ impl EguiRenderer {
                     );
 
                     if Some(m.texture_id) != current_texture_id {
-                        let managed = managed_textures.get(&m.texture_id).unwrap();
-                        pipeline
-                            .bind_descriptor_set(cmdbuf, "font_sampler", &managed.descriptor_set)
-                            .expect("egui font sampler descriptor must match reflected set");
+                        if m.texture_id == matte_glass::TEXTURE_ID {
+                            cmdbuf.bind_graphics_pipeline(&matte.pipeline);
+                            cmdbuf.push_vertex_constants(&matte.pipeline, push);
+                            matte.bind(cmdbuf);
+                        } else {
+                            cmdbuf.bind_graphics_pipeline(pipeline);
+                            cmdbuf.push_vertex_constants(pipeline, push);
+                            let managed = managed_textures.get(&m.texture_id).unwrap();
+                            pipeline
+                                .bind_descriptor_set(
+                                    cmdbuf,
+                                    "font_sampler",
+                                    &managed.descriptor_set,
+                                )
+                                .expect("egui font sampler descriptor must match reflected set");
+                        }
                         current_texture_id = Some(m.texture_id);
                     }
 
@@ -436,7 +457,12 @@ impl EguiRenderer {
     }
 
     /// Prepare CPU-written mesh buffers and declare their frame uses before the GUI render pass.
-    pub fn prepare_command_buffer(&mut self, device: &Device, cmdbuf: &CommandBuffer) {
+    pub fn prepare_command_buffer(
+        &mut self,
+        device: &Device,
+        cmdbuf: &CommandBuffer,
+        backdrop: Option<&Texture>,
+    ) {
         let Some(primitives) = self.clipped_primitives.as_ref() else {
             return;
         };
@@ -450,6 +476,14 @@ impl EguiRenderer {
                 continue;
             };
             if prepared_textures.insert(mesh.texture_id) {
+                if mesh.texture_id == matte_glass::TEXTURE_ID {
+                    self.matte.prepare(
+                        cmdbuf,
+                        backdrop.expect("UI glass requires the current scene"),
+                        &self.frame_retirement_sink,
+                    );
+                    continue;
+                }
                 let managed = self
                     .managed_textures
                     .get(&mesh.texture_id)
@@ -500,6 +534,7 @@ impl EguiRenderer {
         Self::cmd_draw(
             &mut self.frames,
             &self.gui_ppl,
+            &self.matte,
             &self.managed_textures,
             cmdbuf,
             render_area,

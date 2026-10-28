@@ -133,7 +133,8 @@ fn panel_outlines_toggle_only_frames_and_preserve_layout_and_controls() {
                 }
                 egui::Shape::Rect(rect)
                     if rect.rect.height() > 60.
-                        && (rect.fill == PANEL_BG || rect.fill == PANEL_DARK) =>
+                        && (rect.fill == PANEL_BG
+                            || (rect.fill == Color32::TRANSPARENT && rect.stroke.width > 0.0)) =>
                 {
                     rects.push(rect)
                 }
@@ -159,6 +160,36 @@ fn panel_outlines_toggle_only_frames_and_preserve_layout_and_controls() {
         assert!(!on.stroke.is_empty());
         assert!(off.stroke.is_empty());
         assert_eq!(on.stroke, restored.stroke);
+    }
+}
+
+#[test]
+fn matte_theme_keeps_selected_and_hovered_labels_readable() {
+    fn luminance(color: Color32) -> f32 {
+        let linear = |channel: u8| {
+            let value = channel as f32 / 255.0;
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * linear(color.r()) + 0.7152 * linear(color.g()) + 0.0722 * linear(color.b())
+    }
+    let mut style = egui::Style::default();
+    apply_gui_style(&mut style);
+    for background in [
+        panel_entry_fill(true, false),
+        panel_entry_fill(false, true),
+        style.visuals.widgets.active.bg_fill,
+    ] {
+        for foreground in [TEXT_COLOR, GOLD_ACCENT] {
+            let contrast = (luminance(background) + 0.05) / (luminance(foreground) + 0.05);
+            assert!(
+                contrast >= 4.5,
+                "selected/hovered control contrast: {contrast}"
+            );
+        }
     }
 }
 
@@ -229,20 +260,26 @@ fn text_toolbar_wraps_without_icons_boxes_or_lost_tools() {
             }
             labels.push(label);
         }
-        // Only one panel background; no per-tool/keycap boxes or image meshes.
-        let mut rectangles = 0;
+        // One explicitly tagged material surface; no per-tool/keycap boxes or icons.
+        let mut materials = 0;
         for shape in &output.shapes {
             match &shape.shape {
                 egui::Shape::Rect(rect) => {
                     assert!(rect.stroke.is_empty());
-                    assert!(rect.fill.a() > 0 && rect.fill.a() < 255);
-                    rectangles += 1;
+                    assert_eq!(rect.fill, Color32::TRANSPARENT);
                 }
-                egui::Shape::Mesh(_) => panic!("toolbar must not draw icons"),
+                egui::Shape::Mesh(mesh) => {
+                    assert_eq!(
+                        mesh.texture_id,
+                        crate::egui_renderer::matte_glass::TEXTURE_ID
+                    );
+                    assert_eq!(mesh.calc_bounds(), panel);
+                    materials += 1;
+                }
                 _ => {}
             }
         }
-        assert_eq!(rectangles, 1);
+        assert_eq!(materials, 1);
     }
 }
 

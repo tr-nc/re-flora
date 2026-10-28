@@ -1,5 +1,6 @@
 use super::plant_catalog::{PlantType, PlantVariety};
 use super::voxel_backpack::BackpackVoxel;
+use crate::egui_renderer::matte_glass::MatteFrameExt;
 use egui::style::WidgetVisuals;
 use egui::Color32;
 
@@ -7,13 +8,14 @@ pub(crate) const CUSTOM_GUI_FONT_PATH: Option<&str> =
     Some("assets/font/PixelifySans-VariableFont_wght.ttf");
 pub(crate) const CUSTOM_GUI_FONT_NAME: &str = "re-flora_gui_font";
 
-pub(crate) const PANEL_BG: Color32 = Color32::from_rgb(35, 40, 40);
-pub(crate) const PANEL_LIGHT: Color32 = Color32::from_rgb(50, 58, 58);
-pub(crate) const PANEL_DARK: Color32 = Color32::from_rgb(25, 28, 28);
-pub(crate) const TEXT_COLOR: Color32 = Color32::from_rgb(235, 230, 215);
-pub(crate) const GOLD_ACCENT: Color32 = Color32::from_rgb(235, 165, 60);
-pub(crate) const FLOWER_ACCENT: Color32 = Color32::from_rgb(190, 160, 210);
-pub(crate) const SAGE_ACCENT: Color32 = Color32::from_rgb(110, 140, 120);
+// Controls use quiet inset colors; only explicit outer surfaces sample the scene.
+pub(crate) const PANEL_BG: Color32 = Color32::from_rgb(217, 228, 194);
+pub(crate) const PANEL_LIGHT: Color32 = Color32::from_rgba_premultiplied(166, 171, 152, 180);
+pub(crate) const PANEL_DARK: Color32 = Color32::from_rgba_premultiplied(163, 174, 147, 210);
+pub(crate) const TEXT_COLOR: Color32 = Color32::from_rgb(38, 59, 46);
+pub(crate) const GOLD_ACCENT: Color32 = Color32::from_rgb(99, 76, 32);
+pub(crate) const FLOWER_ACCENT: Color32 = Color32::from_rgb(129, 98, 131);
+pub(crate) const SAGE_ACCENT: Color32 = Color32::from_rgb(68, 89, 57);
 pub(crate) const SHADOW_COLOR: Color32 = Color32::from_rgb(75, 60, 85);
 
 pub(crate) const GROW_SLOT_INDEX: usize = 0;
@@ -166,10 +168,8 @@ pub(crate) fn draw_item_panel(
         .show(ctx, |ui| {
             // The toolbar is intentionally borderless, independently of panel outlines.
             egui::Frame::new()
-                .fill(Color32::from_rgba_unmultiplied(25, 28, 28, 220))
                 .inner_margin(egui::Margin::symmetric(12, 6))
-                .corner_radius(6)
-                .show(ui, |ui| {
+                .show_matte(ui, |ui| {
                     ui.set_width(content_width);
                     ui.spacing_mut().item_spacing = egui::vec2(TOOL_TEXT_GAP, 2.0);
                     ui.horizontal_wrapped(|ui| {
@@ -223,7 +223,7 @@ pub(crate) fn draw_plant_panel(
                 ..Default::default()
             };
 
-            panel_frame.show(ui, |ui| {
+            panel_frame.show_matte(ui, |ui| {
                 ui.set_width(FLORA_PAINT_PANEL_WIDTH);
                 // Keep both catalogs at half the viewport height, including frame margins.
                 ui.set_height(
@@ -302,13 +302,7 @@ fn draw_plant_panel_entry(
     let clicked = interaction_enabled && response.clicked();
     let painter = ui.painter_at(rect);
 
-    let fill = if entry.selected {
-        Color32::from_rgb(58, 57, 49)
-    } else if hovered {
-        Color32::from_rgb(54, 63, 60)
-    } else {
-        PANEL_LIGHT
-    };
+    let fill = panel_entry_fill(entry.selected, hovered);
     let border = if entry.selected {
         egui::Stroke::new(2.0, GOLD_ACCENT)
     } else if hovered {
@@ -837,7 +831,7 @@ pub(crate) fn draw_voxel_palette(
                 ..Default::default()
             };
 
-            panel_frame.show(ui, |ui| {
+            panel_frame.show_matte(ui, |ui| {
                 ui.set_width(312.0);
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
@@ -904,13 +898,7 @@ fn draw_voxel_palette_entry(
     let clicked = interaction_enabled && response.clicked();
     let painter = ui.painter_at(rect);
 
-    let bg = if entry.selected {
-        Color32::from_rgb(58, 57, 49)
-    } else if hovered {
-        Color32::from_rgb(54, 63, 60)
-    } else {
-        PANEL_LIGHT
-    };
+    let bg = panel_entry_fill(entry.selected, hovered);
     let border = if entry.selected {
         egui::Stroke::new(2.0, entry.color)
     } else if hovered {
@@ -1000,7 +988,11 @@ pub(crate) fn panel_stroke(ctx: &egui::Context, width: f32, color: Color32) -> e
 }
 
 pub(crate) fn apply_gui_style(style: &mut egui::Style) {
+    style.visuals.dark_mode = false;
     style.visuals.override_text_color = Some(TEXT_COLOR);
+    style.visuals.weak_text_color = Some(SAGE_ACCENT);
+    style.visuals.warn_fg_color = Color32::from_rgb(135, 64, 20);
+    style.visuals.error_fg_color = Color32::from_rgb(160, 38, 38);
     style.visuals.hyperlink_color = GOLD_ACCENT;
     style.interaction.selectable_labels = false;
     style.interaction.multi_widget_text_select = false;
@@ -1078,8 +1070,8 @@ pub(crate) fn apply_gui_style(style: &mut egui::Style) {
     );
 
     style.visuals.widgets.hovered = widget_visuals(
-        Color32::from_rgb(65, 75, 75),
-        Color32::from_rgb(65, 75, 75),
+        panel_entry_fill(false, true),
+        panel_entry_fill(false, true),
         FLOWER_ACCENT,
         GOLD_ACCENT,
         // Button frame margins are integer-rounded by egui. A fractional stroke
@@ -1088,15 +1080,25 @@ pub(crate) fn apply_gui_style(style: &mut egui::Style) {
     );
 
     style.visuals.widgets.active = widget_visuals(
+        panel_entry_fill(true, false),
+        panel_entry_fill(true, false),
         GOLD_ACCENT,
-        GOLD_ACCENT,
-        GOLD_ACCENT,
-        Color32::from_rgb(30, 35, 30),
+        TEXT_COLOR,
         1.0,
     );
 
     style.visuals.widgets.open =
         widget_visuals(PANEL_LIGHT, PANEL_LIGHT, GOLD_ACCENT, TEXT_COLOR, 1.5);
+}
+
+fn panel_entry_fill(selected: bool, hovered: bool) -> Color32 {
+    if selected {
+        Color32::from_rgb(197, 214, 165)
+    } else if hovered {
+        Color32::from_rgb(226, 238, 198)
+    } else {
+        PANEL_LIGHT
+    }
 }
 
 fn widget_visuals(
@@ -1110,7 +1112,7 @@ fn widget_visuals(
         bg_fill,
         weak_bg_fill,
         bg_stroke: egui::Stroke::new(stroke_width, stroke_color),
-        corner_radius: egui::CornerRadius::same(4),
+        corner_radius: egui::CornerRadius::same(0),
         fg_stroke: egui::Stroke::new(1.5, text_color),
         expansion: 0.0,
     }

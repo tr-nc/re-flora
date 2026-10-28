@@ -238,6 +238,18 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Fragment,
     },
     ShaderConfig {
+        logical_path: "shader/egui/ui_matte.vert",
+        source_path: "shader/slang/ui_matte.vert.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Vertex,
+    },
+    ShaderConfig {
+        logical_path: "shader/egui/ui_matte.frag",
+        source_path: "shader/slang/ui_matte.frag.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Fragment,
+    },
+    ShaderConfig {
         logical_path: "shader/foliage/flora_lighting_cache.comp",
         source_path: "shader/slang/flora_lighting_cache.comp.slang",
         module_path: "shader/slang",

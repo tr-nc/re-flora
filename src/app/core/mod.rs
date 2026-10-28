@@ -157,7 +157,10 @@ use crate::util::{ChunkPopMode, GrowingFloraChunk, GrowingFloraQueue, BENCH};
 use crate::wind_response::WindResponseCurve;
 use crate::{
     cli::{AudioPlan, PlatformPlan, WorldPlan},
-    egui_renderer::EguiRenderer,
+    egui_renderer::{
+        matte_glass::{MatteFrameExt, MatteWindowExt},
+        EguiRenderer,
+    },
     window::WindowState,
     EnvironmentLightingTestCase, RenderFlags,
 };
@@ -2735,12 +2738,11 @@ impl App {
                             egui::Window::new("Debug Panel")
                                 .id(egui::Id::new("config_panel"))
                                 .open(&mut config_panel_open)
-                                .frame(config_frame)
                                 .resizable(true)
                                 .movable(true)
                                 .default_pos(panel_pos)
                                 .default_size(panel_size)
-                                .show(ctx, |ui| {
+                                .show_matte(ctx, egui::Id::new("config_panel"), config_frame, |ui| {
                                     let mut save_button_rect = None;
                                     ui.horizontal(|ui| {
                                         ui_text::title(ui, "Debug Panel");
@@ -2945,7 +2947,7 @@ impl App {
                                 .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-16., 16.))
                                 .interactable(false)
                                 .show(ctx, |ui| {
-                                    egui::Frame::new().fill(PANEL_DARK).inner_margin(10).show(ui, |ui| {
+                                    egui::Frame::new().fill(PANEL_DARK).inner_margin(10).show_matte(ui, |ui| {
                                         crate::app::ui_text::section(ui, &pavement_label);
                                         crate::app::ui_text::hint(ui, pavement_instructions);
                                         if let Some(feedback) = pavement_feedback { crate::app::ui_text::warning(ui, feedback); }
@@ -2955,7 +2957,7 @@ impl App {
 
                         if self.player_tools.selected_tool()==PlayerTool::SoilShovel {
                             egui::Area::new("soil_shovel_carry".into()).anchor(egui::Align2::RIGHT_TOP,egui::vec2(-16.,16.)).interactable(false).show(ctx,|ui| {
-                                egui::Frame::new().fill(PANEL_DARK).inner_margin(10).show(ui,|ui| {
+                                egui::Frame::new().fill(PANEL_DARK).inner_margin(10).show_matte(ui,|ui| {
                                     crate::app::ui_text::section(ui,&format!("Shovel · {} soil",self.soil_shovel.carry.count()));
                                 });
                             });
@@ -2997,7 +2999,7 @@ impl App {
                                         ..Default::default()
                                     };
 
-                                    inspector_frame.show(ui, |ui| {
+                                    inspector_frame.show_matte(ui, |ui| {
                                         ui.set_min_width(150.0);
                                         ui.label(
                                             RichText::new("Inspector")
@@ -3739,7 +3741,11 @@ impl App {
                     &frame,
                 );
                 let device = self.vulkan_ctx.device();
-                self.egui_renderer.prepare_command_buffer(device, cmdbuf);
+                self.egui_renderer.prepare_command_buffer(
+                    device,
+                    cmdbuf,
+                    Some(self.tracer.get_screen_output_tex()),
+                );
                 self.swapchain
                     .record_begin_render_pass_cmdbuf(cmdbuf, &frame);
 
