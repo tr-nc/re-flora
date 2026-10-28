@@ -11,7 +11,7 @@ pub const REVIEW_PRESETS: &[&str] = &[
 pub fn is_review_preset(name: &str) -> bool {
     REVIEW_PRESETS.contains(&name)
 }
-pub const VERSION: u32 = 4;
+pub const VERSION: u32 = 5;
 // Keep the established flower stream stable when only the tree/grass recipe changes.
 const FLOWER_SEED_SALT: u32 = 1;
 pub const DEFAULT_SEED: u32 = 20260519;
@@ -32,18 +32,14 @@ pub const TREE_CENTERS: [Vec2; 4] = [
 pub const FLOWER_KEYS: [&str; 3] = ["wild-geranium", "forget-me-not", "oxeye-daisy"];
 pub const MAX_ATTEMPTS: u32 = 2304;
 
-pub fn tree_descriptor(seed: u32, index: usize) -> crate::tree_gen::TreeDesc {
-    // Use the same human-scale mature Apple as Grow; the individual seed supplies variation.
-    // Matched scale, leaf sprays and fruit hang offsets are owned by the species profile.
-    let mut desc = crate::tree_gen::TreeDesc::default();
+/// Layout owns individual variation, not a second tree recipe or size override.
+/// The caller supplies the same captured planting description used by Grow.
+pub fn tree_descriptor(
+    seed: u32,
+    index: usize,
+    mut desc: crate::tree_gen::TreeDesc,
+) -> crate::tree_gen::TreeDesc {
     desc.branching.seed = hash(seed ^ index as u32 ^ 0x74726565) as u64;
-    // Bounded fitting against actual generated mature wood + canopy, not just anchors.
-    for _ in 0..8 {
-        if tree_radius_voxels(&desc) <= 46. {
-            break;
-        }
-        desc.size *= 0.85;
-    }
     desc
 }
 pub fn tree_radius_voxels(desc: &crate::tree_gen::TreeDesc) -> f32 {
@@ -226,7 +222,7 @@ mod tests {
         );
         for seed in [DEFAULT_SEED, 0, u32::MAX, 7, 122, 907] {
             for (i, p) in TREE_CENTERS.iter().enumerate() {
-                let desc = tree_descriptor(seed, i);
+                let desc = tree_descriptor(seed, i, crate::tree_gen::TreeDesc::default());
                 assert_eq!(desc.species, crate::tree_gen::TreeSpecies::AppleTree);
                 assert_eq!(
                     desc.branching.seed,
@@ -239,7 +235,12 @@ mod tests {
                 assert!(desc.fruit_spawn_probability > 0.);
                 assert_eq!(
                     serde_json::to_value(&desc).unwrap(),
-                    serde_json::to_value(tree_descriptor(seed, i)).unwrap()
+                    serde_json::to_value(tree_descriptor(
+                        seed,
+                        i,
+                        crate::tree_gen::TreeDesc::default()
+                    ))
+                    .unwrap()
                 );
                 let height = crate::tree_gen::Tree::new(desc.clone()).height_voxels();
                 assert!(

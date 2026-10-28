@@ -3,8 +3,9 @@ mod fruit_attachment;
 mod growth;
 use fruit_attachment::bind_fruit_attachments;
 mod planting_settings;
+pub(super) use planting_settings::planting_description;
 mod snapshot;
-pub(super) use growth::SAPLING_AGE;
+pub(super) use growth::{TreePlantingRejection, SAPLING_AGE};
 mod species_review;
 pub(super) use species_review::TreeSpeciesReview;
 mod surface;
@@ -5601,11 +5602,13 @@ mod tests {
             desc.branching.seed = seed;
             descriptions.push(desc);
         }
-        descriptions.extend(
-            (0..4).map(|i| {
-                crate::garden_layout::tree_descriptor(crate::garden_layout::DEFAULT_SEED, i)
-            }),
-        );
+        descriptions.extend((0..4).map(|i| {
+            crate::garden_layout::tree_descriptor(
+                crate::garden_layout::DEFAULT_SEED,
+                i,
+                TreeDesc::default(),
+            )
+        }));
         for desc in descriptions {
             let root = Vec3::new(0.75, 0.5, 0.75);
             let compiled =

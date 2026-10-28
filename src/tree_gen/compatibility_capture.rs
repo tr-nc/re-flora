@@ -118,7 +118,11 @@ fn capture_tree_generation_compatibility() {
         }
     }
     for index in 0..crate::garden_layout::TREE_CENTERS.len() {
-        let desc = crate::garden_layout::tree_descriptor(crate::garden_layout::DEFAULT_SEED, index);
+        let desc = crate::garden_layout::tree_descriptor(
+            crate::garden_layout::DEFAULT_SEED,
+            index,
+            TreeDesc::default(),
+        );
         capture(&format!("opening-{index}"), &desc, 1.);
     }
 }

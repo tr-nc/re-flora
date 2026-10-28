@@ -7,6 +7,20 @@ const MATURATION_SECONDS: f32 = 900.;
 const AGE_STEPS: f32 = 32.;
 const PUBLICATION_INTERVAL: f32 = 0.5;
 
+/// Expected admission failures may omit an opening tree; GPU/publication failures
+/// must still propagate rather than masquerading as an unplantable location.
+#[derive(Debug, thiserror::Error)]
+pub(in crate::app::core) enum TreePlantingRejection {
+    #[error("invalid tree position")]
+    InvalidPosition,
+    #[error("garden tree capacity reached")]
+    Capacity,
+    #[error("the mature tree would extend outside the garden")]
+    OutsideWorld,
+    #[error("tree placement space is occupied")]
+    Occupied,
+}
+
 pub(super) fn planting_age(instant_mature: bool) -> f32 {
     if instant_mature {
         1.
@@ -36,10 +50,10 @@ impl App {
         instant_mature: bool,
     ) -> Result<u32> {
         let age = planting_age(instant_mature);
-        anyhow::ensure!(position.is_finite(), "invalid tree position");
+        anyhow::ensure!(position.is_finite(), TreePlantingRejection::InvalidPosition);
         anyhow::ensure!(
             self.trees.records.len() < 512 && self.trees.placement_id(true) < u32::MAX,
-            "garden tree capacity reached"
+            TreePlantingRejection::Capacity
         );
         // Reject an impossible mature footprint before a tiny sapling is committed.
         // This is a world-bound check, not a reservation that excludes nearby plants.
@@ -50,11 +64,11 @@ impl App {
                 let a = cone.aabb();
                 a.min().cmpge(Vec3::ZERO).all() && a.max().cmplt(extent).all()
             }),
-            "the mature tree would extend outside the garden"
+            TreePlantingRejection::OutsideWorld
         );
         anyhow::ensure!(
             self.growing_tree_space_clear(&desc, position, age)?,
-            "tree placement space is occupied"
+            TreePlantingRejection::Occupied
         );
         let id = self.trees.placement_id(true);
         self.apply_tree_placement_at_age(

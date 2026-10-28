@@ -1753,15 +1753,10 @@ impl App {
     }
 
     fn placement_tree_description(&self) -> TreeDesc {
-        let mut desc = self
-            .player_tools
-            .planting
-            .tree_species
-            .mature_desc(&self.debug_settings.tree.desc);
-        if desc.species == crate::tree_gen::TreeSpecies::Conifer {
-            desc.axis_model = self.debug_settings.tree.conifer_axis_model;
-        }
-        self.tree_planting_settings().apply(desc)
+        vegetation::planting_description(
+            &self.debug_settings,
+            self.player_tools.planting.tree_species,
+        )
     }
 
     fn sync_tree_placement_preview_from_gui(&mut self) -> Result<()> {

@@ -1,4 +1,4 @@
-# Next-tree planting preferences
+# New-tree planting preferences
 
 Open **R → Tree Planting**, or search **new trees** in Debug:
 
@@ -6,13 +6,14 @@ Open **R → Tree Planting**, or search **new trees** in Debug:
 |---|---:|---:|---|
 | Plant mature trees instantly (new trees) | Off / On | On | New trees start adult, without a growth clock; Off restores sapling planting |
 | Tree scale (new trees) | 0.5–2 | 1 | Species-relative tree structural size for future plantings |
-| Apple density (new trees) | 0–1 | 0.25 | Probability of an apple at each eligible fruit attachment |
+| Apple density (new trees) | 0–1 | 0.1 | Probability of an apple at each eligible fruit attachment |
 
-The new apple density default is deliberately lower than the old 0.45 planting
-probability. Existing trees, including the initial garden trees, keep their old
-values. Zero produces no apples, one enables all eligible candidates; the slider
+The checked-in apple density is deliberately lower than the species profile's
+0.45 probability (the original next-tree preference shipped at 0.25). Fresh-garden
+opening trees now consume the same saved preferences and Apple authoring as Grow.
+Trees already present in a running or saved world keep their captured values. Zero produces no apples, one enables all eligible candidates; the slider
 is not an exact apple count. Actual counts also depend on the individual tree's
-shape, seed and fruit-growth stage. Pine and Willow never gain apples.
+shape, seed and fruit-growth stage. Non-apple species never gain apples.
 
 Scale adjusts the existing tree generator's size (height, branch layout and wood
 radii), relative to each species' canonical planting size. It is not a uniform
@@ -30,6 +31,10 @@ wood/leaves. No shader/instance ABI changes are required.
   values. A successful planting receives that complete mature description once,
   through the same path in finite/shop and unlimited modes. Subsequent plantings
   continue using the preset until changed; controls do not reset after one tree.
+- Fresh openings also use this shared recipe, explicitly selecting Apple Tree.
+  Layout owns only the four positions and deterministic individual seeds; it does
+  not substitute a preset, clamp tree scale or force adult age. Initial trees are
+  supplied by the world, without debiting the player's sapling inventory.
 - Slider edits refresh only the placement preview. They do **not** request an
   existing-tree rebuild, regenerate existing apples or reset a growth clock.
 - Individual trees already save `mature_desc`; growth, save/load and fruit
@@ -40,7 +45,8 @@ wood/leaves. No shader/instance ABI changes are required.
   compound its scale on the next planting. The new planting size/density controls
   own these two values for Grow, independently of the existing live tree editor.
 
-Use **Grow → Tree** after setting the preferences. **Plant mature trees instantly**
+Use **Grow → Tree** after setting the preferences, or start a fresh garden using
+saved preferences. **Plant mature trees instantly**
 is checked by default: the shared finite/unlimited placement path validates the
 full adult wood footprint, publishes age 1 and stores no growth clock. Unchecking
 starts new trees at age 0.375 with their existing independent growth clock.
@@ -51,6 +57,43 @@ their clocks. Apples still depend on the captured density and eligible growth st
 These guarantees concern the two **new-tree** sliders. Existing live authoring,
 global Tree Age and Apple Size controls retain their existing scope; they are not
 safe substitutes for the new controls if you want to leave old trees alone.
+
+## Fresh-opening settings correction (2026-10-29)
+
+**Impact and cause.** Fresh startup previously called `TreeDesc::default()` in the
+layout helper and published every tree at age 1. It bypassed the saved Grow
+preferences introduced in `93a47953` (2026-10-26). The reported case reproduced in
+native Release: saved density **0.1**, all four opening descriptions **0.45**.
+Already-loaded worlds are not regenerated and were not part of that startup bug.
+
+**Ownership.** `vegetation::planting_description` now builds both Grow previews
+and opening descriptions from current authoring and planting controls. The layout
+helper requires a supplied description and changes only its individual seed.
+Both use `plant_tree_with_maturity` for validation, publication and growth-clock
+ownership. The opening no longer silently shrinks a configured tree to fit the
+old 46-voxel crown cap. An impossible placement is explicitly skipped with a
+warning; only typed placement rejections are recoverable this way, while resource
+and publication failures still propagate. At enlarged scales/custom authoring,
+the default small-tree clearing margins are not guaranteed.
+
+**Behavioral evidence.** `node scripts/validate-opening-tree-settings.mjs` runs
+real hidden/muted Release processes under an isolated `RE_FLORA_ROOT`, copying
+config rather than modifying the user's files. It verifies four published trees
+and their actual saved descriptions/ages/clocks for scale/density/maturity:
+`1 / 0.1 / adult`, `0.5 / 0 / adult`, `2 / 1 / adult`, and `1.5 / 0.2 / sapling`.
+A fifth process reloads the saplings with settings `0.5 / 0 / adult`; saved tree
+identities, descriptions, ages and clocks remain identical. Logs contain no
+ERROR/VUID/panic or skipped-tree diagnostics and shutdown reports `failures=0`.
+Evidence: `target/opening-tree-settings/run-EuNtB4/`; the initial red/green density
+comparison is in `target/opening-tree-settings/{before,after}.log`.
+
+Pure regressions compare the real opening recipe with Grow across seeds and
+non-default authoring/scale/density, including a non-Apple editor selection.
+57 vegetation tests pass. `cargo fmt --check`, `cargo check`, `cargo build --release`
+and the standard hidden/muted smoke pass. Full Rust tests: **1,734 passed,
+9 failed, 13 ignored**, plus 4 passing collision tests; the failures are the same
+previously documented two config-default and seven raster-tree assertions.
+No saved config or generated files changed. No shader or save-format change.
 
 ## Instant-maturity follow-up (2026-10-27)
 

@@ -46,6 +46,19 @@ impl TreePlantingSettings {
     }
 }
 
+/// One recipe for Grow previews and fresh-world trees. Species selection is
+/// explicit so the opening never depends on the player's currently selected tool.
+pub(in crate::app::core) fn planting_description(
+    settings: &crate::app::gui_config::DebugSettings,
+    species: TreeSpecies,
+) -> TreeDesc {
+    let mut desc = species.mature_desc(&settings.tree.desc);
+    if species == TreeSpecies::Conifer {
+        desc.axis_model = settings.tree.conifer_axis_model;
+    }
+    TreePlantingSettings::from_gui(&settings.adjustables).apply(desc)
+}
+
 impl App {
     pub(in crate::app::core) fn tree_planting_settings(&self) -> TreePlantingSettings {
         TreePlantingSettings::from_gui(&self.debug_settings.adjustables)

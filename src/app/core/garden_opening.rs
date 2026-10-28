@@ -1,15 +1,26 @@
 //! One-time adapter from the pure opening recipe into ordinary editing transactions.
 mod audit;
 mod grass_review;
+#[cfg(test)]
+mod tree_settings_tests;
 use super::{planting::AuthoredFloraPlacementBatch, App, VOXEL_DIM_PER_CHUNK};
 use crate::{
-    app::world_edits::{TerrainBrushEdit, TreeAddOptions, TreePlacement, TreePlacementEdit},
+    app::{gui_config::DebugSettings, world_edits::TerrainBrushEdit},
     gameplay::CameraPose,
     garden_layout as layout,
+    tree_gen::{TreeDesc, TreeSpecies},
 };
 use glam::{Vec2, Vec3};
 
 pub(super) use crate::garden_layout::is_review_preset;
+
+fn opening_tree_description(settings: &DebugSettings, seed: u32, index: usize) -> TreeDesc {
+    layout::tree_descriptor(
+        seed,
+        index,
+        super::vegetation::planting_description(settings, TreeSpecies::AppleTree),
+    )
+}
 
 impl App {
     pub(super) fn establish_garden_opening(&mut self, seed: u32) -> anyhow::Result<()> {
@@ -50,30 +61,35 @@ impl App {
                 layout::hash(seed ^ i as u32),
             )?;
         }
-        // Established trees do not depend on the user's tuning-tree settings/age.
+        // Sample the same saved recipe/maturity as Grow, without charging inventory.
+        // Once published, each tree owns its description and optional growth clock.
+        let instant_mature = self
+            .debug_settings
+            .adjustables
+            .tree_planting_instant_mature
+            .value;
+        let mut placed_trees = 0;
         for (i, p) in layout::TREE_CENTERS.iter().enumerate() {
             let xz = *p * size;
             let y = self.query_terrain_height_cpu(xz);
-            let desc = layout::tree_descriptor(seed, i);
+            let desc = opening_tree_description(&self.debug_settings, seed, i);
             let radius = layout::tree_radius_voxels(&desc);
             let height = crate::tree_gen::Tree::new(desc.clone()).height_voxels();
-            anyhow::ensure!(
-                radius <= 46.,
-                "mature tree exceeded bounded opening footprint"
-            );
-            log::info!("[GARDEN_OPENING] tree={i} species={} seed={} size={:.3} crown_radius_voxels={radius:.3} height_voxels={height:.3} position={:?} apple_probability={:.2}",
+            log::info!("[GARDEN_OPENING] tree={i} species={} seed={} size={:.3} crown_radius_voxels={radius:.3} height_voxels={height:.3} position={:?} apple_probability={} instant_mature={instant_mature}",
                 desc.species.label(), desc.branching.seed, desc.size,
                 Vec3::new(xz.x, y, xz.y), desc.fruit_spawn_probability);
-            self.apply_tree_placement_at_age(
-                TreePlacementEdit {
-                    // Snapshot format has a shared tree-age control. Bake initial individual
-                    // variation into its ordinary descriptor so reload preserves the silhouette.
-                    tree_desc: desc,
-                    placement: TreePlacement::World(Vec3::new(xz.x, y, xz.y)),
-                    options: TreeAddOptions::default().with_new_id(),
-                },
-                1.0,
-            )?;
+            match self.plant_tree_with_maturity(desc, Vec3::new(xz.x, y, xz.y), instant_mature) {
+                Ok(id) => {
+                    placed_trees += 1;
+                    log::info!("[GARDEN_OPENING] planted_tree={i} id={id}");
+                }
+                // User-authored trees can exceed the world or intersect terrain. Apply
+                // Grow's validation, not a hidden scale cap or a startup crash.
+                Err(error) if error.is::<super::vegetation::TreePlantingRejection>() => {
+                    log::warn!("[GARDEN_OPENING] skipped_tree={i} reason={error:#}");
+                }
+                Err(error) => return Err(error),
+            }
         }
         // Actual mow/removal paths, not a shader-only exclusion: persists in snapshots,
         // and subsequent player edits/planting remain free to replace these patches.
@@ -134,8 +150,8 @@ impl App {
             }
         }
         self.finish_authored_flora_placement(batch)?;
-        log::info!("[GARDEN_OPENING] version={} seed={seed} trees={} flowers={placed} candidates={} attempt_cap={} fingerprint={fingerprint:08x} editable=true",
-            layout::VERSION, layout::TREE_CENTERS.len(), flowers.len(), layout::MAX_ATTEMPTS);
+        log::info!("[GARDEN_OPENING] version={} seed={seed} trees={placed_trees} flowers={placed} candidates={} attempt_cap={} fingerprint={fingerprint:08x} editable=true",
+            layout::VERSION, flowers.len(), layout::MAX_ATTEMPTS);
         Ok(())
     }
 

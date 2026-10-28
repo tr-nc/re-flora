@@ -179,8 +179,11 @@ remain visible; the text toolbar is always borderless.
 **1 / Grow → Type: Tree** offers **Apple Tree**, **Pine** and **London Plane** (法国梧桐). Click terrain
 to plant one tree; **Tab** cycles varieties. Each placement receives its own repeatable seed.
 The new planting selection, tuning-tree configuration and **four fresh-garden opening trees** now
-use Apple Tree. The opening keeps its original planting positions and fits compact trees without
-blocking the route. The old Test/Garden Tree morphology has been retired: loading those trees
+use Apple Tree. The opening keeps its original positions and seeds, but uses the same saved
+Tree Planting settings and Apple authoring as Grow—not a separate preset. This includes size,
+apple density and whether to start as mature trees or growing saplings. Changes apply when trees
+are created, not retroactively to a loaded garden. See [planting preferences](garden-tree-planting.md).
+The old Test/Garden Tree morphology has been retired: loading those trees
 (including old saves with no species field) converts them to current apples, keeping position,
 ID, size, individual seed and global age. Their old baked wood is replaced, not left behind.
 Loading does not overwrite the save file; use **Save** to persist the conversion. Conifer, Pine,
@@ -189,8 +192,8 @@ plantable; existing willow trees remain loadable, and unplanted willow saplings 
 London Plane saplings. All architectures pass through the
 [shared growth module and species rules](tree-growth.md).
 
-New Apple Trees and the fresh opening now use a compact mature garden scale, roughly 1.5–1.8
-player-body heights (seed variation applies). Pine and London Plane use their larger native planting
+At Tree scale 1, new Apple Trees and the fresh opening have a compact mature garden scale,
+roughly 1.5–1.8 player-body heights (seed variation applies). Pine and London Plane use their larger native planting
 scales. Existing saved Apple trees keep their authored sizes; loading a garden is not a resize
 operation. See [scale measurements and review](evidence/apple-tree-player-scale.md).
 
