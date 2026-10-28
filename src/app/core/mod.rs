@@ -2725,7 +2725,7 @@ impl App {
                             egui::Window::new("Texture lifecycle acceptance")
                                 .default_pos(egui::pos2(8.0, 8.0))
                                 .default_size(egui::vec2(180.0, 180.0))
-                                .show(ctx, |ui| {
+                                .show_matte(ctx, egui::Id::new("texture_lifecycle_acceptance"), egui::Frame::window(&ctx.global_style()), |ui| {
                                     ui.image((texture_id, texture_size));
                                 });
                         }

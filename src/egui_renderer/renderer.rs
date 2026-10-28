@@ -87,7 +87,7 @@ impl EguiRenderer {
             &pool,
         );
 
-        let matte = MattePipeline::new(device, render_pass, &pool);
+        let matte = MattePipeline::new(device, allocator.clone(), render_pass, &pool);
         let egui_context = egui::Context::default();
         let egui_winit_state = egui_winit::State::new(
             egui_context.clone(),
@@ -480,6 +480,7 @@ impl EguiRenderer {
                     self.matte.prepare(
                         cmdbuf,
                         backdrop.expect("UI glass requires the current scene"),
+                        self.pixels_per_point.expect("prepared UI scale"),
                         &self.frame_retirement_sink,
                     );
                     continue;

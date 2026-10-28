@@ -1,5 +1,6 @@
 //! Shared, bounded session telemetry for the FPS and VRAM tabs. Never saved.
 use super::ui_style::{FLOWER_ACCENT, GOLD_ACCENT, PANEL_DARK, SAGE_ACCENT, SHADOW_COLOR};
+use crate::egui_renderer::matte_glass::MatteFrameExt;
 use std::collections::VecDeque;
 
 // Refresh the numeric readout independently of the lower-frequency history.
@@ -215,7 +216,7 @@ fn draw_chart(
                 stroke: super::ui_style::panel_stroke(ctx, 2.0, FLOWER_ACCENT),
                 ..Default::default()
             }
-            .show(ui, |ui| {
+            .show_matte(ui, |ui| {
                 ui.set_width(width);
                 ui.set_min_height(132.0);
                 ui.horizontal(|ui| {
@@ -350,6 +351,35 @@ fn draw_chart(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn telemetry_tabs_use_scene_backed_glass() {
+        let ctx = egui::Context::default();
+        for selected in [Metric::Fps, Metric::Vram] {
+            let mut panel = TelemetryPanel::default();
+            panel.selected = selected;
+            panel.observe(0.0, 60.0, 512 * 1024 * 1024);
+            let mut output = None;
+            for frame in 0..3 {
+                output = Some(ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1280.0, 720.0),
+                        )),
+                        time: Some(frame as f64),
+                        ..Default::default()
+                    },
+                    |_| draw(&ctx, &mut panel, frame as f64),
+                ));
+            }
+            let output = output.unwrap();
+            let meshes = ctx.tessellate(output.shapes, output.pixels_per_point);
+            assert!(meshes.iter().any(|primitive| matches!(&primitive.primitive,
+                egui::epaint::Primitive::Mesh(mesh) if mesh.texture_id == crate::egui_renderer::matte_glass::TEXTURE_ID)),
+                "both telemetry tabs must use the same glass as Debug Panel");
+        }
+    }
 
     #[test]
     fn both_tabs_sample_in_background_and_vram_accepts_zero() {

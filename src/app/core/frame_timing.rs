@@ -1,5 +1,6 @@
-use super::ui_style::{GOLD_ACCENT, PANEL_DARK, SAGE_ACCENT, SHADOW_COLOR};
-use egui::{Color32, RichText};
+use super::ui_style::{GOLD_ACCENT, PANEL_DARK, SAGE_ACCENT, SHADOW_COLOR, TEXT_COLOR};
+use crate::egui_renderer::matte_glass::MatteFrameExt;
+use egui::RichText;
 use re_flora_vkn::GpuProfilerFrameResults;
 use std::time::Instant;
 
@@ -245,7 +246,7 @@ pub(super) fn draw_frame_timing_panel(
                 ..Default::default()
             };
 
-            timing_frame.show(ui, |ui| {
+            timing_frame.show_matte(ui, |ui| {
                 ui.set_width(340.0);
                 ui.horizontal(|ui| {
                     ui.label(
@@ -283,7 +284,7 @@ pub(super) fn draw_frame_timing_panel(
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(
                                 RichText::new(format!("{value_us:>8.0} us"))
-                                    .color(Color32::WHITE)
+                                    .color(TEXT_COLOR)
                                     .monospace()
                                     .size(11.0),
                             );
@@ -320,7 +321,7 @@ pub(super) fn draw_frame_timing_panel(
                                 |ui| {
                                     ui.label(
                                         RichText::new(format!("{:>8.0} us", scope.duration_us()))
-                                            .color(Color32::WHITE)
+                                            .color(TEXT_COLOR)
                                             .monospace()
                                             .size(11.0),
                                     );
@@ -336,6 +337,53 @@ pub(super) fn draw_frame_timing_panel(
 #[cfg(test)]
 mod tests {
     use super::{FrameCpuScope, FrameCpuTimings};
+
+    #[test]
+    fn frame_timing_uses_glass_and_dark_value_text() {
+        let ctx = egui::Context::default();
+        let mut output = None;
+        for frame in 0..3 {
+            output = Some(ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 720.0),
+                    )),
+                    time: Some(frame as f64),
+                    ..Default::default()
+                },
+                |_| {
+                    super::draw_frame_timing_panel(
+                        &ctx,
+                        super::FrameTimingSnapshot::default(),
+                        None,
+                        false,
+                    )
+                },
+            ));
+        }
+        let output = output.unwrap();
+        let values: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|shape| {
+                if let egui::Shape::Text(text) = &shape.shape {
+                    text.galley.text().ends_with(" us").then_some(text)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(!values.is_empty());
+        for text in values {
+            for section in &text.galley.job.sections {
+                assert_eq!(section.format.color, super::TEXT_COLOR);
+            }
+        }
+        let meshes = ctx.tessellate(output.shapes, output.pixels_per_point);
+        assert!(meshes.iter().any(|primitive| matches!(&primitive.primitive,
+            egui::epaint::Primitive::Mesh(mesh) if mesh.texture_id == crate::egui_renderer::matte_glass::TEXTURE_ID)));
+    }
 
     #[test]
     fn disabled_cpu_timings_still_run_without_recording() {

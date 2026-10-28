@@ -185,6 +185,7 @@ impl App {
 }
 
 pub(super) fn draw_prompt(ctx: &egui::Context, visible: bool) {
+    use crate::egui_renderer::matte_glass::MatteFrameExt;
     if !visible {
         return;
     }
@@ -193,7 +194,7 @@ pub(super) fn draw_prompt(ctx: &egui::Context, visible: bool) {
         .interactable(false)
         .show(ctx, |ui| {
             egui::Frame::popup(ui.style())
-                .show(ui, |ui| crate::app::ui_text::status(ui, "K · Kick"));
+                .show_matte(ui, |ui| crate::app::ui_text::status(ui, "K · Kick"));
         });
 }
 

@@ -20,13 +20,14 @@ settings or save hooks. Existing user configuration files are unchanged.
 ## Scope
 
 Glass is explicit on the toolbar, wallet, garden shop, planting catalog, material
-backpack, Debug Panel, soil inspector, and construction/carry hints. Controls use
+backpack, Debug Panel, soil inspector, FPS/VRAM telemetry, Frame Timing, the texture
+lifecycle diagnostic window, and construction/carry/tree-kick hints. Controls use
 complementary pale inset fills and dark text. Selection/hover/pressed fills were
 updated together to avoid dark text on the old dark backgrounds. Existing panel
 outline preferences, layout, input, and save behavior remain intact.
 
-Ordinary egui text, textures, tooltips, diagnostic-only windows, and the startup
-splash keep the regular renderer; they are not detected or recolored by the GPU.
+Ordinary egui text, textures, tooltips, and the startup splash keep the regular
+renderer; they are not detected or recolored by the GPU.
 The material is not applied to world glass/voxel materials.
 
 ## Ownership and render contract
@@ -38,12 +39,15 @@ The material is not applied to world glass/voxel materials.
   shape within its explicit layer/range, preserving the actual frame's faded alpha,
   clipping, outline, and paint order. No global color-key or texture-atlas heuristic
   selects glass surfaces.
-- `matte_pipeline.rs` owns the material pipeline and backdrop descriptor. Each
-  backdrop descriptor retains its source texture generation. Replacement bindings
-  and pipelines use the existing completion-scoped retirement sink.
-- The renderer prepares sampled-image resources **before** entering the UI render
-  pass. The source is the current tracer `screen_output_tex`, which is now sampled
-  as well as used for the swapchain blit. It is not the UI render target.
+- `matte_pipeline.rs` owns the material pipeline and backdrop descriptor.
+  `matte_blur.rs` owns two full-resolution frost images and the horizontal/vertical
+  compute passes. Descriptors and images retain their source generation; replaced
+  bindings, images, and pipelines use the completion-scoped retirement sink.
+- The renderer runs the blur once **before** entering the UI render pass, only
+  when an explicit glass mesh is present. The source is the current tracer
+  `screen_output_tex`, not the UI render target. Resource tracking declares the
+  scene-read, horizontal-write/read, vertical-write, and fragment-read dependencies,
+  including next-frame reuse. No previous-frame image is used as filter input.
 - Material meshes and ordinary egui meshes preserve painter order and restore the
   appropriate pipeline, projection, and descriptor when switching between them.
 - Only scene pixels are frosted. Text and controls are rendered afterward and stay
@@ -58,12 +62,26 @@ The material is not applied to world glass/voxel materials.
 
 ## Fidelity and cost
 
-The 7×7, 49-sample Gaussian reference kernel covers ±3 sigma. It is a sparse
-approximation, not a claim of pixel-identical CSS blur or the browser's filtering
-implementation. It runs only on visible glass fragments, not full-screen. There
-are no extra full-screen blur targets, asynchronous captures, or stale-frame
-readbacks. Native performance has not been accepted against a budget; compare the
-native look first, then measure/optimize the material separately if needed.
+The filter is a normalized, separable Gaussian with sigma 7 logical points,
+truncated at ±ceil(3 sigma) physical pixels. Both passes sample **every physical
+texel**; DPI changes the weights and radius, never the sample spacing. Scene
+colors are converted to encoded sRGB before the horizontal filter; both float
+intermediates retain that encoding until material composition. Edge coordinates
+clamp to the viewport. Panels share the completed blur and need one backdrop
+sample each. This is not a claim of browser pixel-identical filtering.
+
+This replaces the original sparse 7×7 kernel (introduced in `7631929b`,
+2026-10-28). At 1× scale its samples were seven pixels apart: a single bright line
+produced values `0.3991, 0, 0, 0, 0, 0, 0, 0.2420, ...`, i.e. visible displaced
+copies rather than a smooth lobe. The dense filter removes that undersampling
+mechanism instead of hiding it with a more opaque tint or temporal noise.
+
+The two full-resolution RGBA16F images cost 16 bytes per viewport pixel combined
+(about 31.6 MiB at 1920×1080). The compute passes cover the full viewport when glass
+is visible, trading shared continuous filtering for extra bandwidth and storage.
+No asynchronous captures or stale-frame readbacks are involved. This change is a
+visual correction, **not a measured performance win or budget acceptance**;
+performance optimization follows native visual approval.
 
 At 18% body opacity, backdrop brightness still strongly affects contrast, as it
 would in the approved web preset. Selected and hovered inset controls have a
@@ -75,7 +93,35 @@ browser's documented seed `1837`, multiplier `1664525`, increment `1013904223`,
 RGB levels `90/220`, and alpha `140`. Shader affine skip-ahead produces the same
 texels as the sequential browser generator; no generated texture file is needed.
 
-## Validation
+## Dense-blur and panel-consistency validation
+
+- Before the fix, `cargo test telemetry_tabs_use_scene_backed_glass` failed for the
+  actual FPS/VRAM panel. Both tabs now pass; Frame Timing has matching material
+  and dark-value-text coverage. Existing material/window and toolbar tests pass.
+- `shader/tests/ui_matte_blur_contract.slang` executes the same generic filter loop
+  as the GPU shader: single-lobe impulse response without gaps/replicas, symmetry,
+  unit energy, variance, constant-color preservation, and monotonic step edges at
+  0.75×, 1×, 1.75×, and 2× scales. This and the existing material contract pass
+  when compiled/run directly with Slang 2025.23.2.
+- `cargo fmt --check`, `cargo check`, and `cargo build --release` pass. Full Rust
+  tests: **1,732 passed, 9 failed, 13 ignored**, plus 4 passing collision tests.
+  The nine failures match the pre-existing list recorded below.
+- The full Slang runner stops at `sprinkler_contact_contracts` with
+  `shared spray/contact failures=1`; reproduced from unchanged `861dfbe7` shader
+  sources. The two UI contracts were therefore also run independently.
+- Hidden muted Release startup succeeds. The default Wayland run logs an XDG
+  settings portal timeout for `color-scheme`; X11 validation runs are clean.
+- Debug Panel open, Vulkan synchronization validation: startup resize and three
+  **post-render** resizes (1152×648, 960×600, 1280×720) pass with shutdown
+  `failures=0`, no ERROR/VUID/hazard/panic diagnostics. The existing grass pixel
+  lifecycle fixture supplies post-render resizes, with `--perf` as required by
+  that fixture; these runs are safety checks, not performance benchmarks.
+- Native screenshot inspected at `target/matte-glass-validation/panels.png`:
+  Debug Panel, backpack, toolbar and FPS/VRAM use the same material; text stays
+  sharp. User visual acceptance remains pending. Logs and local-only baseline
+  artifacts are alongside it. No saved GUI/camera config changed.
+
+## Initial material validation (before dense blur)
 
 - `cargo fmt --check`, `cargo check`, `cargo build --release`.
 - Real-egui tests cover material identity, corner area, text/background order,

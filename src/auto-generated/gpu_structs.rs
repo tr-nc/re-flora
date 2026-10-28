@@ -712,6 +712,15 @@ pub struct PushConstantSprinklerWetting {
     pub _pad0: [u8; 8],
 }
 
+/// Auto-generated from `PushConstantUiMatteBlur` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantUiMatteBlur {
+    pub pixels_per_point: f32,
+    pub horizontal: u32,
+    pub _pad0: [u8; 8],
+}
+
 /// Auto-generated from `PushConstantVegetationResponse` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]

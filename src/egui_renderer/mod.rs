@@ -1,3 +1,4 @@
+mod matte_blur;
 pub(crate) mod matte_glass;
 mod matte_pipeline;
 mod mesh;

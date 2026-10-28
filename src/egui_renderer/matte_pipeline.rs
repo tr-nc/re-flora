@@ -1,7 +1,8 @@
+use super::matte_blur::MatteBlur;
 use re_flora_vkn::{
-    vk, CommandBuffer, DescriptorPool, DescriptorResource, DescriptorSet, Device, FormatOverride,
-    FrameRetirement, FrameRetirementSink, GraphicsPipeline, GraphicsPipelineDesc, RenderPass,
-    ShaderModule, Texture,
+    vk, Allocator, CommandBuffer, DescriptorPool, DescriptorResource, DescriptorSet, Device,
+    FormatOverride, FrameRetirement, FrameRetirementSink, GraphicsPipeline, GraphicsPipelineDesc,
+    RenderPass, ShaderModule, Texture,
 };
 
 struct Backdrop {
@@ -15,11 +16,17 @@ pub(super) struct MattePipeline {
     vertex: ShaderModule,
     fragment: ShaderModule,
     backdrop: Option<Backdrop>,
+    blur: MatteBlur,
     generation: u64,
 }
 
 impl MattePipeline {
-    pub fn new(device: &Device, render_pass: &RenderPass, pool: &DescriptorPool) -> Self {
+    pub fn new(
+        device: &Device,
+        allocator: Allocator,
+        render_pass: &RenderPass,
+        pool: &DescriptorPool,
+    ) -> Self {
         let vertex =
             ShaderModule::from_precompiled(device, "shader/egui/ui_matte.vert", "main").unwrap();
         let fragment =
@@ -30,6 +37,7 @@ impl MattePipeline {
             vertex,
             fragment,
             backdrop: None,
+            blur: MatteBlur::new(device, allocator, pool),
             generation: 0,
         }
     }
@@ -86,8 +94,12 @@ impl MattePipeline {
         &mut self,
         cmdbuf: &CommandBuffer,
         texture: &Texture,
+        pixels_per_point: f32,
         retirement: &FrameRetirementSink,
     ) {
+        let texture = self
+            .blur
+            .prepare(cmdbuf, texture, pixels_per_point, retirement);
         let unchanged = self.backdrop.as_ref().is_some_and(|backdrop| {
             backdrop.texture.get_image().as_raw() == texture.get_image().as_raw()
         });

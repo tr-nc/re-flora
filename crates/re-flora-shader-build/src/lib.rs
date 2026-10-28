@@ -244,6 +244,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Vertex,
     },
     ShaderConfig {
+        logical_path: "shader/egui/ui_matte_blur.comp",
+        source_path: "shader/slang/ui_matte_blur.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/egui/ui_matte.frag",
         source_path: "shader/slang/ui_matte.frag.slang",
         module_path: "shader/slang",
