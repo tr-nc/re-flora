@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="Re: Flora 银杏树交付报告：原生游戏截图、植物学参考、设计取舍与验证记录。">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+  <title>银杏 · 一树秋色 — Re: Flora</title>
+  <style>
+    :root { --paper:#f5f3e9; --ink:#243c32; --muted:#5d685e; --line:#d2d5c6; --gold:#96651c; --wash:#ecebdd; --white:#fffef8; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; scroll-padding-top:24px; }
+    body { margin:0; background:var(--paper); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; font-size:16px; line-height:1.85; }
+    a { color:inherit; text-underline-offset:5px; }
+    a:hover { color:var(--gold); }
+    a:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline:3px solid var(--gold); outline-offset:6px; }
+    ::selection { background:#e8d19f; color:var(--ink); }
+    .wrap { width:min(1180px,calc(100% - 96px)); margin-inline:auto; }
+    .skip { position:absolute; top:12px; left:12px; padding:8px 16px; background:var(--white); transform:translateY(-180%); z-index:5; }
+    .skip:focus { transform:none; }
+    .masthead { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:30px 0 20px; border-bottom:1px solid var(--line); }
+    .brand { font-family:Georgia,serif; font-size:25px; letter-spacing:-1px; text-decoration:none; }
+    .brand span { color:var(--gold); }
+    nav { display:flex; gap:26px; font-size:13px; }
+    nav a { text-decoration:none; }
+    .eyebrow { margin:0 0 22px; color:var(--gold); font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; }
+    .intro { display:grid; grid-template-columns:1.2fr 1fr; align-items:end; gap:60px; padding:65px 0 42px; }
+    h1,h2,h3,p,figure { margin:0; }
+    h1,h2 { font-family:"Songti SC","Noto Serif CJK SC",Georgia,serif; font-weight:500; }
+    h1 { font-size:clamp(58px,7.2vw,94px); line-height:1.08; letter-spacing:-3px; }
+    .latin { display:block; margin-top:18px; font:italic 25px/1.4 Georgia,serif; color:var(--muted); letter-spacing:0; }
+    .intro-copy { max-width:430px; padding-bottom:3px; }
+    .intro-copy .lead { font-size:24px; font-weight:500; margin-bottom:14px; letter-spacing:.5px; }
+    .intro-copy p:last-child { color:var(--muted); }
+    .image-link { display:block; overflow:hidden; background:#c8d5e2; line-height:0; }
+    .image-link img { display:block; width:100%; height:auto; aspect-ratio:16/9; }
+    .image-link:hover { outline:2px solid var(--gold); outline-offset:4px; }
+    figcaption { display:flex; justify-content:space-between; align-items:baseline; gap:12px 30px; padding:15px 0; font-size:12px; color:var(--muted); }
+    figcaption strong { color:var(--ink); font-weight:600; }
+    .stamp { white-space:nowrap; font-variant-numeric:tabular-nums; }
+    .entry { margin-top:18px; display:flex; align-items:center; justify-content:space-between; gap:26px; padding:23px 28px; background:var(--ink); color:var(--paper); }
+    .entry p { font-size:14px; }
+    .entry strong { display:block; font-size:18px; font-weight:500; letter-spacing:.4px; }
+    .price { display:flex; gap:10px; align-items:baseline; white-space:nowrap; }
+    .price b { font:38px/1 Georgia,serif; color:#f2cf82; }
+    .price span { font-size:12px; }
+    section { padding:68px 0; border-bottom:1px solid var(--line); }
+    .section-head { display:flex; align-items:baseline; gap:22px; margin-bottom:30px; }
+    .number { color:var(--gold); font:italic 18px Georgia,serif; }
+    h2 { font-size:34px; line-height:1.35; letter-spacing:-.5px; }
+    h3 { font-size:18px; line-height:1.5; font-weight:600; margin-bottom:12px; }
+    .triptych { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:34px; }
+    .triptych article + article { border-left:1px solid var(--line); padding-left:34px; }
+    .triptych p { color:var(--muted); font-size:14px; }
+    .tag { display:block; margin-bottom:16px; color:var(--gold); font-size:11px; letter-spacing:1.5px; }
+    .note { margin-top:28px; font-size:13px; color:var(--muted); }
+    .section-copy { color:var(--muted); max-width:720px; margin:-8px 0 28px; }
+    .species-key { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; padding:18px 0 4px; }
+    .species-key span { font-size:13px; border-top:2px solid var(--line); padding-top:10px; }
+    .species-key .highlight { border-color:var(--gold); color:var(--gold); font-weight:600; }
+    .species-key small { display:block; font-size:11px; font-weight:400; color:var(--muted); }
+    .checks { display:grid; grid-template-columns:1fr 1fr; gap:40px; }
+    .score { padding:28px 30px; background:var(--wash); }
+    .score b { display:block; font:76px/1.1 Georgia,serif; letter-spacing:-3px; }
+    .score p { margin-top:14px; }
+    .score .sub { color:var(--muted); font-size:13px; }
+    .status-list { list-style:none; padding:0; margin:0; }
+    .status-list li { display:flex; justify-content:space-between; gap:16px; border-bottom:1px solid var(--line); padding:14px 0; font-size:14px; }
+    .status-list li:first-child { padding-top:0; }
+    .status-list b { color:var(--gold); font-size:12px; white-space:nowrap; }
+    details { border-top:1px solid var(--line); margin-top:30px; }
+    summary { cursor:pointer; padding:18px 2px; font-size:14px; font-weight:600; }
+    details p { font-size:14px; color:var(--muted); margin:0 0 16px; }
+    .table-wrap { overflow-x:auto; }
+    table { width:100%; border-collapse:collapse; font-size:13px; font-variant-numeric:tabular-nums; }
+    caption { text-align:left; padding:0 0 12px; color:var(--muted); }
+    th,td { text-align:right; padding:12px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
+    th { color:var(--muted); font-weight:500; }
+    th:first-child, td:first-child { text-align:left; padding-left:0; }
+    .scope { display:grid; grid-template-columns:1fr 1fr; gap:50px; }
+    .scope ul { margin:0; padding-left:20px; font-size:14px; color:var(--muted); }
+    .scope li { margin:8px 0; }
+    .references { display:grid; grid-template-columns:1fr 1fr; gap:28px 40px; list-style:none; padding:0; margin:0; }
+    .references a { font-size:16px; font-weight:600; }
+    .references p { font-size:13px; color:var(--muted); margin-top:8px; }
+    .reference-label { display:block; margin-top:8px; font-size:11px; color:var(--gold); }
+    code { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:.87em; overflow-wrap:anywhere; }
+    pre { padding:22px; background:var(--wash); overflow:auto; font-size:13px; line-height:1.7; }
+    pre code { font-size:inherit; }
+    .reproduce { padding:24px 0 0; border-bottom:0; }
+    footer { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:14px 32px; padding:30px 0 38px; font-size:12px; color:var(--muted); }
+    footer a { margin-left:16px; }
+    @media (max-width:760px) {
+      .wrap { width:calc(100% - 40px); }
+      .masthead { padding-top:22px; align-items:flex-start; }
+      nav { gap:14px; padding-top:7px; font-size:12px; }
+      .intro { grid-template-columns:1fr; gap:26px; padding:42px 0 28px; }
+      .intro-copy { max-width:100%; }
+      .intro-copy .lead { font-size:21px; }
+      .eyebrow { margin-bottom:18px; font-size:10px; }
+      h1 { font-size:66px; }
+      .latin { font-size:22px; margin-top:12px; }
+      figcaption { flex-direction:column; gap:4px; font-size:11px; }
+      .entry { padding:20px; align-items:flex-start; }
+      .entry strong { font-size:15px; }
+      .entry p { font-size:12px; }
+      .price { gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+      .price b { font-size:30px; }
+      section { padding:44px 0; }
+      h2 { font-size:28px; }
+      .section-head { gap:15px; margin-bottom:25px; }
+      .triptych,.checks,.scope,.references { grid-template-columns:1fr; gap:26px; }
+      .triptych article + article { border-left:0; border-top:1px solid var(--line); padding:24px 0 0; }
+      .tag { margin-bottom:8px; }
+      .species-key { grid-template-columns:1fr 1fr; gap:20px; }
+      .score b { font-size:64px; }
+      .section-copy { font-size:14px; }
+      footer { display:block; }
+      footer div { margin-top:12px; }
+      footer a { margin:0 16px 0 0; }
+    }
+    @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
+    @media print {
+      body { background:white; font-size:11pt; }
+      .wrap { width:100%; }
+      nav,.skip,.reproduce { display:none; }
+      .intro { padding-top:24px; }
+      section { padding:24px 0; }
+      figure,.checks,.scope,article { break-inside:avoid; }
+      .entry,.score { background:#f0f0e8; color:#243c32; }
+      .price b { color:#96651c; }
+      a { text-decoration:none; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">跳到正文</a>
+  <header class="masthead wrap">
+    <a class="brand" href="#main" aria-label="Re: Flora 报告首页">re<span>:</span>flora</a>
+    <nav aria-label="报告导航"><a href="#design">设计</a><a href="#garden">同场对照</a><a href="#validation">验证</a></nav>
+  </header>
+  <main id="main" class="wrap">
+    <div class="intro">
+      <div><p class="eyebrow">Species study · 2026.10.29</p><h1>银杏<span class="latin" lang="en">Ginkgo biloba</span></h1></div>
+      <div class="intro-copy"><p class="lead">给花园添一树秋色。</p><p>从扇形叶、向上伸展的枝条，到一层温暖的金黄：沿用 Re: Flora 的体素语言，让银杏拥有自己的轮廓，而不只是换一种颜色。</p></div>
+    </div>
+    <figure>
+      <a class="image-link" href="ginkgo.png" aria-label="打开银杏原始截图，5120 × 2880"><img src="ginkgo.png" width="5120" height="2880" alt="蓝天下的一株金黄色体素银杏，灰褐色主干连接向上伸展的枝条，地面可见树冠投影。"></a>
+      <figcaption><span><strong>01 / 金秋银杏</strong>　原生 Release 截图 · 种子 122 · 成熟树</span><span class="stamp">5120 × 2880　点击查看原图 ↗</span></figcaption>
+    </figure>
+    <aside class="entry" aria-label="游戏内入口"><div><strong>Grow → Tree → Ginkgo</strong><p>有限资源模式：商店购买 Ginkgo sapling</p></div><div class="price"><b>35</b><span>金币 / 株</span></div></aside>
+
+    <section id="design" aria-labelledby="design-title">
+      <div class="section-head"><span class="number" aria-hidden="true">01</span><h2 id="design-title">从植物特征，到游戏语言</h2></div>
+      <div class="triptych">
+        <article><span class="tag" lang="en">SILHOUETTE</span><h3>直立，而非一团圆冠</h3><p>参考银杏幼时偏锥形、随年龄渐趋不规则的树形：保留贯通的主干，错落安排向上的侧枝，收窄上部枝条的展开范围。</p></article>
+        <article><span class="tag" lang="en">FOLIAGE</span><h3>扇形，是辨识的起点</h3><p>在扁平的体素叶簇中留下窄基部、宽叶缘和浅浅的中央裂口。叶簇沿枝条附着，延续现有风动，而不是额外叠放一层装饰模型。</p></article>
+        <article><span class="tag" lang="en">COLOUR &amp; BARK</span><h3>金色，只属于这棵树</h3><p>金黄基础色按树独立传递，再叠加玩家保存的个体色彩变化。灰褐树皮以纵向断续纹理区分身份，不重染邻近树木。</p></article>
+      </div>
+      <p class="note">设计边界：这是固定的秋季外观；扇形体素叶簇是风格化表达，不是逐片建模的植物学叶片。程序参数属于美术取舍，而非生理生长方程。</p>
+    </section>
+
+    <section id="garden" aria-labelledby="garden-title">
+      <div class="section-head"><span class="number" aria-hidden="true">02</span><h2 id="garden-title">一座花园，四种性格</h2></div>
+      <p class="section-copy">同一原生场景中的混合树种检查。银杏呈现金色；苹果树、松树与法国梧桐保留各自的绿色树冠。它们共用成长、风动和存档系统，而不是四套独立实现。</p>
+      <figure>
+        <a class="image-link" href="mixed.png" aria-label="打开四树种混合场景原始截图，5120 × 2880"><img src="mixed.png" width="5120" height="2880" alt="一块体素地形上从左到右排列苹果树、松树、法国梧桐和银杏；右侧银杏为金黄色，其余树冠为绿色。" loading="lazy"></a>
+        <figcaption><span><strong>02 / 混合树种</strong>　原生 Release 截图 · 从左到右种子 122–125</span><span>不同树种的原生尺寸，并非等高对比</span></figcaption>
+      </figure>
+      <div class="species-key" role="group" aria-label="截图从左到右的树种"><span>苹果树<small lang="en">Apple Tree</small></span><span>松树<small lang="en">Pine</small></span><span>法国梧桐<small lang="en">London Plane</small></span><span class="highlight">银杏<small lang="en">Ginkgo</small></span></div>
+    </section>
+
+    <section id="validation" aria-labelledby="validation-title">
+      <div class="section-head"><span class="number" aria-hidden="true">03</span><h2 id="validation-title">不止是一张好看的截图</h2></div>
+      <p class="section-copy">下列数据记录银杏实现 <code>d753b383</code> 的交付验证。环境为 macOS、Apple M4 Pro、MoltenVK；它们证明正确性，不代表密集树林性能已获验收。</p>
+      <div class="checks">
+        <div class="score"><b>1,772</b><p>全量测试通过 · 0 失败 · 15 忽略</p><p class="sub">另有 4 项碰撞库测试通过。当前平台的集成测试目标无适用用例。</p></div>
+        <ul class="status-list">
+          <li><span>格式检查 · cargo check · Release 构建</span><b>通过</b></li>
+          <li><span>3 个银杏种子：7 / 122 / 907</span><b>实机通过</b></li>
+          <li><span>成长重建 · 序列化恢复 · 成熟形态还原</span><b>实机通过</b></li>
+          <li><span>GPU 姿态 · 表面 · 光照 · 混合树种</span><b>实机通过</b></li>
+          <li><span>原生隐藏静音启动 · 日志检查</span><b>通过</b></li>
+        </ul>
+      </div>
+      <details>
+        <summary>展开种子数据与验证范围</summary>
+        <div class="table-wrap" role="region" aria-label="银杏种子数据" tabindex="0">
+          <table><caption>实际发布的几何数据；叶数量指渲染用体素实例。</caption><thead><tr><th scope="col">种子</th><th scope="col">枝段</th><th scope="col">叶实例</th><th scope="col">苹果</th><th scope="col">高度 / voxel</th></tr></thead><tbody><tr><td>7</td><td>250</td><td>12,272</td><td>0</td><td>123.963</td></tr><tr><td>122</td><td>250</td><td>12,249</td><td>0</td><td>126.495</td></tr><tr><td>907</td><td>250</td><td>12,146</td><td>0</td><td>111.667</td></tr><tr><td>125 · 混合</td><td>250</td><td>12,291</td><td>0</td><td>118.641</td></tr></tbody></table>
+        </div>
+        <p class="note">单元测试另覆盖种子 0 与 u64::MAX、多成长阶段、枝条连通、可重复生成、叶簇边界、独立配色、无缓存树皮发布，以及商店购买与库存恢复。实机检查经过年龄 0.45、序列化恢复，再返回精确的成熟形态。</p>
+        <p>最终原生日志未发现 ERROR、WARN、panic 或 VUID；退出记录为 <code>phase=complete failures=0</code>。DDGI 的 <code>failed=1081</code> 是埋藏探针的无效计数，不是运行失败。未改动生成源码或保存的 GUI 配置。</p>
+      </details>
+    </section>
+
+    <section aria-labelledby="scope-title">
+      <div class="section-head"><span class="number" aria-hidden="true">04</span><h2 id="scope-title">这次交付的边界</h2></div>
+      <div class="scope"><div><h3>已经接入</h3><ul><li>Grow 选择、种植预览与 35 金币树苗。</li><li>既有尺寸 / 成熟度设置、个体差异与成长。</li><li>风动、碰撞、存档与恢复；不替换旧树种身份。</li><li>独立金黄基础色与灰褐树皮；银杏不结苹果。</li></ul></div><div><h3>没有扩展</h3><ul><li>四季物候变化、雌雄选择与白果采收。</li><li>独立单叶网格、细密叶脉与新音频资源。</li><li>装饰落叶粒子仍使用原有系统。</li><li>未声称视觉已获用户批准，或完成密林性能验收。</li></ul></div></div>
+    </section>
+
+    <section id="sources" aria-labelledby="sources-title">
+      <div class="section-head"><span class="number" aria-hidden="true">05</span><h2 id="sources-title">参考，让取舍有据可依</h2></div>
+      <ul class="references">
+        <li><a href="https://plants.ces.ncsu.edu/plants/ginkgo-biloba/" lang="en">NC State Extension ↗</a><span class="reference-label">实现前已读取全文</span><p>金字塔形树冠、扇形叶与金黄色秋叶；常见成年高度 50–80 英尺。用于辨识特征，不把真实尺寸直接搬进花园。</p></li>
+        <li><a href="https://www.rhs.org.uk/plants/7990/ginkgo-biloba/details/" lang="en">Royal Horticultural Society ↗</a><span class="reference-label">实现前已读取全文</span><p>幼树偏锥形，随年龄变得不规则；叶片常有双裂，春夏绿色、秋季清黄。固定金秋外观是本次美术选择。</p></li>
+        <li><a href="https://arboretum.harvard.edu/plant-bios/ginkgo/" lang="en">Arnold Arboretum ↗</a><span class="reference-label">仅搜索索引摘录 · 直连 403</span><p>短枝、扇形叶和灰色裂纹树皮的辅助参考。没有把索引摘要当成已完成的全文审阅。</p></li>
+        <li><a href="https://www.kew.org/plants/ginkgo-tree" lang="en">Royal Botanic Gardens, Kew ↗</a><span class="reference-label">仅搜索索引摘录 · 直连 403</span><p>扇形、常带裂口的叶片与金黄色秋叶，仅用于交叉印证。完整调研说明保留在本地研究笔记中。</p></li>
+      </ul>
+    </section>
+
+    <div class="reproduce">
+      <details><summary>截图来源、复现方式与使用许可</summary>
+        <p>两张 PNG 均由本项目原生 Release 截图功能于 2026-10-29 生成，原始尺寸 5120 × 2880。仅复制和重命名，无裁剪、调色、合成或 AI 修图。页面按比例缩放显示完整画面，点击可查看原图。</p>
+        <p>检查场景在截图时隐藏 UI，时间固定为 0.43，保留实时风；单树相机距离 0.8、混合场景距离 1.8。风的相位可能使重新截图的像素不同。场景不写入玩家花园或 GUI 配置。</p>
+        <pre tabindex="0" role="region" aria-label="截图复现命令，可横向滚动"><code>RE_FLORA_TREE_SPECIES_REVIEW=ginkgo RUST_LOG=info \
+  cargo run --release -- --hidden --mute \
+  --screenshot player-default target/ginkgo-review/ginkgo-final.png \
+  --screenshot-delay 4 --auto-exit 6</code></pre>
+        <p>混合场景将 <code>ginkgo</code> 改为 <code>mixed</code> 并更换输出文件名。其他银杏形态可加 <code>RE_FLORA_TREE_SPECIES_SEED=7</code> 或 <code>907</code>。正常游玩请省略检查环境变量与截图参数。</p>
+        <p>原始文件名：<code>ginkgo-final.png</code> → <code>ginkgo.png</code>；<code>mixed-final.png</code> → <code>mixed.png</code>。图片署名 Re: Flora contributors，按 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode">CC BY-NC-SA 4.0</a> 使用。未导入外部照片、纹理或生成式图像。</p>
+        <p>文件校验值与详细证据见 <a href="README.md">随附来源记录</a>。本 HTML 无脚本、在线字体或外部资源请求；连同本目录两张 PNG 即可离线浏览。研究笔记链接需要仓库中的对应文件。</p>
+      </details>
+    </div>
+  </main>
+  <footer class="wrap"><p>Re: Flora · 银杏交付记录 · 实现 <code>d753b383</code></p><div><a href="../../research/ginkgo.md">调研笔记</a><a href="README.md">原始证据</a><a href="#main">回到顶部 ↑</a></div></footer>
+</body>
+</html>

@@ -1,5 +1,9 @@
 # Ginkgo delivery and native captures
 
+**Visual report: [银杏 · 一树秋色](index.html).** Open `index.html` in a browser;
+keep it beside both PNGs when copying this bundle. This Markdown file retains
+supporting provenance and historical validation evidence, not the visual deliverable.
+
 Implementation: `d753b383` (`add plantable autumn ginkgo trees`).
 Research and explicit botanical/art limits: [ginkgo research](../../research/ginkgo.md).
 
@@ -60,6 +64,26 @@ Observed native publications (leaf counts are rendered voxel instances):
 
 Transient test/build/native logs are under `target/ginkgo-*.log` and
 `target/ginkgo-review/`; normal run logs are in `target/re-flora-logs/`.
+
+## HTML presentation validation
+
+The HTML presents the implementation evidence above, not new game measurements.
+No game code, image pixels or generated files changed in the presentation step.
+
+- Native Chromium review at 1440 × 1000 and 390 × 844; desktop hero/validation and
+  mobile hero/gallery/validation screenshots were opened and inspected.
+- Both disclosures work with pointer and keyboard. All expanded content also
+  fits a 320 × 740 viewport without document-level horizontal overflow; wide
+  commands/tables have keyboard-accessible internal scrolling.
+- Both originals decode at 5120 × 2880 with unchanged SHA-256 values. Original
+  image navigation works; local links and in-page destinations resolve.
+- No page errors or external resource requests. No JavaScript, remote fonts or
+  report build step; CSS is inline and images are relative to this folder.
+- axe-core 4.12.1 WCAG 2A/2AA: zero violations and zero incomplete checks at the
+  desktop and mobile review sizes, with both disclosures open. This automated
+  check is not a blanket accessibility certification.
+- `git diff --check` and `cargo build --release` pass. Game tests were not rerun
+  for this HTML-only change. The isolated browser session was closed afterward.
 
 ## Self-contained image provenance
 
