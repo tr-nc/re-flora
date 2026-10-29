@@ -93,7 +93,8 @@ impl TreeSnapshot {
                     && desc.leaves_size_level <= 12
                     && desc.size > 0.0
                     && desc.size <= 1024.0
-                    && (0.0..=1.0).contains(&desc.leaf_density),
+                    && (0.0..=1.0).contains(&desc.leaf_density)
+                    && desc.appearance.valid(),
                 "saved tree description exceeds supported bounds"
             );
             let branching =
@@ -326,6 +327,10 @@ impl App {
                 .leaves_instances
                 .get(&publication.tree_id)
                 .context("saved tree has no leaf draw resource")?;
+            anyhow::ensure!(
+                rendered.appearance == publication.record.mature_desc.appearance,
+                "restored tree palette differs"
+            );
             anyhow::ensure!(
                 rendered.resources.instances_len as usize
                     == publication.record.leaf_render_positions.len(),

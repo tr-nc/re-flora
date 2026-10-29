@@ -11,7 +11,9 @@ mod species;
 #[cfg(test)]
 mod species_tests;
 mod tree;
+mod variation;
 pub use axis::AxisSegment;
 pub(crate) use axis::MAX_AXIS_SEGMENTS;
 pub use species::TreeSpecies;
 pub use tree::{LeafPlacement, Tree, TreeDesc};
+pub use variation::{TreeAppearance, TreeVariation};

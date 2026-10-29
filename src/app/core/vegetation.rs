@@ -36,7 +36,7 @@ use crate::tree_gen::{Tree, TreeDesc};
 use crate::util::{cluster_positions, ClusterResult};
 use anyhow::{Context, Result};
 use glam::{IVec3, UVec2, UVec3, Vec2, Vec3};
-use rand::{Rng, RngExt};
+use rand::RngExt;
 pub(super) use snapshot::{PreparedTreeSnapshot, TreeSnapshot};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -62,39 +62,6 @@ struct SpecialFloraDistributionParams {
     min_spacing_voxels: f32,
     cluster_bias: f32,
     outlier_chance: f32,
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct TreeVariationConfig {
-    pub size_variance: f32,
-    pub trunk_thickness_variance: f32,
-    pub spread_variance: f32,
-    pub randomness_variance: f32,
-    pub vertical_tendency_variance: f32,
-    pub branch_probability_variance: f32,
-    pub leaves_size_level_variance: f32,
-    pub iterations_variance: f32,
-    pub initial_length_variance: f32,
-    pub length_dropoff_variance: f32,
-    pub thickness_reduction_variance: f32,
-}
-
-impl Default for TreeVariationConfig {
-    fn default() -> Self {
-        TreeVariationConfig {
-            size_variance: 0.0,
-            trunk_thickness_variance: 0.0,
-            spread_variance: 0.0,
-            randomness_variance: 0.0,
-            vertical_tendency_variance: 0.0,
-            branch_probability_variance: 0.0,
-            leaves_size_level_variance: 0.0,
-            iterations_variance: 0.0,
-            initial_length_variance: 0.0,
-            length_dropoff_variance: 0.0,
-            thickness_reduction_variance: 0.0,
-        }
-    }
 }
 
 struct CompiledFencePlacement {
@@ -1976,6 +1943,7 @@ impl AppTreePublicationHost<'_> {
             tree_id,
             &record.leaf_render_positions,
             &record.leaf_render_local_positions,
+            record.mature_desc.appearance,
         )?;
         self.publish_attached_fruit_instances(tree_id)?;
         self.app
@@ -2083,6 +2051,7 @@ impl TreePublicationPrimitiveHost for AppTreePublicationHost<'_> {
             tree_id,
             &record.leaf_render_positions,
             &record.leaf_render_local_positions,
+            record.mature_desc.appearance,
         )
     }
 
@@ -2377,10 +2346,11 @@ impl App {
         let mut rng = rand::rng();
 
         for tree_pos in tree_positions_3d.iter() {
-            let mut tree_desc = self.debug_settings.tree.desc.clone();
-            tree_desc.branching.seed = rng.random_range(1..10000);
-
-            self.apply_tree_variations(&mut tree_desc, &mut rng);
+            let tree_desc = planting_description(
+                &self.debug_settings,
+                self.debug_settings.tree.desc.species,
+                rng.random(),
+            );
             self.apply_tree_placement(TreePlacementEdit {
                 tree_desc,
                 placement: TreePlacement::World(*tree_pos),
@@ -2855,86 +2825,6 @@ impl App {
         );
 
         Ok(())
-    }
-
-    #[allow(dead_code)]
-    pub(super) fn apply_tree_variations(&self, tree_desc: &mut TreeDesc, rng: &mut impl Rng) {
-        let config = &self.tree_variation_config;
-
-        if config.size_variance > 0.0 {
-            tree_desc.size *= 1.0 + rng.random_range(-config.size_variance..=config.size_variance);
-        }
-
-        if config.trunk_thickness_variance > 0.0 {
-            tree_desc.trunk_thickness *= 1.0
-                + rng.random_range(
-                    -config.trunk_thickness_variance..=config.trunk_thickness_variance,
-                );
-        }
-
-        if config.spread_variance > 0.0 {
-            tree_desc.branching.spread *=
-                1.0 + rng.random_range(-config.spread_variance..=config.spread_variance);
-        }
-
-        if config.randomness_variance > 0.0 {
-            tree_desc.branching.randomness = (tree_desc.branching.randomness
-                + rng.random_range(-config.randomness_variance..=config.randomness_variance))
-            .clamp(0.0, 1.0);
-        }
-
-        if config.vertical_tendency_variance > 0.0 {
-            tree_desc.branching.vertical_tendency = (tree_desc.branching.vertical_tendency
-                + rng.random_range(
-                    -config.vertical_tendency_variance..=config.vertical_tendency_variance,
-                ))
-            .clamp(-1.0, 1.0);
-        }
-
-        if config.branch_probability_variance > 0.0 {
-            tree_desc.branching.branch_probability = (tree_desc.branching.branch_probability
-                + rng.random_range(
-                    -config.branch_probability_variance..=config.branch_probability_variance,
-                ))
-            .clamp(0.0, 1.0);
-        }
-
-        if config.initial_length_variance > 0.0 {
-            tree_desc.branching.initial_length *= 1.0
-                + rng
-                    .random_range(-config.initial_length_variance..=config.initial_length_variance);
-        }
-
-        if config.length_dropoff_variance > 0.0 {
-            tree_desc.branching.length_dropoff = (tree_desc.branching.length_dropoff
-                + rng.random_range(
-                    -config.length_dropoff_variance..=config.length_dropoff_variance,
-                ))
-            .clamp(0.1, 1.0);
-        }
-
-        if config.thickness_reduction_variance > 0.0 {
-            tree_desc.thickness_reduction = (tree_desc.thickness_reduction
-                + rng.random_range(
-                    -config.thickness_reduction_variance..=config.thickness_reduction_variance,
-                ))
-            .clamp(0.0, 1.0);
-        }
-
-        if config.iterations_variance > 0.0 {
-            let variation =
-                rng.random_range(-config.iterations_variance..=config.iterations_variance);
-            tree_desc.branching.iterations =
-                ((tree_desc.branching.iterations as f32 + variation).round() as u32).clamp(1, 12);
-        }
-
-        if config.leaves_size_level_variance > 0.0 {
-            let variation = rng.random_range(
-                -config.leaves_size_level_variance..=config.leaves_size_level_variance,
-            );
-            tree_desc.leaves_size_level =
-                ((tree_desc.leaves_size_level as f32 + variation).round() as u32).clamp(0, 8);
-        }
     }
 
     #[allow(dead_code)]

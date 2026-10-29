@@ -30,6 +30,8 @@ pub struct TreeDesc {
     #[serde(skip, default = "mature_tree_growth_age")]
     pub growth_age: f32,
     pub size: f32,
+    /// Captured per-tree palette offsets; old saves default to the neutral palette.
+    pub appearance: super::TreeAppearance,
     pub trunk_thickness: f32,
     pub thickness_reduction: f32,
     pub leaves_size_level: u32,

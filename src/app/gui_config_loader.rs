@@ -1694,6 +1694,30 @@ max = 2
     }
 
     #[test]
+    fn old_tree_planting_files_gain_variation_without_being_rewritten() {
+        let mut config: GuiConfigFile =
+            toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        for section in &mut config.section {
+            if section.name == "Tree Planting" {
+                section.param.retain(|p| p.id.starts_with("tree_planting_"));
+            }
+        }
+        let tree = config.tree.desc.clone();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        let original = toml::to_string_pretty(&config).unwrap();
+        std::fs::write(&path, &original).unwrap();
+        let loaded = GuiConfigLoader::load_from_path(&path);
+        let fields = crate::app::gui_config::GuiAdjustables::from_config(&loaded);
+        assert!(fields.tree_randomize_new.value && fields.tree_randomize_shape.value);
+        assert_eq!(fields.tree_size_variation.value, 15.);
+        assert_eq!(fields.tree_hue_mean.value, 0.);
+        assert_eq!(fields.tree_hue_variation.value, 12.);
+        assert_eq!(loaded.tree.desc, tree);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    }
+
+    #[test]
     fn material_supply_and_droplet_toggles_retire_for_both_saved_values() {
         for value in [false, true] {
             let mut config: GuiConfigFile =

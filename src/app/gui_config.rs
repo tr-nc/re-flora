@@ -1304,7 +1304,12 @@ mod search_tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("gui.toml");
         for (id, label) in [
-            ("tree_planting_scale", "Tree scale (new trees)"),
+            ("tree_planting_scale", "Tree scale mean (new trees)"),
+            (
+                "tree_hue_mean",
+                "Leaf hue offset mean (degrees; - yellow/red, + green)",
+            ),
+            ("tree_size_variation", "Size variation (max +/- %)"),
             ("tree_planting_apple_density", "Apple density (new trees)"),
         ] {
             let context = egui::Context::default();
@@ -1375,6 +1380,56 @@ mod search_tests {
                     .value,
                 value
             );
+            assert_eq!(loaded.tree.desc, tree);
+        }
+    }
+
+    #[test]
+    fn tree_randomization_toggle_clicks_save_and_reload_without_editing_owned_authoring() {
+        let mut settings = DebugSettings::load();
+        settings.adjustables.tree_randomize_new.value = true;
+        let tree = settings.tree.desc.clone();
+        let context = egui::Context::default();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        settings.search.query = "Randomize new trees".into();
+        for expected in [false, true] {
+            let mut draw = |events| {
+                context.run_ui(
+                    egui::RawInput {
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        assert!(!settings.draw(ui, |_, _| {}));
+                    },
+                )
+            };
+            draw(vec![]);
+            let output = draw(vec![]);
+            let point = output
+                .shapes
+                .iter()
+                .find_map(|s| text_rect(&s.shape, "Randomize new trees"))
+                .unwrap()
+                .center();
+            for pressed in [true, false] {
+                draw(vec![
+                    egui::Event::PointerMoved(point),
+                    egui::Event::PointerButton {
+                        pos: point,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: Default::default(),
+                    },
+                ]);
+            }
+            assert_eq!(settings.adjustables.tree_randomize_new.value, expected);
+            assert_eq!(settings.tree.desc, tree);
+            settings.save_to_path(&path).unwrap();
+            let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            assert_eq!(loaded.adjustables.tree_randomize_new.value, expected);
+            assert_eq!(loaded.adjustables.tree_size_variation.value, 15.);
             assert_eq!(loaded.tree.desc, tree);
         }
     }

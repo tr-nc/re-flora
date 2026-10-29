@@ -2915,10 +2915,23 @@ max = 48
 name = "Tree Planting"
 
 [[section.param]]
-id = "tree_planting_instant_mature"
+id = "tree_randomize_new"
 kind = "bool"
-label = "Plant mature trees instantly (new trees)"
+label = "Randomize new trees"
 type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
+id = "tree_randomize_shape"
+kind = "bool"
+label = "Shape: vary individual seed"
+type = "Bool"
+
+[section.param.enabled_if]
+param = "tree_randomize_new"
+equals = true
 
 [section.param.data]
 value = true
@@ -2926,13 +2939,115 @@ value = true
 [[section.param]]
 id = "tree_planting_scale"
 kind = "float"
-label = "Tree scale (new trees)"
+label = "Tree scale mean (new trees)"
 type = "Float"
 
 [section.param.data]
 value = 1
 min = 0.5
 max = 2
+
+[[section.param]]
+id = "tree_size_variation"
+kind = "float"
+label = "Size variation (max +/- %)"
+type = "Float"
+
+[section.param.enabled_if]
+param = "tree_randomize_new"
+equals = true
+
+[section.param.data]
+value = 15
+min = 0
+max = 50
+
+[[section.param]]
+id = "tree_hue_mean"
+kind = "float"
+label = "Leaf hue offset mean (degrees; - yellow/red, + green)"
+type = "Float"
+
+[section.param.data]
+value = 0
+min = -120
+max = 60
+
+[[section.param]]
+id = "tree_hue_variation"
+kind = "float"
+label = "Leaf hue variation (max +/- degrees)"
+type = "Float"
+
+[section.param.enabled_if]
+param = "tree_randomize_new"
+equals = true
+
+[section.param.data]
+value = 12
+min = 0
+max = 90
+
+[[section.param]]
+id = "tree_saturation_mean"
+kind = "float"
+label = "Leaf saturation mean (multiplier)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.25
+max = 2
+
+[[section.param]]
+id = "tree_saturation_variation"
+kind = "float"
+label = "Leaf saturation variation (max +/-)"
+type = "Float"
+
+[section.param.enabled_if]
+param = "tree_randomize_new"
+equals = true
+
+[section.param.data]
+value = 0.08
+min = 0
+max = 0.75
+
+[[section.param]]
+id = "tree_brightness_mean"
+kind = "float"
+label = "Leaf brightness mean (multiplier)"
+type = "Float"
+
+[section.param.data]
+value = 1
+min = 0.25
+max = 2
+
+[[section.param]]
+id = "tree_brightness_variation"
+kind = "float"
+label = "Leaf brightness variation (max +/-)"
+type = "Float"
+
+[section.param.enabled_if]
+param = "tree_randomize_new"
+equals = true
+
+[section.param.data]
+value = 0.08
+min = 0
+max = 0.75
+
+[[section.param]]
+id = "tree_planting_instant_mature"
+kind = "bool"
+label = "Plant mature trees instantly (new trees)"
+type = "Bool"
+
+[section.param.data]
+value = true
 
 [[section.param]]
 id = "tree_planting_apple_density"

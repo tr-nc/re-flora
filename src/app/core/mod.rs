@@ -120,7 +120,7 @@ use self::screenshot::{PendingDenoiserFrame, ScreenshotFrameReadiness};
 use self::terrain_connectivity::TerrainConnectivityRuntime;
 use self::terrain_persistence::TerrainPersistenceRuntime;
 use self::tree_bench::TreeBench;
-use self::vegetation::{GardenTrees, TreeVariationConfig};
+use self::vegetation::GardenTrees;
 use self::visible_terrain::VisibleTerrainChange;
 use self::voxel_backpack::VoxelBackpack;
 use crate::app::camera_snapshots::CameraSnapshotLibrary;
@@ -477,6 +477,7 @@ pub struct App {
     debug_settings: DebugSettings,
     debug_tree_pos: Vec3,
     tree_placement_preview_desc: TreeDesc,
+    tree_placement_individual: u64,
     config_panel_visible: bool,
     environment_probe_rebuild_spacing_voxels: Option<u32>,
     camera_snapshots: CameraSnapshotLibrary,
@@ -506,8 +507,6 @@ pub struct App {
     growing_flora_chunks: GrowingFloraQueue,
     terrain_connectivity: TerrainConnectivityRuntime,
 
-    #[allow(dead_code)]
-    tree_variation_config: TreeVariationConfig,
     #[allow(dead_code)]
     regenerate_trees_requested: bool,
     trees: GardenTrees,
@@ -1431,9 +1430,12 @@ impl App {
                     .value,
             ),
         )?;
-        let mut tree_placement_preview_desc =
-            crate::tree_gen::TreeSpecies::AppleTree.mature_desc(&debug_settings.tree.desc);
-        tree_placement_preview_desc.branching.seed = rand::rng().random::<u64>();
+        let tree_placement_individual = rand::rng().random::<u64>();
+        let tree_placement_preview_desc = vegetation::planting_description(
+            &debug_settings,
+            crate::tree_gen::TreeSpecies::AppleTree,
+            tree_placement_individual,
+        );
         let mut render_flags = render.flags.clone();
         if render_flags.enable_flora {
             render_flags.enable_leaves = debug_settings.tree.render_leaves;
@@ -1599,7 +1601,7 @@ impl App {
             debug_settings,
             debug_tree_pos,
             tree_placement_preview_desc,
-            tree_variation_config: TreeVariationConfig::default(),
+            tree_placement_individual,
             regenerate_trees_requested: false,
             trees,
             config_panel_visible: std::env::var_os("RE_FLORA_DEBUG_PANEL_REVIEW").is_some(),
@@ -1756,19 +1758,18 @@ impl App {
         vegetation::planting_description(
             &self.debug_settings,
             self.player_tools.planting.tree_species,
+            self.tree_placement_individual,
         )
     }
 
     fn sync_tree_placement_preview_from_gui(&mut self) -> Result<()> {
-        let seed = self.tree_placement_preview_desc.branching.seed;
         self.tree_placement_preview_desc = self.placement_tree_description();
-        self.tree_placement_preview_desc.branching.seed = seed;
         self.rebuild_tree_placement_preview()
     }
 
     pub(super) fn advance_tree_placement_preview(&mut self) -> Result<()> {
+        self.tree_placement_individual = rand::rng().random::<u64>();
         self.tree_placement_preview_desc = self.placement_tree_description();
-        self.tree_placement_preview_desc.branching.seed = rand::rng().random::<u64>();
         self.rebuild_tree_placement_preview()
     }
 

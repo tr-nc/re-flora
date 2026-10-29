@@ -105,6 +105,7 @@ impl TreeLeafInstanceResource {
 }
 
 pub struct TreeLeavesInstance {
+    pub appearance: crate::tree_gen::TreeAppearance,
     pub aabb: Aabb3,
     pub chunk_world_offset: UVec3,
     pub resources: TreeLeafInstanceResource,
@@ -127,6 +128,7 @@ impl TreeLeavesInstance {
             max_shadow_instances.max(1),
         );
         Self {
+            appearance: Default::default(),
             aabb,
             chunk_world_offset,
             resources,

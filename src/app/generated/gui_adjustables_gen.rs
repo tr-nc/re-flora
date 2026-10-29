@@ -1526,15 +1526,69 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Tree Planting",
-        id: "tree_planting_instant_mature",
+        id: "tree_randomize_new",
         kind: "bool",
-        label: "Plant mature trees instantly (new trees)",
+        label: "Randomize new trees",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tree Planting",
+        id: "tree_randomize_shape",
+        kind: "bool",
+        label: "Shape: vary individual seed",
     },
     GeneratedGuiParamDescriptor {
         section: "Tree Planting",
         id: "tree_planting_scale",
         kind: "float",
-        label: "Tree scale (new trees)",
+        label: "Tree scale mean (new trees)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tree Planting",
+        id: "tree_size_variation",
+        kind: "float",
+        label: "Size variation (max +/- %)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tree Planting",
+        id: "tree_hue_mean",
+        kind: "float",
+        label: "Leaf hue offset mean (degrees; - yellow/red, + green)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tree Planting",
+        id: "tree_hue_variation",
+        kind: "float",
+        label: "Leaf hue variation (max +/- degrees)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tree Planting",
+        id: "tree_saturation_mean",
+        kind: "float",
+        label: "Leaf saturation mean (multiplier)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tree Planting",
+        id: "tree_saturation_variation",
+        kind: "float",
+        label: "Leaf saturation variation (max +/-)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tree Planting",
+        id: "tree_brightness_mean",
+        kind: "float",
+        label: "Leaf brightness mean (multiplier)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tree Planting",
+        id: "tree_brightness_variation",
+        kind: "float",
+        label: "Leaf brightness variation (max +/-)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Tree Planting",
+        id: "tree_planting_instant_mature",
+        kind: "bool",
+        label: "Plant mature trees instantly (new trees)",
     },
     GeneratedGuiParamDescriptor {
         section: "Tree Planting",
@@ -1946,8 +2000,17 @@ pub struct GuiAdjustables {
     pub voxel_oak_wood_color: crate::gui_adjustables::ColorParam,
     pub voxel_rock_color: crate::gui_adjustables::ColorParam,
     pub ui_glass_cell_size: crate::gui_adjustables::UintParam,
-    pub tree_planting_instant_mature: crate::gui_adjustables::BoolParam,
+    pub tree_randomize_new: crate::gui_adjustables::BoolParam,
+    pub tree_randomize_shape: crate::gui_adjustables::BoolParam,
     pub tree_planting_scale: crate::gui_adjustables::FloatParam,
+    pub tree_size_variation: crate::gui_adjustables::FloatParam,
+    pub tree_hue_mean: crate::gui_adjustables::FloatParam,
+    pub tree_hue_variation: crate::gui_adjustables::FloatParam,
+    pub tree_saturation_mean: crate::gui_adjustables::FloatParam,
+    pub tree_saturation_variation: crate::gui_adjustables::FloatParam,
+    pub tree_brightness_mean: crate::gui_adjustables::FloatParam,
+    pub tree_brightness_variation: crate::gui_adjustables::FloatParam,
+    pub tree_planting_instant_mature: crate::gui_adjustables::BoolParam,
     pub tree_planting_apple_density: crate::gui_adjustables::FloatParam,
     pub soil_deposition_batch_size: crate::gui_adjustables::UintParam,
     pub soil_deposition_rate: crate::gui_adjustables::FloatParam,
@@ -2237,8 +2300,17 @@ impl GuiAdjustables {
         let mut voxel_oak_wood_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_rock_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut ui_glass_cell_size_field: Option<crate::gui_adjustables::UintParam> = None;
-        let mut tree_planting_instant_mature_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut tree_randomize_new_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut tree_randomize_shape_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut tree_planting_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_size_variation_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_hue_mean_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_hue_variation_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_saturation_mean_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_saturation_variation_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_brightness_mean_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_brightness_variation_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut tree_planting_instant_mature_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut tree_planting_apple_density_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut soil_deposition_batch_size_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut soil_deposition_rate_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3927,9 +3999,14 @@ impl GuiAdjustables {
                             ui_glass_cell_size_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
-                    "tree_planting_instant_mature" => {
+                    "tree_randomize_new" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            tree_planting_instant_mature_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                            tree_randomize_new_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "tree_randomize_shape" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            tree_randomize_shape_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "tree_planting_scale" => {
@@ -3937,6 +4014,60 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             tree_planting_scale_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_size_variation" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_size_variation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_hue_mean" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_hue_mean_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_hue_variation" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_hue_variation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_saturation_mean" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_saturation_mean_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_saturation_variation" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_saturation_variation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_brightness_mean" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_brightness_mean_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_brightness_variation" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            tree_brightness_variation_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "tree_planting_instant_mature" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            tree_planting_instant_mature_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "tree_planting_apple_density" => {
@@ -4375,8 +4506,17 @@ impl GuiAdjustables {
             voxel_oak_wood_color: voxel_oak_wood_color_field.expect("Missing parameter: voxel_oak_wood_color"),
             voxel_rock_color: voxel_rock_color_field.expect("Missing parameter: voxel_rock_color"),
             ui_glass_cell_size: ui_glass_cell_size_field.expect("Missing parameter: ui_glass_cell_size"),
-            tree_planting_instant_mature: tree_planting_instant_mature_field.expect("Missing parameter: tree_planting_instant_mature"),
+            tree_randomize_new: tree_randomize_new_field.expect("Missing parameter: tree_randomize_new"),
+            tree_randomize_shape: tree_randomize_shape_field.expect("Missing parameter: tree_randomize_shape"),
             tree_planting_scale: tree_planting_scale_field.expect("Missing parameter: tree_planting_scale"),
+            tree_size_variation: tree_size_variation_field.expect("Missing parameter: tree_size_variation"),
+            tree_hue_mean: tree_hue_mean_field.expect("Missing parameter: tree_hue_mean"),
+            tree_hue_variation: tree_hue_variation_field.expect("Missing parameter: tree_hue_variation"),
+            tree_saturation_mean: tree_saturation_mean_field.expect("Missing parameter: tree_saturation_mean"),
+            tree_saturation_variation: tree_saturation_variation_field.expect("Missing parameter: tree_saturation_variation"),
+            tree_brightness_mean: tree_brightness_mean_field.expect("Missing parameter: tree_brightness_mean"),
+            tree_brightness_variation: tree_brightness_variation_field.expect("Missing parameter: tree_brightness_variation"),
+            tree_planting_instant_mature: tree_planting_instant_mature_field.expect("Missing parameter: tree_planting_instant_mature"),
             tree_planting_apple_density: tree_planting_apple_density_field.expect("Missing parameter: tree_planting_apple_density"),
             soil_deposition_batch_size: soil_deposition_batch_size_field.expect("Missing parameter: soil_deposition_batch_size"),
             soil_deposition_rate: soil_deposition_rate_field.expect("Missing parameter: soil_deposition_rate"),
@@ -4589,6 +4729,13 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "butterfly_worm_noise_detail_frequency" => Some(&adjustables.butterfly_worm_noise_detail_frequency),
         "butterfly_worm_noise_detail_weight" => Some(&adjustables.butterfly_worm_noise_detail_weight),
         "tree_planting_scale" => Some(&adjustables.tree_planting_scale),
+        "tree_size_variation" => Some(&adjustables.tree_size_variation),
+        "tree_hue_mean" => Some(&adjustables.tree_hue_mean),
+        "tree_hue_variation" => Some(&adjustables.tree_hue_variation),
+        "tree_saturation_mean" => Some(&adjustables.tree_saturation_mean),
+        "tree_saturation_variation" => Some(&adjustables.tree_saturation_variation),
+        "tree_brightness_mean" => Some(&adjustables.tree_brightness_mean),
+        "tree_brightness_variation" => Some(&adjustables.tree_brightness_variation),
         "tree_planting_apple_density" => Some(&adjustables.tree_planting_apple_density),
         "soil_deposition_rate" => Some(&adjustables.soil_deposition_rate),
         "soil_deposition_spread_radius" => Some(&adjustables.soil_deposition_spread_radius),
@@ -4703,6 +4850,8 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
         "butterfly_mesh_preview" => Some(&adjustables.butterfly_mesh_preview),
         "rooftop_voxel_scene" => Some(&adjustables.rooftop_voxel_scene),
+        "tree_randomize_new" => Some(&adjustables.tree_randomize_new),
+        "tree_randomize_shape" => Some(&adjustables.tree_randomize_shape),
         "tree_planting_instant_mature" => Some(&adjustables.tree_planting_instant_mature),
         "soil_deposition_fast_path" => Some(&adjustables.soil_deposition_fast_path),
         _ => None,
@@ -4914,6 +5063,13 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "butterfly_worm_noise_detail_frequency" => Some(&mut adjustables.butterfly_worm_noise_detail_frequency),
         "butterfly_worm_noise_detail_weight" => Some(&mut adjustables.butterfly_worm_noise_detail_weight),
         "tree_planting_scale" => Some(&mut adjustables.tree_planting_scale),
+        "tree_size_variation" => Some(&mut adjustables.tree_size_variation),
+        "tree_hue_mean" => Some(&mut adjustables.tree_hue_mean),
+        "tree_hue_variation" => Some(&mut adjustables.tree_hue_variation),
+        "tree_saturation_mean" => Some(&mut adjustables.tree_saturation_mean),
+        "tree_saturation_variation" => Some(&mut adjustables.tree_saturation_variation),
+        "tree_brightness_mean" => Some(&mut adjustables.tree_brightness_mean),
+        "tree_brightness_variation" => Some(&mut adjustables.tree_brightness_variation),
         "tree_planting_apple_density" => Some(&mut adjustables.tree_planting_apple_density),
         "soil_deposition_rate" => Some(&mut adjustables.soil_deposition_rate),
         "soil_deposition_spread_radius" => Some(&mut adjustables.soil_deposition_spread_radius),
@@ -5028,6 +5184,8 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
         "butterfly_mesh_preview" => Some(&mut adjustables.butterfly_mesh_preview),
         "rooftop_voxel_scene" => Some(&mut adjustables.rooftop_voxel_scene),
+        "tree_randomize_new" => Some(&mut adjustables.tree_randomize_new),
+        "tree_randomize_shape" => Some(&mut adjustables.tree_randomize_shape),
         "tree_planting_instant_mature" => Some(&mut adjustables.tree_planting_instant_mature),
         "soil_deposition_fast_path" => Some(&mut adjustables.soil_deposition_fast_path),
         _ => None,

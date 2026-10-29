@@ -1084,12 +1084,68 @@ fn flora_height_color_table(
     table
 }
 
+/// Per-tree appearance changes the existing color table, not the 8-byte leaf
+/// instance ABI. Both near and far leaf draws consume this same table.
+fn tree_leaf_color_tables(
+    tables: FloraHeightColorTables,
+    appearance: crate::tree_gen::TreeAppearance,
+) -> FloraHeightColorTables {
+    if appearance == Default::default() {
+        return tables;
+    }
+    tables.map(|table| {
+        table.map(|packed| {
+            let color = Vec3::new(
+                (packed & 1023) as f32,
+                ((packed >> 10) & 1023) as f32,
+                ((packed >> 20) & 1023) as f32,
+            ) / 1023.;
+            pack_linear_rgb10(appearance.apply_linear(color))
+        })
+    })
+}
+
 pub fn solid_flora_height_color_tables(
     bottom_srgb: Vec3,
     tip_srgb: Vec3,
 ) -> FloraHeightColorTables {
     let table = flora_height_color_table(bottom_srgb, tip_srgb);
     [table, table]
+}
+
+#[cfg(test)]
+mod tree_appearance_tests {
+    use super::*;
+
+    #[test]
+    fn tree_palette_is_local_neutral_for_old_saves_and_preserves_gradient() {
+        let source =
+            solid_flora_height_color_tables(Vec3::new(0.1, 0.4, 0.05), Vec3::new(0.5, 0.8, 0.1));
+        let original = source;
+        assert_eq!(tree_leaf_color_tables(source, Default::default()), source);
+        let red = tree_leaf_color_tables(
+            source,
+            crate::tree_gen::TreeAppearance {
+                hue_degrees: -90.,
+                ..Default::default()
+            },
+        );
+        let green = tree_leaf_color_tables(
+            source,
+            crate::tree_gen::TreeAppearance {
+                hue_degrees: 20.,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            source, original,
+            "one tree must not mutate the shared palette"
+        );
+        assert_ne!(red, green);
+        assert_ne!(red[0][0], red[0][FLORA_HEIGHT_COLOR_TABLE_LEN - 1]);
+        assert_eq!(red[0], red[1]);
+        assert!(red.iter().flatten().all(|rgb| *rgb <= 0x3fffffff));
+    }
 }
 
 #[cfg(test)]
@@ -4923,7 +4979,7 @@ impl Tracer {
                         time,
                         LEAF_INSTANCE_TYPE,
                         tree_instance.chunk_world_offset,
-                        leaf_color_tables,
+                        tree_leaf_color_tables(leaf_color_tables, tree_instance.appearance),
                     );
                     push_constant.lighting_cache_location = flora_lighting_cache_location(
                         batch
@@ -5543,7 +5599,7 @@ impl Tracer {
                             time,
                             LEAF_INSTANCE_TYPE,
                             prepared.instance.chunk_world_offset,
-                            leaf_color_tables,
+                            tree_leaf_color_tables(leaf_color_tables, prepared.instance.appearance),
                         );
                         leaf_push.response_offset =
                             self.vegetation_response.leaf_offset(batch.tree_id());
@@ -7833,6 +7889,7 @@ impl Tracer {
         tree_id: u32,
         leaf_positions: &[UVec3],
         leaf_local_positions: &[IVec3],
+        appearance: crate::tree_gen::TreeAppearance,
     ) -> Result<()> {
         anyhow::ensure!(
             leaf_positions.len() == leaf_local_positions.len(),
@@ -7893,13 +7950,14 @@ impl Tracer {
             leaf_shadow_proxy::LEAF_SHADOW_PROXY_CELL_SIZE_VOXELS,
             leaf_shadow_proxy::LEAF_SHADOW_PROXY_FINE_CELL_SIZE_VOXELS,
         );
-        let tree_leaves_instance = self.build_tree_render_instances(
+        let mut tree_leaves_instance = self.build_tree_render_instances(
             tree_id,
             &leaf_voxel_instances,
             &shadow_instances,
             0.2,
             "tree leaf",
         )?;
+        tree_leaves_instance.appearance = appearance;
         if !response_sources.is_empty() {
             tree_leaves_instance
                 .resources

@@ -11,6 +11,10 @@ impl App {
             "unknown planting review mode"
         );
         self.player_tools.planting.tree_species = TreeSpecies::AppleTree;
+        // This older fixture tests exact scale/density, not random spreads.
+        self.debug_settings.adjustables.tree_randomize_new.value = true;
+        self.debug_settings.adjustables.tree_randomize_shape.value = true;
+        self.debug_settings.adjustables.tree_size_variation.value = 0.;
         if mode == "seed" {
             // Only this explicit fixture clears the initial scene, before its baseline.
             let ids: Vec<_> = self.trees.records.keys().copied().collect();
@@ -28,7 +32,7 @@ impl App {
                 .adjustables
                 .tree_planting_apple_density
                 .value = 1.;
-            self.tree_placement_preview_desc.branching.seed = 907;
+            self.tree_placement_individual = 907;
             self.sync_tree_placement_preview_from_gui()?;
             let first_desc = self.tree_placement_preview_desc.clone();
             let ground = self.query_terrain_height_cpu(Vec2::new(0.72, 1.22));
@@ -60,7 +64,8 @@ impl App {
                         == generation,
                 "planting controls changed or republished an existing tree"
             );
-            self.tree_placement_preview_desc.branching.seed = 908;
+            self.tree_placement_individual = 908;
+            self.sync_tree_placement_preview_from_gui()?;
             let second_desc = self.tree_placement_preview_desc.clone();
             self.material_supply_diagnostic_override = Some(false);
             self.debug_settings

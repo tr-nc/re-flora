@@ -65,10 +65,8 @@ impl App {
                 self.select_plant_variety(crate::app::core::plant_catalog::PlantVariety::Tree(
                     species,
                 ));
+                self.tree_placement_individual = review.seed.wrapping_add(index as u64);
                 self.sync_tree_placement_preview_from_gui()?;
-                self.tree_placement_preview_desc.branching.seed =
-                    review.seed.wrapping_add(index as u64);
-                self.rebuild_tree_placement_preview()?;
                 let desc = self.tree_placement_preview_desc.clone();
                 let horizontal = if review.species.len() == 1 {
                     Vec2::new(0.85, 1.45)

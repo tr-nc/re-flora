@@ -11,7 +11,7 @@ pub const REVIEW_PRESETS: &[&str] = &[
 pub fn is_review_preset(name: &str) -> bool {
     REVIEW_PRESETS.contains(&name)
 }
-pub const VERSION: u32 = 5;
+pub const VERSION: u32 = 6;
 // Keep the established flower stream stable when only the tree/grass recipe changes.
 const FLOWER_SEED_SALT: u32 = 1;
 pub const DEFAULT_SEED: u32 = 20260519;
@@ -32,14 +32,18 @@ pub const TREE_CENTERS: [Vec2; 4] = [
 pub const FLOWER_KEYS: [&str; 3] = ["wild-geranium", "forget-me-not", "oxeye-daisy"];
 pub const MAX_ATTEMPTS: u32 = 2304;
 
-/// Layout owns individual variation, not a second tree recipe or size override.
-/// The caller supplies the same captured planting description used by Grow.
+/// Layout owns only stable identity/position; the shared planting recipe owns variation.
+pub fn tree_individual(seed: u32, index: usize) -> u64 {
+    hash(seed ^ index as u32 ^ 0x74726565) as u64
+}
+// Frozen geometry fixtures reconstruct the old seed-only opening, not new planting.
+#[cfg(test)]
 pub fn tree_descriptor(
     seed: u32,
     index: usize,
     mut desc: crate::tree_gen::TreeDesc,
 ) -> crate::tree_gen::TreeDesc {
-    desc.branching.seed = hash(seed ^ index as u32 ^ 0x74726565) as u64;
+    desc.branching.seed = tree_individual(seed, index);
     desc
 }
 pub fn tree_radius_voxels(desc: &crate::tree_gen::TreeDesc) -> f32 {
@@ -222,7 +226,8 @@ mod tests {
         );
         for seed in [DEFAULT_SEED, 0, u32::MAX, 7, 122, 907] {
             for (i, p) in TREE_CENTERS.iter().enumerate() {
-                let desc = tree_descriptor(seed, i, crate::tree_gen::TreeDesc::default());
+                let mut desc = crate::tree_gen::TreeDesc::default();
+                desc.branching.seed = tree_individual(seed, i);
                 assert_eq!(desc.species, crate::tree_gen::TreeSpecies::AppleTree);
                 assert_eq!(
                     desc.branching.seed,

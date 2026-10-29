@@ -5,12 +5,14 @@ use crate::app::gui_config::GuiAdjustables;
 use crate::tree_gen::TreeSpecies;
 
 mod review;
+mod variation_review;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(in crate::app::core) struct TreePlantingSettings {
     scale: f32,
     apple_density: f32,
     instant_mature: bool,
+    variation: crate::tree_gen::TreeVariation,
 }
 
 impl TreePlantingSettings {
@@ -26,6 +28,21 @@ impl TreePlantingSettings {
             instant_mature: gui.tree_planting_instant_mature.value,
             scale: bounded(gui.tree_planting_scale.value, 0.5, 2., 1.),
             apple_density: bounded(gui.tree_planting_apple_density.value, 0., 1., 0.25),
+            variation: crate::tree_gen::TreeVariation {
+                enabled: gui.tree_randomize_new.value,
+                shape: gui.tree_randomize_shape.value,
+                size_spread: bounded(gui.tree_size_variation.value, 0., 50., 15.) / 100.,
+                mean: crate::tree_gen::TreeAppearance {
+                    hue_degrees: bounded(gui.tree_hue_mean.value, -120., 60., 0.),
+                    saturation: bounded(gui.tree_saturation_mean.value, 0.25, 2., 1.),
+                    brightness: bounded(gui.tree_brightness_mean.value, 0.25, 2., 1.),
+                },
+                spread: crate::tree_gen::TreeAppearance {
+                    hue_degrees: bounded(gui.tree_hue_variation.value, 0., 90., 12.),
+                    saturation: bounded(gui.tree_saturation_variation.value, 0., 0.75, 0.08),
+                    brightness: bounded(gui.tree_brightness_variation.value, 0., 0.75, 0.08),
+                },
+            },
         }
     }
 
@@ -51,12 +68,14 @@ impl TreePlantingSettings {
 pub(in crate::app::core) fn planting_description(
     settings: &crate::app::gui_config::DebugSettings,
     species: TreeSpecies,
+    individual: u64,
 ) -> TreeDesc {
     let mut desc = species.mature_desc(&settings.tree.desc);
     if species == TreeSpecies::Conifer {
         desc.axis_model = settings.tree.conifer_axis_model;
     }
-    TreePlantingSettings::from_gui(&settings.adjustables).apply(desc)
+    let planting = TreePlantingSettings::from_gui(&settings.adjustables);
+    planting.variation.resolve(planting.apply(desc), individual)
 }
 
 impl App {
@@ -115,6 +134,9 @@ mod tests {
             scale: 1.5,
             apple_density: 1.,
             instant_mature: true,
+            ..TreePlantingSettings::from_gui(
+                &crate::app::gui_config::DebugSettings::load().adjustables,
+            )
         };
         for species in [
             TreeSpecies::AppleTree,
@@ -169,6 +191,9 @@ mod tests {
                 scale: 1.,
                 apple_density: density,
                 instant_mature: true,
+                ..TreePlantingSettings::from_gui(
+                    &crate::app::gui_config::DebugSettings::load().adjustables,
+                )
             }
             .apply(desc.clone());
             assert_eq!(Tree::new(adjusted.clone()).branches(), tree.branches());

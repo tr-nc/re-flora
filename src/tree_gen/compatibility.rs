@@ -35,6 +35,7 @@ impl TreeDesc {
             branching: legacy_branching_wire_defaults(),
             growth_age: 1.0,
             size: TREE_DEFAULT_SIZE,
+            appearance: super::TreeAppearance::default(),
             trunk_thickness: 0.40,
             thickness_reduction: 0.61,
             leaves_size_level: 5,

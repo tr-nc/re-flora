@@ -437,6 +437,7 @@ impl App {
         self.seed_sapling_review().expect("sapling review");
         self.review_tree_planting_settings()
             .expect("tree planting settings review");
+        self.review_tree_variation().expect("tree variation review");
         self.seed_garden_economy_review()
             .expect("garden economy review");
         self.seed_bee_garden_review().expect("bee garden review");

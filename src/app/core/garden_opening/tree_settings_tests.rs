@@ -4,6 +4,7 @@ use super::*;
 fn opening_trees_capture_the_same_saved_recipe_as_grow() {
     let mut settings = DebugSettings::load();
     settings.tree.desc = TreeSpecies::AppleTree.default_desc();
+    settings.adjustables.tree_size_variation.value = 0.;
     // Non-default authoring must survive too, not just the two planting sliders.
     settings.tree.desc.leaf_density = 0.07;
     settings.tree.desc.leaf_spray_width_ratio = 1.2;
@@ -13,7 +14,8 @@ fn opening_trees_capture_the_same_saved_recipe_as_grow() {
         settings.adjustables.tree_planting_apple_density.value = density;
         settings.adjustables.tree_planting_instant_mature.value = mature;
         let loaded = &settings;
-        let grow = super::super::vegetation::planting_description(loaded, TreeSpecies::AppleTree);
+        let grow =
+            super::super::vegetation::planting_description(loaded, TreeSpecies::AppleTree, 0);
         assert_eq!(
             grow.size,
             TreeSpecies::AppleTree.default_desc().size * scale
@@ -22,11 +24,14 @@ fn opening_trees_capture_the_same_saved_recipe_as_grow() {
         for seed in [layout::DEFAULT_SEED, 0, u32::MAX] {
             for index in 0..layout::TREE_CENTERS.len() {
                 let opening = opening_tree_description(loaded, seed, index);
-                let mut expected = grow.clone();
-                expected.branching.seed = layout::hash(seed ^ index as u32 ^ 0x74726565) as u64;
+                let expected = super::super::vegetation::planting_description(
+                    loaded,
+                    TreeSpecies::AppleTree,
+                    layout::tree_individual(seed, index),
+                );
                 assert_eq!(
                     opening, expected,
-                    "opening must differ only in individual seed"
+                    "opening must use the exact same individual recipe as Grow"
                 );
                 assert_eq!(opening.leaf_density, 0.07);
                 assert_eq!(opening.leaf_spray_width_ratio, 1.2);
@@ -41,9 +46,36 @@ fn opening_trees_capture_the_same_saved_recipe_as_grow() {
 }
 
 #[test]
+fn opening_and_later_planting_share_random_and_fixed_individuals() {
+    let mut settings = DebugSettings::load();
+    for enabled in [true, false] {
+        settings.adjustables.tree_randomize_new.value = enabled;
+        settings.adjustables.tree_size_variation.value = 30.;
+        settings.adjustables.tree_hue_mean.value = -30.;
+        settings.adjustables.tree_hue_variation.value = 30.;
+        let first = opening_tree_description(&settings, 20260519, 0);
+        for i in 0..layout::TREE_CENTERS.len() {
+            let opening = opening_tree_description(&settings, 20260519, i);
+            let next = super::super::vegetation::planting_description(
+                &settings,
+                TreeSpecies::AppleTree,
+                layout::tree_individual(20260519, i),
+            );
+            assert_eq!(opening, next);
+            if !enabled {
+                assert_eq!(opening, first);
+            } else if i != 0 {
+                assert_ne!(opening, first);
+            }
+        }
+    }
+}
+
+#[test]
 fn opening_keeps_apple_species_when_the_authoring_editor_contains_another_tree() {
     let mut settings = DebugSettings::load();
     settings.tree.desc = TreeSpecies::Pine.default_desc();
+    settings.adjustables.tree_size_variation.value = 0.;
     settings.adjustables.tree_planting_scale.value = 1.5;
     settings.adjustables.tree_planting_apple_density.value = 0.12;
     let opening = opening_tree_description(&settings, layout::DEFAULT_SEED, 0);

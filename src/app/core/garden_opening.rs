@@ -15,10 +15,10 @@ use glam::{Vec2, Vec3};
 pub(super) use crate::garden_layout::is_review_preset;
 
 fn opening_tree_description(settings: &DebugSettings, seed: u32, index: usize) -> TreeDesc {
-    layout::tree_descriptor(
-        seed,
-        index,
-        super::vegetation::planting_description(settings, TreeSpecies::AppleTree),
+    super::vegetation::planting_description(
+        settings,
+        TreeSpecies::AppleTree,
+        layout::tree_individual(seed, index),
     )
 }
 
@@ -75,9 +75,9 @@ impl App {
             let desc = opening_tree_description(&self.debug_settings, seed, i);
             let radius = layout::tree_radius_voxels(&desc);
             let height = crate::tree_gen::Tree::new(desc.clone()).height_voxels();
-            log::info!("[GARDEN_OPENING] tree={i} species={} seed={} size={:.3} crown_radius_voxels={radius:.3} height_voxels={height:.3} position={:?} apple_probability={} instant_mature={instant_mature}",
+            log::info!("[GARDEN_OPENING] tree={i} species={} seed={} size={:.3} crown_radius_voxels={radius:.3} height_voxels={height:.3} position={:?} apple_probability={} appearance={:?} instant_mature={instant_mature}",
                 desc.species.label(), desc.branching.seed, desc.size,
-                Vec3::new(xz.x, y, xz.y), desc.fruit_spawn_probability);
+                Vec3::new(xz.x, y, xz.y), desc.fruit_spawn_probability, desc.appearance);
             match self.plant_tree_with_maturity(desc, Vec3::new(xz.x, y, xz.y), instant_mature) {
                 Ok(id) => {
                     placed_trees += 1;
