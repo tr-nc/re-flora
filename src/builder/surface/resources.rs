@@ -7,8 +7,9 @@ use anyhow::Result;
 use glam::{UVec3, Vec3};
 use re_flora_vkn::vk;
 use re_flora_vkn::{
-    Allocator, Buffer, BufferUsage, DescriptorResource, Device, Extent3D, ImageDesc,
-    MemoryLocation, ResourceContainer, ResourceLookup, ShaderModule, Texture, TextureLayout,
+    Allocator, Buffer, BufferUsage, BufferUse, CommandBuffer, DescriptorResource, Device, Extent3D,
+    ImageDesc, MemoryLocation, ResourceContainer, ResourceLookup, ShaderModule, Texture,
+    TextureLayout,
 };
 use resource_container_derive::ResourceContainer;
 use std::{collections::HashMap, sync::Arc};
@@ -44,7 +45,8 @@ impl InstanceResource {
             BufferUsage::from_flags(
                 vk::BufferUsageFlags::VERTEX_BUFFER
                     | vk::BufferUsageFlags::STORAGE_BUFFER
-                    | vk::BufferUsageFlags::TRANSFER_DST,
+                    | vk::BufferUsageFlags::TRANSFER_DST
+                    | vk::BufferUsageFlags::TRANSFER_SRC,
             ),
             MemoryLocation::CpuToGpu,
             instance_size as u64 * max_instances,
@@ -148,6 +150,11 @@ pub struct FloraInstanceResources {
     pub resource: InstanceResource,
     /// One four-bit ordinary-grass growth-potential level per local voxel (15 means unrestricted).
     pub grass_growth_potential_levels: Resource<Buffer>,
+    /// CPU-authored field retained at the same publication boundary as its GPU upload.
+    pub(super) grass_growth_potential_cpu: Vec<u32>,
+    /// Committed tall/short draw streams in CPU-readable memory. GPU writers copy
+    /// here in their existing submission; readers use the existing completion fence.
+    grass_instances_readback: Buffer,
     pub plant_hydration: Resource<Buffer>,
     /// Species-major live roots and their persistent water store. Reordered by
     /// root identity on publication, never by mutable draw index.
@@ -208,6 +215,14 @@ impl FloraInstanceResources {
                 ]),
             )
             .expect("initialize plant hydration");
+        let grass_instances_readback = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
+            MemoryLocation::GpuToCpu,
+            u64::from(MAX_FLORA_INSTANCES_PER_SPECIES) * 2 * std::mem::size_of::<Instance>() as u64,
+        );
+        let grass_growth_potential_cpu = vec![u32::MAX; grass_growth_potential_word_count as usize];
         let grass_growth_potential_levels = Buffer::new_sized(
             device,
             allocator,
@@ -218,10 +233,7 @@ impl FloraInstanceResources {
             grass_growth_potential_word_count * std::mem::size_of::<u32>() as u64,
         );
         grass_growth_potential_levels
-            .fill_range_with_raw_u8(
-                0,
-                &vec![0xff; grass_growth_potential_levels.get_size_bytes() as usize],
-            )
+            .fill_range_with_raw_u8(0, bytemuck::cast_slice(&grass_growth_potential_cpu))
             .expect("initialize grass growth-potential field");
         Self {
             chunk_id,
@@ -237,8 +249,51 @@ impl FloraInstanceResources {
             chunk_world_offset: chunk_id * voxel_dim_per_chunk,
             resource,
             grass_growth_potential_levels: Resource::new(grass_growth_potential_levels),
+            grass_growth_potential_cpu,
+            grass_instances_readback,
             species_instance_len: [0; species::MAX_FLORA_SPECIES],
         }
+    }
+
+    pub(super) fn publish_grass_growth_potential(&mut self, words: Vec<u32>) -> Result<()> {
+        self.grass_growth_potential_levels
+            .fill_with_raw_u8(bytemuck::cast_slice(&words))?;
+        self.grass_growth_potential_cpu = words;
+        self.grass_audio.shape_changed();
+        Ok(())
+    }
+
+    /// Record after any GPU writer, before its existing fence. Structural edits
+    /// can change counts on the GPU, so copy both bounded species capacities.
+    pub(super) fn record_grass_readback(&self, cmdbuf: &CommandBuffer) {
+        self.resource.instances_buf.record_copy_to_buffer(
+            cmdbuf,
+            &self.grass_instances_readback,
+            self.grass_instances_readback.get_size_bytes(),
+            0,
+            0,
+        );
+        cmdbuf.use_buffer(&self.grass_instances_readback, BufferUse::HostRead);
+    }
+
+    pub(super) fn read_grass_instances(&self, species: usize) -> Result<Vec<Instance>> {
+        anyhow::ensure!(species < 2, "readback contains only ordinary grass");
+        anyhow::ensure!(
+            self.grass_audio.pending_builds == 0,
+            "grass stream is not committed"
+        );
+        let count = self.species_len(species);
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+        let bytes = self.grass_instances_readback.read_back_range(
+            u64::from(Self::species_offset(species)) * std::mem::size_of::<Instance>() as u64,
+            u64::from(count) * std::mem::size_of::<Instance>() as u64,
+        )?;
+        Ok(bytes
+            .chunks_exact(std::mem::size_of::<Instance>())
+            .map(bytemuck::pod_read_unaligned)
+            .collect())
     }
 
     pub fn species_offset(species_index: usize) -> u32 {
@@ -284,6 +339,10 @@ impl FloraInstanceResources {
         )?;
         self.plant_hydration
             .fill_range_with_raw_u8(index * 4, bytemuck::bytes_of(&hydration))?;
+        self.grass_instances_readback.fill_range_with_raw_u8(
+            index * std::mem::size_of::<Instance>() as u64,
+            bytemuck::bytes_of(&instance),
+        )?;
         self.hydration[species].push((root, hydration));
         self.hydration_roots_dirty = true;
         self.soil_cover_roots[species].insert(root);
@@ -333,6 +392,10 @@ impl FloraInstanceResources {
             self.resource
                 .instances_buf
                 .fill_range_with_raw_u8(byte_start as u64, instance_bytes)?;
+            if species_index < 2 {
+                self.grass_instances_readback
+                    .fill_range_with_raw_u8(byte_start as u64, instance_bytes)?;
+            }
         }
         self.set_species_len(species_index, instances.len() as u32);
         self.reconcile_hydration(species_index, instances)?;
@@ -387,19 +450,7 @@ impl FloraInstanceResources {
     /// Called after a GPU edit has compacted/rebuilt the ordinary grass stream.
     pub fn reconcile_grass_hydration(&mut self) -> Result<()> {
         for species in 0..species::MODEL_FLOWER_FIRST_SPECIES as usize {
-            let count = self.species_len(species) as usize;
-            let instances = if count == 0 {
-                Vec::new()
-            } else {
-                let bytes = self.resource.instances_buf.read_back_range(
-                    u64::from(Self::species_offset(species))
-                        * std::mem::size_of::<Instance>() as u64,
-                    (count * std::mem::size_of::<Instance>()) as u64,
-                )?;
-                bytemuck::try_cast_slice::<u8, Instance>(&bytes)
-                    .map_err(|e| anyhow::anyhow!("plant hydration root publication: {e}"))?
-                    .to_vec()
-            };
+            let instances = self.read_grass_instances(species)?;
             self.reconcile_hydration(species, &instances)?;
         }
         Ok(())

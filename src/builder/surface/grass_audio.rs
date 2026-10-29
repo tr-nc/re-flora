@@ -1,5 +1,5 @@
 //! Bounded acoustic projection of committed draw streams, owned with vegetation.
-use super::{FloraInstanceResources, Instance, SurfaceBuilder};
+use super::{FloraInstanceResources, SurfaceBuilder};
 use crate::flora::grass_acoustics::{visible_height, GrassPatch, PatchBuilder, MAX_CANDIDATES};
 use anyhow::Result;
 use glam::{UVec3, Vec3};
@@ -35,26 +35,15 @@ impl GrassAudioCache {
 impl FloraInstanceResources {
     fn rebuild_grass_audio(&mut self, growth_override: Option<f32>, now: f64) -> Result<()> {
         let start = std::time::Instant::now();
-        // Every GPU writer transitions to HostRead and completes its fence before
-        // publishing revisions. An outstanding async surface job is excluded.
+        // GPU writers publish the CPU-readable stream using their existing fence.
+        // The growth-potential field is CPU-authored, never read back from VRAM.
+        // An outstanding async surface job is excluded.
         anyhow::ensure!(
             self.grass_audio.pending_builds == 0,
             "grass stream is not committed"
         );
-        anyhow::ensure!(
-            self.resource
-                .instances_buf
-                .memory_properties()
-                .contains(re_flora_vkn::vk::MemoryPropertyFlags::HOST_COHERENT),
-            "grass acoustic readback requires coherent mapped instance memory"
-        );
         let mut builder = PatchBuilder::default();
-        let has_roots = (0..2).any(|s| self.species_len(s) > 0);
-        let potential = if has_roots {
-            self.grass_growth_potential_levels.read_back()?
-        } else {
-            Vec::new()
-        };
+        let potential = &self.grass_growth_potential_cpu;
         let mut roots = 0;
         for species in 0..2 {
             let count = self.species_len(species) as usize;
@@ -65,16 +54,12 @@ impl FloraInstanceResources {
                 self.hydration[species].len() == count,
                 "uncommitted grass hydration"
             );
-            let bytes = self.resource.instances_buf.read_back_range(
-                u64::from(Self::species_offset(species)) * 8,
-                count as u64 * 8,
-            )?;
-            for (i, bytes) in bytes.chunks_exact(8).enumerate() {
-                let instance: Instance = bytemuck::pod_read_unaligned(bytes);
+            let instances = self.read_grass_instances(species)?;
+            for (i, instance) in instances.iter().enumerate() {
                 let packed = instance.packed_local_pos;
                 let local = UVec3::new(packed & 255, (packed >> 8) & 255, (packed >> 16) & 255);
                 let linear = (local.x + 256 * (local.y + 256 * local.z)) as usize;
-                let level = (potential[linear / 2] >> ((linear % 2) * 4)) & 15;
+                let level = super::packed_grass_growth_potential_level(potential, linear);
                 let (root, hydration) = self.hydration[species][i];
                 anyhow::ensure!(
                     root == packed & 0xffffff,
