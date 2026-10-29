@@ -543,9 +543,15 @@ impl EguiRenderer {
                     cmd,
                     &target.image,
                     pixels_per_point,
-                    pixel_cell_size,
+                    matte_glass::PixelGrid {
+                        cell_size: pixel_cell_size,
+                        origin: matte_glass::pixel_grid_origin(
+                            pass.surface_origin,
+                            pixels_per_point,
+                            pixel_cell_size,
+                        ),
+                    },
                     pass.backdrop_bounds(primitives),
-                    pass.surface_origin,
                     &self.frame_retirement_sink,
                 );
             }

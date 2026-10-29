@@ -1,4 +1,4 @@
-use super::matte_blur::MatteBlur;
+use super::{matte_blur::MatteBlur, matte_glass::PixelGrid};
 use re_flora_vkn::{
     vk, Allocator, CommandBuffer, DescriptorPool, DescriptorResource, DescriptorSet, Device,
     FormatOverride, FrameRetirement, FrameRetirementSink, GraphicsPipeline, GraphicsPipelineDesc,
@@ -16,8 +16,7 @@ pub(super) struct MattePipeline {
     backdrop: Option<Backdrop>,
     blur: MatteBlur,
     generation: u64,
-    pixel_cell_size: u32,
-    grid_origin: [i32; 2],
+    grid: PixelGrid,
 }
 
 impl MattePipeline {
@@ -37,8 +36,7 @@ impl MattePipeline {
             backdrop: None,
             blur: MatteBlur::new(device, allocator, pool),
             generation: 0,
-            pixel_cell_size: 0,
-            grid_origin: [0; 2],
+            grid: PixelGrid::default(),
         }
     }
 
@@ -71,26 +69,14 @@ impl MattePipeline {
         cmdbuf: &CommandBuffer,
         texture: &Texture,
         pixels_per_point: f32,
-        pixel_cell_size: u32,
+        grid: PixelGrid,
         bounds: egui::Rect,
-        surface_origin: egui::Pos2,
         retirement: &FrameRetirementSink,
     ) {
-        self.pixel_cell_size = pixel_cell_size;
-        self.grid_origin = super::matte_glass::pixel_grid_origin(
-            surface_origin,
-            pixels_per_point,
-            pixel_cell_size,
-        );
-        let texture = self.blur.prepare(
-            cmdbuf,
-            texture,
-            pixels_per_point,
-            pixel_cell_size,
-            bounds,
-            self.grid_origin,
-            retirement,
-        );
+        self.grid = grid;
+        let texture =
+            self.blur
+                .prepare(cmdbuf, texture, pixels_per_point, grid, bounds, retirement);
         let unchanged = self.backdrop.as_ref().is_some_and(|backdrop| {
             backdrop.texture.get_image().as_raw() == texture.get_image().as_raw()
         });
@@ -124,9 +110,9 @@ impl MattePipeline {
     pub fn bind(&self, cmdbuf: &CommandBuffer, projection: &[f32; 16]) {
         let push = crate::generated::gpu_structs::PushConstantUiMatte {
             ortho: bytemuck::cast(*projection),
-            pixel_cell_size: self.pixel_cell_size,
+            pixel_cell_size: self.grid.cell_size,
             _pad0: [0; 4],
-            grid_origin: self.grid_origin,
+            grid_origin: self.grid.origin,
         };
         cmdbuf.push_vertex_constants(&self.pipeline, bytemuck::bytes_of(&push));
         let backdrop = self

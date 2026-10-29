@@ -60,7 +60,7 @@ impl BeeAudio {
     pub fn new(manager: SpatialSoundManager) -> Self {
         let clip = manager
             .cached_clip(super::runtime_assets::BEE_LOOP_PATH)
-            .map(|clip| {
+            .inspect(|clip| {
                 log::info!(
                     "[BEE_AUDIO] clip={} frames={} sample_rate={} loop_seconds={} max_voices={MAX_VOICES}",
                     super::runtime_assets::BEE_LOOP_PATH,
@@ -68,7 +68,6 @@ impl BeeAudio {
                     clip.sample_rate(),
                     clip.total_frames() as f64 / f64::from(clip.sample_rate()),
                 );
-                clip
             })
             .map_err(|error| log::warn!("[BEE_AUDIO] unavailable: {error}"))
             .ok();

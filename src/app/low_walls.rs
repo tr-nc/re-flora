@@ -129,7 +129,7 @@ impl LowWallRecipe {
         for layer in 0..count {
             // One logical block spans two half-cells. Neighbours use the same
             // physical plane and head-gap identity; the internal plane has no gap.
-            let starts_head = (row.index as usize + layer) % 2 == 0;
+            let starts_head = (row.index as usize + layer).is_multiple_of(2);
             let edges = [
                 if starts_head {
                     self.head_gap(row.index, layer) * 0.5

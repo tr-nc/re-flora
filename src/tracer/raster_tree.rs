@@ -1023,10 +1023,7 @@ mod tests {
     }
     #[test]
     fn neighboring_blocks_share_posed_corners_and_hits_recover_rest_surface() {
-        use crate::{
-            tree_gen::pose::TreePose,
-            wind_field::WindFieldFrame,
-        };
+        use crate::{tree_gen::pose::TreePose, wind_field::WindFieldFrame};
         use glam::Vec2;
         let tree = small_tree();
         let mut bytes = vec![0; 512];

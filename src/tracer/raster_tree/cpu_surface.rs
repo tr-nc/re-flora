@@ -216,23 +216,25 @@ mod tests {
             parent: None,
             weight: 1.,
         };
-        let mut mesh = RasterTreeMesh::default();
-        mesh.vertices = [
-            Vec3::ZERO,
-            Vec3::X,
-            Vec3::Y,
-            Vec3::ZERO,
-            Vec3::ZERO,
-            Vec3::ZERO,
-            Vec3::ZERO,
-        ]
-        .map(|p| RasterTreeVertex {
-            position: p.to_array(),
-            center: p.to_array(),
-            normal: [0., 1., 0.],
-            normal_confidence: 1.,
-        })
-        .to_vec();
+        let mut mesh = RasterTreeMesh {
+            vertices: [
+                Vec3::ZERO,
+                Vec3::X,
+                Vec3::Y,
+                Vec3::ZERO,
+                Vec3::ZERO,
+                Vec3::ZERO,
+                Vec3::ZERO,
+            ]
+            .map(|p| RasterTreeVertex {
+                position: p.to_array(),
+                center: p.to_array(),
+                normal: [0., 1., 0.],
+                normal_confidence: 1.,
+            })
+            .to_vec(),
+            ..Default::default()
+        };
         mesh.vertices[3].normal_confidence = 0.; // Never merge visual shading facts.
         mesh.bindings = vec![Some((1, skin)); 7];
         mesh.bindings[4] = Some((2, skin));

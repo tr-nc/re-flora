@@ -232,7 +232,6 @@ mod tests {
                         blend: 1.,
                         bank: 0.,
                     },
-                    ..Default::default()
                 };
                 integral += coupling.acceleration(Vec3::NEG_Z, 1., 4., 1. / 120.) / 120.;
             }

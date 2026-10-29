@@ -375,7 +375,7 @@ impl App {
                         let column = (p * 256.).floor().as_uvec2();
                         let point = (column.as_vec2() + Vec2::splat(0.5)) * VOXEL_SIZE;
                         for layer in 0..recipe.layers() {
-                            if (a.index as usize + layer) % 2 != 0 {
+                            if !(a.index as usize + layer).is_multiple_of(2) {
                                 continue;
                             }
                             let span = projected_span(&models[i], point, Some(layer))

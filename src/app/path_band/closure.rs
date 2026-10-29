@@ -119,7 +119,7 @@ impl PathStroke {
         // A closed masonry bond needs an even number of half-cells. Prefer the
         // nominal pitch, then try nearby complete partitions, never tiny filler.
         let mut counts: Vec<_> = (1..=MAX_QUEUED_ROWS)
-            .filter(|n| (next_index as usize + n) % 2 == 0)
+            .filter(|n| (next_index as usize + n).is_multiple_of(2))
             .collect();
         counts.sort_by_key(|n| n.abs_diff(preferred));
         for count in counts

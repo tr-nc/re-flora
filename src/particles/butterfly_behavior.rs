@@ -236,11 +236,12 @@ impl ButterflyBehavior {
                 self.target = self.choose(flowers, position, time, settings);
                 if self.target.is_some() {
                     self.stats.choices += 1;
-                    self.orbit_duration = if hash(self.preference ^ self.stats.choices) % 3 == 0 {
-                        1.4
-                    } else {
-                        0.
-                    };
+                    self.orbit_duration =
+                        if hash(self.preference ^ self.stats.choices).is_multiple_of(3) {
+                            1.4
+                        } else {
+                            0.
+                        };
                     if let Some(f) = flowers.iter().find(|f| Some(f.id) == self.target) {
                         let delta = position - f.position;
                         self.orbit_start = delta.z.atan2(delta.x);
@@ -369,7 +370,11 @@ impl ButterflyBehavior {
         let mut goal_velocity = flower.velocity;
         if circling {
             let t = (self.elapsed / self.orbit_duration).clamp(0., 1.);
-            let sign = if self.preference % 2 == 0 { 1. } else { -1. };
+            let sign = if self.preference.is_multiple_of(2) {
+                1.
+            } else {
+                -1.
+            };
             let angle = self.orbit_start + sign * std::f32::consts::TAU * t;
             let radius = 0.035 * (1. - t).sqrt();
             goal += Vec3::new(angle.cos() * radius, 0.018 * (1. - t), angle.sin() * radius);
@@ -664,7 +669,6 @@ mod tests {
             dwell_seconds: -3.,
             preference_strength: f32::INFINITY,
             wind_limit: 99.,
-            ..settings()
         }
         .sanitized();
         assert_eq!(s.search_radius, 0.7);

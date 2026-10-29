@@ -110,7 +110,10 @@ mod tests {
         assert!(paths.contains(&BEE_LOOP_PATH.to_owned()));
         assert!(paths.contains(&GRASS_WIND_LOOP_PATH.to_owned()));
         assert_eq!(paths.iter().filter(|p| p.contains("/bee/")).count(), 1);
-        assert_eq!(paths.iter().filter(|p| p.contains("/grass-wind/")).count(), 1);
+        assert_eq!(
+            paths.iter().filter(|p| p.contains("/grass-wind/")).count(),
+            1
+        );
         for path in paths {
             assert!(path.starts_with("assets/sfx/"));
             assert!(path.ends_with(".wav"));

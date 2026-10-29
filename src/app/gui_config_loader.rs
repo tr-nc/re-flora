@@ -168,9 +168,7 @@ impl GuiConfigLoader {
                 }
             }
         }
-        for id in ["walk_ground_detail_height"] {
-            Self::add_missing_param(&mut config, "Debug", id);
-        }
+        Self::add_missing_param(&mut config, "Debug", "walk_ground_detail_height");
         Self::retire_tree_display_experiments(&mut config);
         Self::migrate_flower_stem_selector(&mut config);
         Self::migrate_model_view_quantization(&mut config);
@@ -1636,11 +1634,10 @@ max = 2
             .iter()
             .any(|s| s.name == "Construction Placement"));
         for p in loaded.section.iter_mut().flat_map(|s| &mut s.param) {
-            match (&*p.id, &mut p.value) {
-                ("tree_planting_instant_mature", super::GuiParamValue::Bool { value }) => {
-                    *value = false
-                }
-                _ => {}
+            if let ("tree_planting_instant_mature", super::GuiParamValue::Bool { value }) =
+                (&*p.id, &mut p.value)
+            {
+                *value = false;
             }
         }
         GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
@@ -2120,10 +2117,10 @@ max = 2
                     serde_json::to_value(&p.value).unwrap(),
                     serde_json::to_value(&after.value).unwrap()
                 );
-                assert!(!after
+                assert!(after
                     .enabled_if
                     .as_ref()
-                    .is_some_and(|c| c.param == "sprinkler_rotary"));
+                    .is_none_or(|c| c.param != "sprinkler_rotary"));
             }
             GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
             assert_eq!(

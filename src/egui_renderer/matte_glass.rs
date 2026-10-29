@@ -29,6 +29,13 @@ impl MatteSettings {
     }
 }
 
+/// Physical grid shared by the compute filter and its fragment consumer.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct PixelGrid {
+    pub cell_size: u32,
+    pub origin: [i32; 2],
+}
+
 /// Typed paint marker, not an external rendering callback. It prevents egui
 /// batching distinct glass surfaces and tells the compositor to refresh frost.
 struct BackdropBoundary;

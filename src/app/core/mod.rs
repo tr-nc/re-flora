@@ -1945,15 +1945,17 @@ impl App {
                 self.sync_cursor_with_panels();
                 return;
             }
-            if event.state == ElementState::Pressed && !event.repeat {
-                if event.physical_key == KeyCode::KeyE && self.keyboard_tool_shortcuts_available() {
-                    self.queue_pointer_pick(
-                        player_tools::PlayerToolPointerAction::Harvest,
-                        Instant::now(),
-                        false,
-                    );
-                    return;
-                }
+            if event.state == ElementState::Pressed
+                && !event.repeat
+                && event.physical_key == KeyCode::KeyE
+                && self.keyboard_tool_shortcuts_available()
+            {
+                self.queue_pointer_pick(
+                    player_tools::PlayerToolPointerAction::Harvest,
+                    Instant::now(),
+                    false,
+                );
+                return;
             }
             match Self::global_keyboard_command(
                 event.physical_key,
@@ -2974,7 +2976,7 @@ impl App {
                         if self.player_tools.selected_tool()==PlayerTool::SoilShovel {
                             egui::Area::new("soil_shovel_carry".into()).anchor(egui::Align2::RIGHT_TOP,egui::vec2(-16.,16.)).interactable(false).show(ctx,|ui| {
                                 egui::Frame::new().fill(PANEL_DARK).inner_margin(10).show_matte(ui,|ui| {
-                                    crate::app::ui_text::section(ui,&format!("Shovel · {} soil",self.soil_shovel.carry.count()));
+                                    crate::app::ui_text::section(ui,format!("Shovel · {} soil",self.soil_shovel.carry.count()));
                                 });
                             });
                         }

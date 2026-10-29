@@ -461,7 +461,7 @@ mod tests {
         let mut s: CarriedSoil = serde_json::from_slice(&serde_json::to_vec(&s).unwrap()).unwrap();
         let dim = UVec3::splat(4);
         let mut data = vec![7; 64];
-        data[(1 * 4 + 1) * 4 + 1] = 0;
+        data[(4 + 1) * 4 + 1] = 0;
         let result = crate::terrain_deposition::deposit_in_bounds_fast(
             &mut data,
             UVec3::ZERO,

@@ -24,7 +24,7 @@ pub(super) fn edit_tree_desc(
         .changed();
     let axes = tree.species.uses_axis_model(tree.axis_model);
     if axes {
-        crate::app::ui_text::hint(ui, &format!(
+        crate::app::ui_text::hint(ui, format!(
             "{}: species architecture owns the branch layout and taper. Size, trunk thickness, seed and foliage settings remain editable.",
             tree.species.label()
         ));

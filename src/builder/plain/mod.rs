@@ -417,8 +417,7 @@ impl PlainBuilder {
 
         let build_cmdbuf = Self::record_build_cmdbuf(
             &vulkan_ctx,
-            &resources.region_info,
-            &resources.region_indirect,
+            &resources,
             &heightmap_ppl,
             &buffer_setup_ppl,
             &chunk_init_ppl,
@@ -482,8 +481,7 @@ impl PlainBuilder {
 
     fn record_build_cmdbuf(
         vulkan_ctx: &VulkanContext,
-        region_info: &Buffer,
-        region_indirect: &Buffer,
+        resources: &PlainBuilderResources,
         heightmap_ppl: &ComputePipeline,
         buffer_setup_ppl: &ComputePipeline,
         chunk_init_ppl: &ComputePipeline,
@@ -493,7 +491,7 @@ impl PlainBuilder {
         let cmdbuf = CommandBuffer::new(vulkan_ctx.device(), vulkan_ctx.command_pool());
         cmdbuf.begin(false);
 
-        cmdbuf.use_buffer(region_info, BufferUse::HostWrite);
+        cmdbuf.use_buffer(&resources.region_info, BufferUse::HostWrite);
 
         heightmap_ppl.record(
             &cmdbuf,
@@ -519,7 +517,7 @@ impl PlainBuilder {
             None,
         );
 
-        chunk_init_ppl.record_indirect(&cmdbuf, region_indirect, None);
+        chunk_init_ppl.record_indirect(&cmdbuf, &resources.region_indirect, None);
 
         cmdbuf.end();
         cmdbuf
@@ -1565,8 +1563,7 @@ impl PlainBuilder {
         // re-record the command buffer with updated descriptor sets
         self.build_cmdbuf = Self::record_build_cmdbuf(
             &self.vulkan_ctx,
-            &self.resources.region_info,
-            &self.resources.region_indirect,
+            &self.resources,
             &self.heightmap_ppl,
             &self.buffer_setup_ppl,
             &self.chunk_init_ppl,

@@ -103,7 +103,7 @@ impl App {
                     "review tree has no leaves"
                 );
                 anyhow::ensure!(
-                    !record.fruit_specs.is_empty() == species.bears_apples(),
+                    record.fruit_specs.is_empty() != species.bears_apples(),
                     "incorrect species fruit"
                 );
                 log::info!("[TREE_SPECIES_REVIEW] planted={species:?} seed={} axes={} leaves={} fruit={} height_voxels={:.3} position={position:?} real_preview=true saved=false",

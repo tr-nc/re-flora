@@ -156,8 +156,8 @@ mod tests {
                         b.render_extent.get_aspect_ratio()
                     );
                     // Padding is at most the remainder of one displayed block.
-                    assert!(b.render_extent.width <= screen.width + stride - 1);
-                    assert!(b.render_extent.height <= screen.height + stride - 1);
+                    assert!(b.render_extent.width < screen.width + stride);
+                    assert!(b.render_extent.height < screen.height + stride);
                 }
             }
         }

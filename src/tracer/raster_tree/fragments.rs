@@ -312,8 +312,10 @@ mod tests {
     #[test]
     fn cache_budget_is_optional_and_cannot_drop_or_reject_valid_geometry() {
         let (tree, bytes) = fixture();
-        let mut mesh = RasterTreeMesh::default();
-        mesh.fragment_cache_bytes = CACHE_BUDGET;
+        let mut mesh = RasterTreeMesh {
+            fragment_cache_bytes: CACHE_BUDGET,
+            ..Default::default()
+        };
         mesh.append_cached_tree_region(
             TreeSurfaceRegion {
                 id: 2,

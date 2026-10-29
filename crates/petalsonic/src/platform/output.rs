@@ -4,6 +4,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SizedSample};
 use ringbuf::{HeapCons, traits::Consumer};
 use std::collections::HashMap;
+#[cfg(any(target_os = "linux", test))]
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -363,6 +364,7 @@ impl CpalOutputPlatform {
         HashMap::new()
     }
 
+    #[cfg(any(target_os = "linux", test))]
     fn parse_alsa_card_aliases(path: &Path) -> HashMap<String, Vec<String>> {
         let Ok(contents) = std::fs::read_to_string(path) else {
             return HashMap::new();

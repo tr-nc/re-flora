@@ -158,7 +158,7 @@ fn rope_cells(a: Vec3, b: Vec3, world: UVec3) -> Result<BTreeSet<[u32; 3]>> {
     );
     let length = a.distance(b) * 256.;
     ensure!(
-        length >= 4. && length < 1500.,
+        (4. ..1500.).contains(&length),
         "rope length outside supported garden span"
     );
     let sag = (length * 0.12).clamp(2., 32.) / 256.;

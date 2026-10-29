@@ -111,8 +111,7 @@ fn foliage_rules_keep_tip_crowns_and_along_shoot_sprays_distinct() {
                     .trunk_branch_indices()
                     .iter()
                     .copied()
-                    .filter(|&i| tree.axis_segments()[i].order == 0)
-                    .next_back();
+                    .rfind(|&i| tree.axis_segments()[i].order == 0);
                 let mut twig_tip = false;
                 let mut twig_interior = false;
                 for i in anchors {

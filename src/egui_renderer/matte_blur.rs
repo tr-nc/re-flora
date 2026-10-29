@@ -6,6 +6,7 @@ use re_flora_vkn::{
 };
 
 mod region;
+use super::matte_glass::PixelGrid;
 use region::FilterPlan;
 
 struct PassResources<'a> {
@@ -59,11 +60,14 @@ impl MatteBlur {
         cmd: &CommandBuffer,
         source: &Texture,
         pixels_per_point: f32,
-        pixel_cell_size: u32,
+        grid: PixelGrid,
         bounds: egui::Rect,
-        grid_origin: [i32; 2],
         retirement: &FrameRetirementSink,
     ) -> &Texture {
+        let PixelGrid {
+            cell_size: pixel_cell_size,
+            origin: grid_origin,
+        } = grid;
         let pixelated = pixel_cell_size != 0;
         let unchanged = self.images.as_ref().is_some_and(|images| {
             images.source.get_image().as_raw() == source.get_image().as_raw()

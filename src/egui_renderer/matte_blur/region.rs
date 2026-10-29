@@ -155,8 +155,8 @@ mod tests {
                 );
                 for y in 6..29 {
                     for x in 4..37 {
-                        let cx = (x as i32 - origin[0]) as u32 / cell;
-                        let cy = (y as i32 - origin[1]) as u32 / cell;
+                        let cx = (x - origin[0]) as u32 / cell;
+                        let cy = (y - origin[1]) as u32 / cell;
                         assert!(contains(p.passes[0], cx, cy));
                         assert_eq!(p.passes[1], Region::default());
                     }

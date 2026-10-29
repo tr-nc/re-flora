@@ -356,8 +356,10 @@ mod tests {
     fn telemetry_tabs_use_scene_backed_glass() {
         let ctx = egui::Context::default();
         for selected in [Metric::Fps, Metric::Vram] {
-            let mut panel = TelemetryPanel::default();
-            panel.selected = selected;
+            let mut panel = TelemetryPanel {
+                selected,
+                ..Default::default()
+            };
             panel.observe(0.0, 60.0, 512 * 1024 * 1024);
             let mut output = None;
             for frame in 0..3 {

@@ -1720,12 +1720,9 @@ mod tests {
         let (replacement, _) = tree_collision_fixture(Vec3::X * (16. / VOXELS_PER_WORLD_UNIT));
         let prepared = TerrainPhysics::prepare_tree_collision_surface(2, &replacement).unwrap();
         // Preparation and failed preparation do not alter the resident collider.
-        assert!(
-            physics
-                .tree_ray_candidates(origin / VOXELS_PER_WORLD_UNIT, Vec3::X, Vec3::ZERO)
-                .len()
-                > 0
-        );
+        assert!(!physics
+            .tree_ray_candidates(origin / VOXELS_PER_WORLD_UNIT, Vec3::X, Vec3::ZERO)
+            .is_empty());
         let mut invalid = crate::tracer::RasterTreeMesh::default();
         invalid.indices.push(0);
         assert!(TerrainPhysics::prepare_tree_collision_surface(3, &invalid).is_err());

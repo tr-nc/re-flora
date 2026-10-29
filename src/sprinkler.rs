@@ -186,7 +186,8 @@ impl SprayClock {
         rpm: f32,
         frequency: f32,
     ) -> [f32; 4] {
-        let frequency = frequency.max(0.25).min(20.0);
+        // max preserves the existing NaN -> minimum fallback before clamping.
+        let frequency = frequency.max(0.25).clamp(0.25, 20.0);
         let fraction = fraction.clamp(0.0, 1.0);
         let seconds = crate::game_time::clamp_world_tick_seconds(seconds);
         let rpm = if rpm.is_finite() {
@@ -277,6 +278,30 @@ mod tests {
             a.sample(20, 0.0, 0.05, 15.0, 4.0)[3],
             b.sample(20, 0.0, 0.05, 15.0, 4.0)[3]
         );
+    }
+
+    #[test]
+    fn clock_and_snapshot_preserve_frequency_limits_and_nan_fallback() {
+        for (input, expected) in [
+            (f32::NAN, 0.25),
+            (f32::NEG_INFINITY, 0.25),
+            (-1.0, 0.25),
+            (0.25, 0.25),
+            (4.0, 4.0),
+            (20.0, 20.0),
+            (21.0, 20.0),
+            (f32::INFINITY, 20.0),
+        ] {
+            let mut actual = SprayClock::default();
+            let mut reference = SprayClock::default();
+            for tick in 0..4 {
+                let sample = actual.sample(tick, 0.5, 0.05, 15.0, input);
+                assert_eq!(sample, reference.sample(tick, 0.5, 0.05, 15.0, expected));
+                let snapshot = SpraySnapshot::new(sample, input, 50.0);
+                assert_eq!(snapshot.frequency, expected);
+                assert!(snapshot.audio_loop_phase(0.3).is_finite());
+            }
+        }
     }
 
     #[test]
@@ -518,7 +543,8 @@ impl SpraySnapshot {
         Self {
             clock,
             audio_loop_seconds: f64::from(clock[1]),
-            frequency: frequency.max(0.25).min(20.0),
+            // Match SprayClock, including the NaN -> minimum fallback.
+            frequency: frequency.max(0.25).clamp(0.25, 20.0),
             duty: duty_percent.clamp(0.0, 100.0) * 0.01,
         }
     }

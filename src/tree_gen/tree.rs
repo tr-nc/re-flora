@@ -608,7 +608,7 @@ mod tests {
         }
         let missing: TreeDesc = serde_json::from_str("{}").unwrap();
         assert!(missing.is_retired());
-        assert_eq!(missing.axis_model, false);
+        assert!(!missing.axis_model);
         assert_eq!(missing.trunk_thickness, 0.4);
         assert!(missing.enable_subdivision);
         assert_eq!(

@@ -80,7 +80,7 @@ pub(crate) fn plow(
                 if material != 0 {
                     if material == VOXEL_TYPE_DIRT
                         && level + 1 < sample.max().y
-                        && data[index(p + UVec3::Y, origin, dim)] & VOXEL_TYPE_MASK as u8 == 0
+                        && data[index(p + UVec3::Y, origin, dim)] & VOXEL_TYPE_MASK == 0
                     {
                         top = Some(level);
                     }

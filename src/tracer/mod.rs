@@ -3178,7 +3178,8 @@ impl Tracer {
             environment.god_rays.weight,
             environment.god_rays.color,
         )?;
-        self.sprinkler_mist_density = environment.sprinkler_mist_density.max(0.0).min(6.0);
+        // Keep invalid NaN density silent rather than forwarding it into the shader.
+        self.sprinkler_mist_density = environment.sprinkler_mist_density.max(0.0).clamp(0.0, 6.0);
         self.sprinkler_mist_particles = environment.sprinkler_mist_particles;
         self.sprinkler_mist_flow = environment.sprinkler_mist_flow;
         self.sprinkler_mist_air = environment.sprinkler_mist_air;

@@ -488,7 +488,6 @@ mod tests {
             views: 8,
             resolutions: [8; MODEL_KINDS],
             enabled: [true, false, false, false, false],
-            ..Options::default()
         };
         let data = bake(&source, options, &AtomicBool::new(false)).unwrap();
         assert_eq!(data.samples.len(), 8 * 8 * 8);
@@ -514,7 +513,6 @@ mod tests {
                 views: 8,
                 resolutions: [8; MODEL_KINDS],
                 enabled: [false, true, false, false, false],
-                ..Options::default()
             },
             &AtomicBool::new(false),
         )
@@ -558,7 +556,6 @@ mod tests {
                 views: 8,
                 resolutions: [8; MODEL_KINDS],
                 enabled: [true; MODEL_KINDS],
-                ..Options::default()
             },
             &AtomicBool::new(false),
         )

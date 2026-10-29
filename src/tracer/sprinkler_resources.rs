@@ -255,7 +255,7 @@ mod tests {
     #[test]
     fn air_field_storage_and_integer_accumulation_are_bounded() {
         assert_eq!(SPRINKLER_AIR_GRID_BYTES, 3_538_944);
-        assert!(SPRINKLER_AIR_GRID_SIDE > 4);
+        const { assert!(SPRINKLER_AIR_GRID_SIDE > 4) };
         assert_eq!(
             std::mem::size_of::<crate::generated::gpu_structs::SprinklerAirInfo>(),
             48
@@ -291,8 +291,8 @@ mod tests {
         assert_eq!(sprinkler_mist_sample_count(false), 48);
         assert_eq!(sprinkler_mist_sample_count(true), 256);
         // Wetting's per-workgroup live-contact index list has this capacity.
-        assert!(SPRINKLER_MIST_LOBES <= 256);
-        assert!(sprinkler_mist_sample_count(true) % 8 == 0);
+        const { assert!(SPRINKLER_MIST_LOBES <= 256) };
+        assert!(sprinkler_mist_sample_count(true).is_multiple_of(8));
         for rotary in [false, true] {
             assert!(sprinkler_mist_sample_count(rotary) <= SPRINKLER_MIST_LOBES);
             // Preparation's 256 lanes cover every mist AND independent droplet

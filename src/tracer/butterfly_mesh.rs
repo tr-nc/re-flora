@@ -336,8 +336,10 @@ mod tests {
         };
         for fps in [8, 60] {
             for coupled in [false, true] {
-                let mut desc = ButterflyEmitterDesc::default();
-                desc.flight_variant = ButterflyFlightVariant::Darting;
+                let mut desc = ButterflyEmitterDesc {
+                    flight_variant: ButterflyFlightVariant::Darting,
+                    ..Default::default()
+                };
                 desc.flight_tuning.speed = 0.25;
                 desc.flight_tuning.vertical_strength = 4.;
                 desc.flight_tuning.wingbeat_coupling = coupled;
@@ -395,7 +397,7 @@ mod tests {
                         .publish_mesh_frame(|bytes| {
                             if !bytes.is_empty()
                                 && s.velocity.length_squared() > 1e-10
-                                && !s.butterfly_body_pose.is_some_and(|p| p.host.is_some())
+                                && s.butterfly_body_pose.is_none_or(|p| p.host.is_none())
                             {
                                 let instance: Instance = bytemuck::pod_read_unaligned(
                                     &bytes[..std::mem::size_of::<Instance>()],

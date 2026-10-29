@@ -844,9 +844,9 @@ mod tests {
                 let mut snapshots = Vec::new();
                 system.write_snapshots(&mut snapshots);
                 let snapshot = snapshots[0];
-                if !snapshot
+                if snapshot
                     .butterfly_body_pose
-                    .is_some_and(|p| p.host.is_some())
+                    .is_none_or(|p| p.host.is_none())
                     && (after - before).length_squared() > 1e-12
                 {
                     let facing = snapshot.butterfly_body_pose.map_or_else(
