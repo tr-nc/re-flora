@@ -1,0 +1,17 @@
+cargo test
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1774 passed; 0 failed; 15 ignored; 0 measured; 0 filtered out; finished in 20.85s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+cargo test -p re-flora-vkn
+test result: ok. 74 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+native transaction acceptance (see async.md for command)
+[21:57:58.139 INFO re_flora::app::core::grass_edits] [GRASS_EDIT] synchronous conflict fallback retries=2
+[21:57:58.393 INFO re_flora::app::core::brush_edit_bench::transactions] [GRASS_TRANSACTION_REVIEW] atomic=true abandoned_recording=true host_conflict=true gpu_conflict=true terrain_conflict=true hydration=true authored=true capacity=true cancel=true backpressure=true tool_switch=true bounded_retry=true save=true
+[21:57:59.358 INFO re_flora::app::core::lifecycle] [SHUTDOWN] phase=complete failures=0
+soil cover acceptance
+[21:44:48.626 INFO re_flora::builder::surface::soil_cover_review] [SOIL_COVER_REVIEW] bare=true flowers_excluded=true tall_short=true cross_chunk=true interior_gap=true tight_boundary=true remove_last=true moisture=true restore=true burial=true uncover=true
+[21:44:49.182 INFO re_flora::app::core::lifecycle] [SHUTDOWN] phase=complete failures=0
+cargo run --release -- --hidden --mute --auto-exit 0.5
+[21:57:55.336 INFO re_flora::app::core::lifecycle] [SHUTDOWN] phase=complete failures=0
