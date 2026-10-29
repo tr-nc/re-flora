@@ -13,6 +13,7 @@ fn publish(app: &mut App, transaction: GrassEditTransaction) -> Result<()> {
         }
         GrassEditCompletion::Stale(_) => anyhow::bail!("unexpected stale acceptance transaction"),
     }
+    app.surface_builder.review_grass_publication()?;
     Ok(())
 }
 fn reject(app: &mut App, transaction: GrassEditTransaction) -> Result<()> {
@@ -27,6 +28,7 @@ fn reject(app: &mut App, transaction: GrassEditTransaction) -> Result<()> {
         "conflicting transaction published"
     );
     anyhow::ensure!(before == roots(app)?, "stale batch partially published");
+    app.surface_builder.review_grass_publication()?;
     Ok(())
 }
 
@@ -71,6 +73,7 @@ pub(super) fn verify(app: &mut App, replay: &Replay) -> Result<()> {
         before == roots(app)?,
         "unpublished output touched the live generation"
     );
+    app.surface_builder.review_grass_publication()?;
     publish(app, tx)?;
     anyhow::ensure!(
         roots(app)?.len() > before.len(),
@@ -103,12 +106,12 @@ pub(super) fn verify(app: &mut App, replay: &Replay) -> Result<()> {
     }
 
     // Host writes and submitted GPU writes both invalidate the input snapshot.
-    for gpu in [false, true] {
+    for conflict in ["host", "gpu", "potential"] {
         replay.reset(app)?;
         let tx = app
             .surface_builder
             .submit_grass_transaction(request, app.visible_terrain_revision)?;
-        if gpu {
+        if conflict == "gpu" {
             app.surface_builder
                 .update_flora_growth_for_chunk(UVec3::ZERO, 0)?;
         } else {
@@ -118,8 +121,14 @@ pub(super) fn verify(app: &mut App, replay: &Replay) -> Result<()> {
                 .instances
                 .chunk_flora_instances[index]
                 .1;
-            let bytes = r.resource.instances_buf.read_back_range(0, 8)?;
-            r.resource.instances_buf.fill_range_with_raw_u8(0, &bytes)?;
+            if conflict == "potential" {
+                let bytes = r.grass_growth_potential_levels.read_back_range(0, 4)?;
+                r.grass_growth_potential_levels
+                    .fill_range_with_raw_u8(0, &bytes)?;
+            } else {
+                let bytes = r.resource.instances_buf.read_back_range(0, 8)?;
+                r.resource.instances_buf.fill_range_with_raw_u8(0, &bytes)?;
+            }
         }
         reject(app, tx)?;
     }
@@ -316,6 +325,6 @@ pub(super) fn verify(app: &mut App, replay: &Replay) -> Result<()> {
         "save omitted queued grass"
     );
     replay.reset(app)?;
-    log::info!("[GRASS_TRANSACTION_REVIEW] atomic=true abandoned_recording=true host_conflict=true gpu_conflict=true terrain_conflict=true hydration=true authored=true capacity=true cancel=true backpressure=true tool_switch=true bounded_retry=true save=true");
+    log::info!("[GRASS_TRANSACTION_REVIEW] cpu_draw_match=true potential_conflict=true atomic=true abandoned_recording=true host_conflict=true gpu_conflict=true terrain_conflict=true hydration=true authored=true capacity=true cancel=true backpressure=true tool_switch=true bounded_retry=true save=true");
     Ok(())
 }

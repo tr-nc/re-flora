@@ -795,6 +795,9 @@ impl SurfaceBuilder {
         }
 
         if let Some(i) = flora_chunk_idx {
+            self.resources.instances.chunk_flora_instances[i]
+                .1
+                .record_grass_readback(&cmdbuf);
             cmdbuf.use_buffer(
                 &self.resources.instances.chunk_flora_instances[i]
                     .1
@@ -1340,15 +1343,6 @@ impl SurfaceBuilder {
             );
         }
 
-        let chunk_idx = self.get_chunk_resource_index(chunk_id)?;
-        self.resources.instances.chunk_flora_instances[chunk_idx]
-            .1
-            .grass_growth_potential_levels
-            .fill_range_with_raw_u8(0, bytemuck::cast_slice(&words))?;
-        self.resources.instances.chunk_flora_instances[chunk_idx]
-            .1
-            .grass_audio
-            .shape_changed();
         log::debug!(
             "[FLORA_GROWTH] rebuilt chunk {:?} influenced_voxels={}",
             chunk_id,
@@ -1356,7 +1350,10 @@ impl SurfaceBuilder {
                 .filter(|&index| packed_grass_growth_potential_level(&words, index) < 15)
                 .count(),
         );
-        Ok(())
+        let chunk_idx = self.get_chunk_resource_index(chunk_id)?;
+        self.resources.instances.chunk_flora_instances[chunk_idx]
+            .1
+            .publish_grass_growth_potential(words)
     }
 
     fn refresh_grass_growth_from_potential(
@@ -1777,6 +1774,7 @@ impl SurfaceBuilder {
             BufferUse::HostRead,
         );
 
+        chunk_resources.record_grass_readback(&cmdbuf);
         cmdbuf.use_buffer(&chunk_resources.resource.instances_buf, BufferUse::HostRead);
         cmdbuf.end();
         let mut gpu_job =

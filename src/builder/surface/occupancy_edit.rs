@@ -336,6 +336,7 @@ impl SurfaceBuilder {
         });
         cmdbuf.use_buffer(&scratch.occupancy_to_instances_result, BufferUse::HostRead);
 
+        chunk_resources.record_grass_readback(&cmdbuf);
         cmdbuf.use_buffer(&chunk_resources.resource.instances_buf, BufferUse::HostRead);
         cmdbuf.use_buffer(&scratch.occupancy_edit_dispatch, BufferUse::HostRead);
         if pass_timing.is_some() {

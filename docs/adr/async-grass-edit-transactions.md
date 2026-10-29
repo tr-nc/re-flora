@@ -23,6 +23,9 @@ removal, trim and terrain operations must not silently inherit deferred semantic
   recordings and host-read declarations do not. This is conflict detection, not synchronization.
 - Complete every chunk and all fallible readback/hydration preparation before swapping any live
   output. Hydration comes from current live stores keyed by root, not the submission snapshot.
+  The CPU-readable grass stream is copied in the shared GPU edit submission and swapped with
+  its draw stream at publication; retaining the old readback would mix generations. Snapshot
+  CPU-authored growth potential from its retained CPU publication, not mapped uncached VRAM.
   Retire old draw/hydration buffers through the frame owner; GPU completion alone does not prove
   that an old rendered frame has stopped using them.
 

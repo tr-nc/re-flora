@@ -129,10 +129,13 @@ impl SurfaceBuilder {
                     for (s, &count) in lengths.iter().enumerate() {
                         if count > 0 {
                             let offset = u64::from(FloraInstanceResources::species_offset(s)) * 8;
-                            let bytes = live
-                                .resource
-                                .instances_buf
-                                .read_back_range(offset, u64::from(count) * 8)?;
+                            let bytes = if s < 2 {
+                                bytemuck::cast_slice(&live.read_grass_instances(s)?).to_vec()
+                            } else {
+                                live.resource
+                                    .instances_buf
+                                    .read_back_range(offset, u64::from(count) * 8)?
+                            };
                             staged
                                 .resource
                                 .instances_buf
@@ -141,8 +144,7 @@ impl SurfaceBuilder {
                         staged.set_species_len(s, count);
                     }
                     staged
-                        .grass_growth_potential_levels
-                        .fill_with_raw_u8(&live.grass_growth_potential_levels.read_back()?)?;
+                        .publish_grass_growth_potential(live.grass_growth_potential_cpu.clone())?;
                     chunks.push(ChunkEdit {
                         index,
                         source_instances: (*live.resource.instances_buf).clone(),
@@ -255,6 +257,12 @@ impl SurfaceBuilder {
             std::mem::swap(
                 &mut live.resource.instances_buf,
                 &mut chunk.staged.resource.instances_buf,
+            );
+            // Publish the CPU observation with its draw stream, never with the
+            // previous generation. The staged copy completed in the same job.
+            std::mem::swap(
+                &mut live.grass_instances_readback,
+                &mut chunk.staged.grass_instances_readback,
             );
             std::mem::swap(&mut live.plant_hydration, &mut chunk.staged.plant_hydration);
             for s in 0..2 {
