@@ -38,6 +38,7 @@ struct BufferInner {
     allocated_mem: Allocation,
     desc: BufferDesc,
     current_state: Mutex<BufferState>,
+    write_revision: std::sync::atomic::AtomicU64,
 }
 
 /// Owned Vulkan buffer allocation.
@@ -195,6 +196,7 @@ impl Buffer {
             allocated_mem,
             desc,
             current_state: Mutex::new(BufferState::unknown()),
+            write_revision: Default::default(),
         }))
     }
 
@@ -247,7 +249,17 @@ impl Buffer {
         Ok(Self(Arc::new(BufferInner {
             device, allocator, buffer, allocated_mem, desc,
             current_state: Mutex::new(BufferState::unknown()),
+            write_revision: Default::default(),
         })))
+    }
+
+    /// Conservative content version; not a completion/synchronization proof.
+    pub fn write_revision(&self) -> u64 {
+        self.0.write_revision.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub(crate) fn mark_written(&self) {
+        self.0.write_revision.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn get_element_size_bytes(&self) -> u64 {
@@ -307,6 +319,7 @@ impl Buffer {
             .allocated_mem
             .mapped_ptr()
             .ok_or_else(|| anyhow::anyhow!("Failed to map buffer memory"))?;
+        self.mark_written();
         // SAFETY: bounds were checked above; callers provide valid disjoint source
         // bytes. Existing frame-slot ownership and Vulkan synchronization remain
         // the caller's responsibility, just as for the previous mapped writes.

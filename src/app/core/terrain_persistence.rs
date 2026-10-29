@@ -573,6 +573,7 @@ impl App {
     }
 
     fn quiesce_terrain_for_snapshot(&mut self) -> Result<()> {
+        self.flush_grass_edits()?;
         self.cancel_pointer_pick();
         self.water.quiesce_for_snapshot()?;
         self.vulkan_ctx.device().wait_idle();

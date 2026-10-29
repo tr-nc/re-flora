@@ -2969,6 +2969,7 @@ impl App {
         max_write_count: Option<u32>,
         max_removed_counts: Option<[u32; crate::builder::EDIT_STATS_VOXEL_TYPE_COUNT]>,
     ) -> Result<ChunkModifyReadback> {
+        self.flush_grass_edits()?;
         let edit = edit.into();
         if self.rooftop_scene.is_some() && target_voxel_type.is_none() {
             return self.apply_rooftop_soil(edit, crate::builder::VOXEL_TYPE_EMPTY);
@@ -3019,6 +3020,7 @@ impl App {
         voxel_type: u32,
         max_write_count: u32,
     ) -> Result<ChunkModifyReadback> {
+        self.flush_grass_edits()?;
         let edit = edit.into();
         if self.rooftop_scene.is_some() {
             return self.apply_rooftop_soil(edit, voxel_type);
@@ -3246,6 +3248,34 @@ impl App {
         )
     }
 
+    pub(super) fn queue_surface_grass_at(
+        &mut self,
+        edit: TerrainBrushEdit,
+        dab_serial: u32,
+        spawn_time_ms: u32,
+    ) -> Result<()> {
+        let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush_in_world(
+            edit,
+            self.world_chunk_dim,
+        ) else {
+            return Ok(());
+        };
+        self.queue_grass_edit(crate::builder::GrassPaintRequest {
+            voxel_bound: compiled.rebuild_bound,
+            start: edit.start,
+            end: edit.end,
+            radius: edit.radius,
+            tick: self
+                .world_clock
+                .flora_tick()
+                .wrapping_sub(super::FLORA_FULL_GROWTH_TICKS),
+            spawn_time_ms,
+            selection: species::FloraPaintSelection::GrassMix,
+            dab_serial,
+            brush: species::GRASS_MIX_PAINT_BRUSH_SETTINGS,
+        })
+    }
+
     pub(super) fn apply_surface_flora_regeneration(
         &mut self,
         edit: TerrainBrushEdit,
@@ -3269,6 +3299,7 @@ impl App {
         is_release_step: bool,
         spawn_time_ms: u32,
     ) -> Result<()> {
+        self.flush_grass_edits()?;
         if let Some(compiled) =
             TerrainSurfaceRemovalService::compile_surface_brush_in_world(edit, self.world_chunk_dim)
         {
@@ -3470,6 +3501,7 @@ impl App {
         &mut self,
         edit: TerrainBrushEdit,
     ) -> Result<Vec<crate::builder::FloraRemovalReceipt>> {
+        self.flush_grass_edits()?;
         let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush_in_world(
             edit,
             self.world_chunk_dim,
@@ -3494,6 +3526,7 @@ impl App {
     }
 
     pub(super) fn apply_surface_flora_removal(&mut self, edit: TerrainBrushEdit) -> Result<()> {
+        self.flush_grass_edits()?;
         if let Some(compiled) =
             TerrainSurfaceRemovalService::compile_surface_brush_in_world(edit, self.world_chunk_dim)
         {
@@ -3521,6 +3554,7 @@ impl App {
     }
 
     pub(super) fn apply_flora_trim_path(&mut self, brush_edit: TerrainBrushEdit) -> Result<()> {
+        self.flush_grass_edits()?;
         if let Some(compiled) = TerrainSurfaceRemovalService::compile_surface_brush_in_world(
             brush_edit,
             self.world_chunk_dim,

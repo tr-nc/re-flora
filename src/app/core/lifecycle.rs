@@ -189,6 +189,9 @@ impl AppShutdownLifecycle {
 impl ShutdownActions for App {
     fn quiesce_producers(&mut self) {
         self.stop_terrain_edit_loop_sound();
+        // Quit cancels unpublished unlimited-material paint. Submitted leases are
+        // drained by the transaction owner before any GPU resource can disappear.
+        self.grass_edits = Default::default();
         self.abort_loading_visible_terrain_publication();
     }
 

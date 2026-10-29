@@ -2,9 +2,13 @@ mod brush_region;
 mod ecology;
 mod grass_audio;
 mod grass_audio_review;
+mod grass_transaction;
 mod hydration;
 mod hydration_review;
+mod occupancy_edit;
 mod resources;
+pub use grass_transaction::{GrassEditCompletion, GrassEditTransaction};
+pub use occupancy_edit::GrassPaintRequest;
 mod reversible;
 mod snapshot;
 mod soil_cover;
@@ -427,6 +431,7 @@ pub struct SurfaceBuilder {
     next_descriptor_generation: Cell<u64>,
     hydration_elapsed: f64,
     soil_cover: soil_cover::SoilCover,
+    grass_edit_images: Option<(re_flora_vkn::Texture, re_flora_vkn::Texture)>,
 
     chunk_bound: UAabb3,
     voxel_dim_per_chunk: UVec3,
@@ -631,6 +636,7 @@ impl SurfaceBuilder {
             next_descriptor_generation: Cell::new(1),
             hydration_elapsed: 0.0,
             soil_cover: soil_cover::SoilCover::default(),
+            grass_edit_images: None,
             chunk_bound,
             voxel_dim_per_chunk,
             flora_species_count,
@@ -1614,231 +1620,37 @@ impl SurfaceBuilder {
             return Err(anyhow::anyhow!("Chunk ID out of bounds"));
         }
 
-        let chunk_idx = self.get_chunk_resource_index(chunk_id)?;
-        let chunk_world_offset = chunk_id * self.voxel_dim_per_chunk;
-        let edit_start_vox = edit_start * 256.0;
-        let edit_end_vox = edit_end * 256.0;
-        let edit_radius_vox = edit_radius * 256.0;
-
-        let before_total = self.resources.instances.chunk_flora_instances[chunk_idx]
-            .1
-            .total_instance_len();
-
-        let mut species_len = [0_u32; 4];
-        let mut max_len = 0_u32;
-        for (species_idx, species) in species_len
-            .iter_mut()
-            .enumerate()
-            .take(species::MODEL_FLOWER_FIRST_SPECIES as usize)
-        {
-            let len = self.resources.instances.chunk_flora_instances[chunk_idx]
-                .1
-                .species_len(species_idx);
-            *species = len;
-            max_len = max_len.max(len);
-        }
-
-        if max_len == 0 && mode != OccupancyEditMode::Add {
-            return Ok(unchanged_flora_stats(before_total, false));
-        }
-        let (_, brush_dim) = brush_region::surface_region(
-            edit_start_vox,
-            edit_end_vox,
-            edit_radius_vox,
-            chunk_world_offset,
-            self.voxel_dim_per_chunk,
-        );
-        let edit_dim = match mode {
-            OccupancyEditMode::Add | OccupancyEditMode::Remove | OccupancyEditMode::Trim => {
-                brush_dim
-            }
-            _ => self.voxel_dim_per_chunk,
-        };
-
-        update_clear_occupancy_info(
-            &self.resources.clear_occupancy_info,
-            self.voxel_dim_per_chunk,
-        )?;
-        update_instances_to_occupancy_info(
-            &self.resources.instances_to_occupancy_info,
-            chunk_world_offset,
-            self.voxel_dim_per_chunk,
-            species_len,
-            0u32, // tick_delta=0 for rebuild
-            spawn_time_ms,
-        )?;
-        update_edit_occupancy_info(
-            &self.resources.edit_occupancy_info,
-            edit_start_vox,
-            edit_end_vox,
-            edit_radius_vox,
-            chunk_world_offset,
-            self.voxel_dim_per_chunk,
-            mode,
+        let request = occupancy_edit::EditRequest {
+            chunk_id,
+            edit_start,
+            edit_end,
+            edit_radius,
             flora_tick,
+            spawn_time_ms,
             target_age,
             paint_selection,
             paint_dab_serial,
             paint_brush,
-        )?;
-        update_occupancy_to_instances_info(
-            &self.resources.occupancy_to_instances_info,
-            chunk_world_offset,
-            self.voxel_dim_per_chunk,
-            spawn_time_ms,
-            match mode {
-                OccupancyEditMode::RefreshGrowthPotential => 1,
-                OccupancyEditMode::ValidateTerrain => 2,
-                _ => 0,
-            },
-        )?;
-        cleanup_occupancy_to_instances_result(&self.resources.occupancy_to_instances_result)?;
-
-        let chunk_resources = &self.resources.instances.chunk_flora_instances[chunk_idx].1;
-        let descriptor_retirements = vec![
-            self.bind_instance_descriptors(&self.instances_to_occupancy_ppl, chunk_resources)?,
-            self.bind_instance_descriptors(&self.edit_occupancy_ppl, chunk_resources)?,
-            self.bind_instance_descriptors(&self.occupancy_to_instances_ppl, chunk_resources)?,
-        ];
-
-        let mut flora_edit_timing_passes = if max_len > 0 {
-            FLORA_EDIT_TIMING_PASSES_WITH_INSTANCES.to_vec()
-        } else {
-            FLORA_EDIT_TIMING_PASSES_WITHOUT_INSTANCES.to_vec()
+            mode,
         };
-        if mode == OccupancyEditMode::Add {
-            flora_edit_timing_passes.insert(
-                0,
-                SurfacePassTimingPass {
-                    label: "make_brush_surface",
-                    bench_key: "flora_edit_brush_surface_gpu",
-                },
-            );
+        let chunk_idx = self.get_chunk_resource_index(chunk_id)?;
+        let chunk = &self.resources.instances.chunk_flora_instances[chunk_idx].1;
+        let before_total = chunk.total_instance_len();
+        let max_len = chunk.species_len(0).max(chunk.species_len(1));
+        if max_len == 0 && mode != OccupancyEditMode::Add {
+            return Ok(unchanged_flora_stats(before_total, false));
         }
-
-        let device = self.vulkan_ctx.device();
-        let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
-        cmdbuf.begin(true);
-
-        cmdbuf.use_buffer(&self.resources.clear_occupancy_info, BufferUse::HostWrite);
-
-        let pass_timing = self.pass_timing.as_ref();
-        if let Some(timing) = pass_timing {
-            timing.record_reset(&cmdbuf, flora_edit_timing_passes.len());
-        }
-        let mut timing_pass_index = 0usize;
-        macro_rules! record_timed_flora_edit_pass {
-            ($body:block) => {{
-                if let Some(timing) = pass_timing {
-                    timing.record_start(&cmdbuf, timing_pass_index);
-                }
-                let result = { $body };
-                if let Some(timing) = pass_timing {
-                    timing.record_end(&cmdbuf, timing_pass_index);
-                    timing_pass_index += 1;
-                }
-                result
-            }};
-        }
-
-        // Scratch surface is regenerated from authoritative terrain, only where new
-        // roots may be admitted. No persistent cache, invalidation or extra submit/wait.
-        if mode == OccupancyEditMode::Add {
-            let (_, dim) = brush_region::surface_region(
-                edit_start_vox,
-                edit_end_vox,
-                edit_radius_vox,
-                chunk_world_offset,
-                self.voxel_dim_per_chunk,
-            );
-            cmdbuf.use_buffer(&self.resources.edit_occupancy_info, BufferUse::HostWrite);
-            record_timed_flora_edit_pass!({
-                self.make_brush_surface_ppl.record(
-                    &cmdbuf,
-                    Extent3D::new(dim.x, dim.y, dim.z),
-                    None,
-                );
-            });
-        }
-
-        record_timed_flora_edit_pass!({
-            self.clear_occupancy_ppl.record(
-                &cmdbuf,
-                Extent3D::new(
-                    self.voxel_dim_per_chunk.x,
-                    self.voxel_dim_per_chunk.y,
-                    self.voxel_dim_per_chunk.z,
-                ),
-                None,
-            );
-        });
-
-        if max_len > 0 {
-            cmdbuf.use_buffer(
-                &chunk_resources.resource.instances_buf,
-                BufferUse::HostWrite,
-            );
-            record_timed_flora_edit_pass!({
-                self.instances_to_occupancy_ppl
-                    .record(&cmdbuf, Extent3D::new(max_len, 1, 1), None);
-            });
-        }
-
-        cmdbuf.use_buffer(&self.resources.edit_occupancy_info, BufferUse::HostWrite);
-        record_clear_buffer_for_compute(&cmdbuf, &self.resources.occupancy_edit_dispatch);
-
-        record_timed_flora_edit_pass!({
-            self.edit_occupancy_ppl.record(
-                &cmdbuf,
-                Extent3D::new(edit_dim.x, edit_dim.y, edit_dim.z),
-                None,
-            );
-        });
-
-        cmdbuf.use_buffer(
-            &self.resources.occupancy_to_instances_info,
-            BufferUse::HostWrite,
-        );
-        cmdbuf.use_buffer(
-            &self.resources.occupancy_to_instances_result,
-            BufferUse::HostWrite,
-        );
-
-        record_timed_flora_edit_pass!({
-            self.occupancy_to_instances_ppl.record_indirect(
-                &cmdbuf,
-                &self.resources.occupancy_edit_dispatch,
-                None,
-            );
-        });
-        cmdbuf.use_buffer(
-            &self.resources.occupancy_to_instances_result,
-            BufferUse::HostRead,
-        );
-
-        cmdbuf.use_buffer(&chunk_resources.resource.instances_buf, BufferUse::HostRead);
-        cmdbuf.use_buffer(&self.resources.occupancy_edit_dispatch, BufferUse::HostRead);
-        if pass_timing.is_some() {
-            assert_eq!(timing_pass_index, flora_edit_timing_passes.len());
-        }
-
-        cmdbuf.end();
-        let mut gpu_job =
-            cmdbuf.submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "surface.flora_edit")?;
-        for retirement in descriptor_retirements {
-            gpu_job.retain_frame_retirement(retirement);
-        }
-        let _completed_gpu_job = gpu_job.wait_complete()?;
-
+        let scratch = occupancy_edit::EditScratch::shared(&self.resources);
+        self.record_occupancy_edit(&request, &scratch, chunk, true)?
+            .wait_complete()?;
         if let Some(timing) = self.pass_timing.as_ref() {
             timing.collect_and_log(
                 "FLORA_EDIT_PASS_TIMING",
                 "flora_edit_pass_timed_total_gpu",
                 chunk_id,
-                &flora_edit_timing_passes,
+                &request.timing_passes(max_len > 0),
             );
         }
-
         let dispatch = self.resources.occupancy_edit_dispatch.read_back()?;
         if u32::from_ne_bytes(dispatch[..4].try_into().unwrap()) == 0 {
             // No compaction ran: leave counts, order, hydration and root/audio/soil
@@ -1848,6 +1660,13 @@ impl SurfaceBuilder {
         let result = get_occupancy_to_instances_result(
             &self.resources.occupancy_to_instances_result,
             self.flora_species_count,
+        );
+        anyhow::ensure!(
+            result
+                .flora_instance_len
+                .iter()
+                .all(|&n| n <= MAX_FLORA_INSTANCES_PER_SPECIES),
+            "grass output exceeds capacity"
         );
         let chunk_resources_mut = &mut self.resources.instances.chunk_flora_instances[chunk_idx].1;
         let mut after_total = 0_u32;

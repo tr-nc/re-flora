@@ -1,6 +1,7 @@
 //! Opt-in deterministic Release brush acceptance and cost replay.
 //! Every timed call uses the production App edit/publication interface. Fixture/reset/readback
 //! validation are outside the event timer. Run only in an isolated worktree, with --flat-terrain.
+mod transactions;
 use super::*;
 use crate::app::world_edits::TerrainBrushEdit;
 use crate::builder::{FloraInstanceResources, Instance};
@@ -16,6 +17,14 @@ pub(super) struct Replay {
     events: Vec<serde_json::Value>,
     baseline: RootMap,
     output: std::path::PathBuf,
+    pending: Option<PendingSample>,
+    asynchronous: bool,
+}
+
+struct PendingSample {
+    preflight_ms: f64,
+    enqueue_ms: f64,
+    frame: u64,
 }
 
 impl Replay {
@@ -87,6 +96,8 @@ impl Replay {
             events: vec![],
             baseline: BTreeMap::new(),
             output,
+            pending: None,
+            asynchronous: std::env::var_os("RE_FLORA_BRUSH_BENCH_ASYNC").is_some(),
         }))
     }
 
@@ -215,6 +226,10 @@ impl App {
             return Ok(false);
         };
         let result = (|| -> Result<bool> {
+            if replay.frame == 0 && std::env::var_os("RE_FLORA_GRASS_TRANSACTION_REVIEW").is_some()
+            {
+                transactions::verify(self, &replay)?;
+            }
             // Reset one frame, then render 8 settled frames before each measured edit.
             if replay.frame.is_multiple_of(10) {
                 replay.reset(self)?;
@@ -224,6 +239,9 @@ impl App {
                 // Avoid a GPU readback / O(N log N) validation walk just before the timer:
                 // it would consume the queue backlog we intend to measure. The expensive
                 // baseline capture belongs to reset, eight rendered frames earlier.
+                if replay.pending.is_some() && !self.grass_edits.is_idle() {
+                    return Ok(false);
+                }
                 let before = &replay.baseline;
                 let water: Vec<_> = self
                     .surface_builder
@@ -246,46 +264,81 @@ impl App {
                             })
                     })
                     .collect();
-                log::info!(
-                    "[BRUSH_EDIT_BENCH] begin case={} sample={} warmup={} roots={}",
-                    replay.case,
-                    replay.sample,
-                    replay.sample < 3,
-                    before.len()
-                );
-                let preflight = Instant::now();
-                if std::env::var_os("RE_FLORA_BRUSH_PREFLIGHT_DRAIN").is_some() {
-                    self.vulkan_ctx.device().wait_idle();
-                }
-                let preflight_ms = preflight.elapsed().as_secs_f64() * 1000.;
-                let started = Instant::now();
-                let mut changed = 0;
+                let (preflight_ms, edit_ms, async_frames, changed) = if let Some(PendingSample {
+                    preflight_ms,
+                    enqueue_ms,
+                    frame,
+                }) = replay.pending.take()
+                {
+                    let metrics = self
+                        .grass_edits
+                        .last
+                        .expect("async brush completion metrics");
+                    (
+                        preflight_ms,
+                        enqueue_ms + metrics.submit_ms + metrics.finish_ms,
+                        self.time_info.total_frame_count() - frame,
+                        0,
+                    )
+                } else {
+                    log::info!(
+                        "[BRUSH_EDIT_BENCH] begin case={} sample={} warmup={} roots={}",
+                        replay.case,
+                        replay.sample,
+                        replay.sample < 3,
+                        before.len()
+                    );
+                    let preflight = Instant::now();
+                    if std::env::var_os("RE_FLORA_BRUSH_PREFLIGHT_DRAIN").is_some() {
+                        self.vulkan_ctx.device().wait_idle();
+                    }
+                    let preflight_ms = preflight.elapsed().as_secs_f64() * 1000.;
+                    let started = Instant::now();
+                    let mut changed = 0;
+                    let op = replay.case.split('-').next().unwrap();
+                    match op {
+                        "add" | "noop" => {
+                            if replay.asynchronous {
+                                self.queue_surface_grass_at(replay.edit, 7, 10_000)?;
+                                replay.pending = Some(PendingSample {
+                                    preflight_ms,
+                                    enqueue_ms: started.elapsed().as_secs_f64() * 1000.,
+                                    frame: self.time_info.total_frame_count(),
+                                });
+                                // Submission happens at the real frame-tail boundary. Render
+                                // normally until the completion poll has published all chunks.
+                                return Ok(false);
+                            }
+                            self.apply_surface_flora_regeneration_at(replay.edit, 7, true, 10_000)?
+                        }
+                        "remove" => self.apply_surface_flora_removal(replay.edit)?,
+                        "dig" => {
+                            let result = self.apply_surface_terrain_removal(
+                                replay.edit,
+                                None,
+                                Some(65_536),
+                                None,
+                            )?;
+                            changed = result.stats.removed_counts.iter().sum();
+                        }
+                        "place" => {
+                            let result = self.apply_surface_terrain_placement(
+                                replay.edit,
+                                crate::builder::VOXEL_TYPE_DIRT,
+                                65_536,
+                            )?;
+                            changed = result.stats.added_counts.iter().sum();
+                        }
+                        _ => unreachable!(),
+                    }
+                    (
+                        preflight_ms,
+                        started.elapsed().as_secs_f64() * 1000.,
+                        0,
+                        changed,
+                    )
+                };
                 let op = replay.case.split('-').next().unwrap();
-                match op {
-                    "add" | "noop" => {
-                        self.apply_surface_flora_regeneration_at(replay.edit, 7, true, 10_000)?
-                    }
-                    "remove" => self.apply_surface_flora_removal(replay.edit)?,
-                    "dig" => {
-                        let result = self.apply_surface_terrain_removal(
-                            replay.edit,
-                            None,
-                            Some(65_536),
-                            None,
-                        )?;
-                        changed = result.stats.removed_counts.iter().sum();
-                    }
-                    "place" => {
-                        let result = self.apply_surface_terrain_placement(
-                            replay.edit,
-                            crate::builder::VOXEL_TYPE_DIRT,
-                            65_536,
-                        )?;
-                        changed = result.stats.added_counts.iter().sum();
-                    }
-                    _ => unreachable!(),
-                }
-                let edit_ms = started.elapsed().as_secs_f64() * 1000.;
                 let after = roots(self)?;
                 if op == "add" || op == "noop" || op == "remove" {
                     for (key, value) in before {
@@ -296,7 +349,9 @@ impl App {
                             );
                         }
                     }
-                    for (key, value) in water {
+                    // Across async frames, ecology may legitimately change water.
+                    // transactions::verify tests latest-water preservation explicitly.
+                    for (key, value) in water.into_iter().filter(|_| !replay.asynchronous) {
                         if let Some(next) = after.get(&key) {
                             anyhow::ensure!(value == next.2, "surviving grass hydration changed");
                         }
@@ -336,7 +391,7 @@ impl App {
                     .plain_builder
                     .read_chunk_atlas_region(origin, end - origin)?;
                 let atlas_hash = hash(atlas.into_iter().map(|b| b & 15));
-                let event = serde_json::json!({"sample":replay.sample,"warmup":replay.sample<3,"edit_ms":edit_ms,"preflight_ms":preflight_ms,"before_roots":before.len(),"after_roots":after.len(),"changed_voxels":changed,"root_hash":root_hash,"atlas_hash":atlas_hash});
+                let event = serde_json::json!({"sample":replay.sample,"warmup":replay.sample<3,"edit_ms":edit_ms,"preflight_ms":preflight_ms,"before_roots":before.len(),"after_roots":after.len(),"changed_voxels":changed,"root_hash":root_hash,"atlas_hash":atlas_hash,"async_frames":async_frames,"async_metrics":if replay.asynchronous { self.grass_edits.last } else { None }});
                 log::info!(
                     "[BRUSH_EDIT_BENCH] end case={} event={}",
                     replay.case,
@@ -351,7 +406,7 @@ impl App {
                     std::fs::write(
                         &replay.output,
                         serde_json::to_string_pretty(
-                            &serde_json::json!({"case":replay.case,"events":replay.events,"scope":"production edit call; excludes input pick, fixture reset, validation and future frames"}),
+                            &serde_json::json!({"case":replay.case,"events":replay.events,"scope":if replay.asynchronous { "CPU enqueue + all submit/finish phases; publication latency separate; not input-to-present" } else { "production edit call; excludes input pick, fixture reset, validation and future frames" }}),
                         )?,
                     )?;
                     log::info!(

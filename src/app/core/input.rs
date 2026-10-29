@@ -1264,9 +1264,20 @@ impl App {
                 }
                 let (paint_dab_serial, is_release_step) =
                     self.current_staff_regen_paint_dab_serial(now);
-                if let Err(err) =
-                    self.apply_surface_flora_regeneration(edit, paint_dab_serial, is_release_step)
+                // Only the interactive unlimited Grass Mix path changes to accepted /
+                // completed semantics. Scripted edits and finite inventory stay synchronous.
+                let result = if self.current_flora_paint_selection()
+                    == crate::flora::species::FloraPaintSelection::GrassMix
                 {
+                    self.queue_surface_grass_at(
+                        edit,
+                        paint_dab_serial,
+                        self.time_info.time_since_start_duration().as_millis() as u32,
+                    )
+                } else {
+                    self.apply_surface_flora_regeneration(edit, paint_dab_serial, is_release_step)
+                };
+                if let Err(err) = result {
                     log::error!("Failed to apply flora regeneration: {}", err);
                     self.player_tools.interrupt_stroke(action);
                     return;

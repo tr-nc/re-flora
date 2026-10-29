@@ -31,6 +31,15 @@ for (const [index, scenario] of cases.entries()) {
     const signatures = [...new Set(events.map(e => JSON.stringify([e.before_roots, e.after_roots, e.changed_voxels, e.root_hash, e.atlas_hash])))];
     if (signatures.length !== 1) throw Error(`nondeterministic replay: ${file}: ${signatures}`);
     row[variant] = { edit_ms: stats(events.map(e => e.edit_ms)), signature: signatures[0] };
+    if (events[0].async_metrics) {
+      row[variant].async = {
+        submit_ms: stats(events.map(e => e.async_metrics.submit_ms)),
+        finish_ms: stats(events.map(e => e.async_metrics.finish_ms)),
+        accepted_to_publish_ms: stats(events.map(e => e.async_metrics.accepted_to_publish_ms)),
+        frames: [...new Set(events.map(e => e.async_frames))],
+        retries: [...new Set(events.map(e => e.async_metrics.retries))],
+      };
+    }
   }
   if (row.baseline.signature !== row.candidate.signature) throw Error(`output changed: ${JSON.stringify(row)}`);
   results.push(row);

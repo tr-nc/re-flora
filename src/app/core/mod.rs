@@ -25,6 +25,7 @@ mod fps_chart;
 mod frame_timing;
 mod garden_opening;
 mod glass_voxel_test_scene;
+mod grass_edits;
 mod grass_stem_review;
 mod house_scene;
 mod hybrid_transparency_test_scene;
@@ -489,6 +490,7 @@ pub struct App {
     frame_timing_snapshot: FrameTimingSnapshot,
     soil_performance_bench: Option<soil_performance_bench::SoilPerformanceBench>,
     brush_edit_bench: Option<brush_edit_bench::Replay>,
+    grass_edits: grass_edits::GrassEdits,
     soil_bag_preview: soil_bag_preview::State,
     soil_shovel: soil_shovel::State,
     card_display_visible: bool,
@@ -1616,6 +1618,7 @@ impl App {
             frame_timing_snapshot: FrameTimingSnapshot::default(),
             soil_performance_bench: soil_performance_bench::SoilPerformanceBench::from_env()?,
             brush_edit_bench: brush_edit_bench::Replay::from_env()?,
+            grass_edits: Default::default(),
             soil_bag_preview: soil_bag_preview::State::from_env()?,
             soil_shovel: Default::default(),
             card_display_visible: false,
@@ -2249,6 +2252,8 @@ impl App {
                 }
 
                 let frame_start = Instant::now();
+                self.poll_grass_edits()
+                    .expect("publish asynchronous grass edit");
                 let frame_perf_enabled = self.perf_logging;
                 let frame_timing_enabled = frame_perf_enabled || self.frame_timing_panel_visible;
                 let mut cpu_timings = FrameCpuTimings::new(frame_timing_enabled);
@@ -3355,6 +3360,8 @@ impl App {
                     Vec::new()
                 };
                 let grass_projection_us = grass_projection_start.elapsed().as_secs_f64() * 1e6;
+                self.submit_queued_grass_edit()
+                    .expect("submit asynchronous grass edit");
                 let gpu_record_start = Instant::now();
                 let frame = match cpu_timings.time_if(
                     frame_perf_enabled,

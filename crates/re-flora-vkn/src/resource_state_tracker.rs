@@ -21,6 +21,7 @@ struct TrackedBufferState {
     buffer: Buffer,
     initial: BufferState,
     current: BufferState,
+    written: bool,
 }
 
 impl ResourceStateTransaction {
@@ -117,10 +118,15 @@ impl ResourceStateTransaction {
                     buffer: buffer.clone(),
                     initial,
                     current: initial,
+                    written: false,
                 });
                 self.buffers.len() - 1
             });
         let tracked = &mut self.buffers[buffer_index];
+        // Mapped host writes are versioned by Buffer itself. GPU uses are committed
+        // only after successful submission, including writes followed by a read state.
+        tracked.written |= target_state.access().contains_write()
+            && target_state.access() != crate::MemoryAccess::HOST_WRITE;
         tracked.buffer.record_state_transition_from_states(
             cmdbuf,
             target_state,
@@ -135,6 +141,9 @@ impl ResourceStateTransaction {
                 .commit_state_snapshot(&tracked.initial, tracked.current);
         }
         for tracked in self.buffers {
+            if tracked.written {
+                tracked.buffer.mark_written();
+            }
             tracked
                 .buffer
                 .commit_state_snapshot(tracked.initial, tracked.current);

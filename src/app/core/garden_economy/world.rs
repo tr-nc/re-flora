@@ -114,6 +114,7 @@ impl App {
         selection: FloraPaintSelection,
         position: Vec3,
     ) -> Result<bool> {
+        self.flush_grass_edits()?;
         let supply = self
             .garden_economy
             .planting_supply(PlantVariety::Flora(selection))

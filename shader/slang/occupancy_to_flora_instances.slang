@@ -35,6 +35,9 @@ void addFloraInstance(int3 baseWorldPosition, uint speciesIndex,
     InterlockedAdd(
         occupancy_to_instances_result.flora_instance_len[speciesIndex],
         1u, writeIndex);
+    // Keep overflow observable in the result count without writing another species
+    // or outside the buffer. Transaction publication rejects the whole result.
+    if (writeIndex >= MAX_FLORA_INSTANCES_PER_SPECIES) return;
 
     uint spawnStartMs = spawnAgeMs == FLORA_OCCUPANCY_SPAWN_INACTIVE
         ? INSTANCE_SPAWN_INACTIVE
