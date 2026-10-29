@@ -135,6 +135,7 @@ impl TreeLeavesInstance {
 }
 
 pub struct FloraInstanceResources {
+    pub(super) grass_audio: super::grass_audio::GrassAudioCache,
     /// Same species-major ordering as the authored draw streams. No ordinary grass state.
     pub authored_response_instances: Vec<super::AuthoredFloraInstance>,
     #[allow(dead_code)]
@@ -220,6 +221,7 @@ impl FloraInstanceResources {
             .expect("initialize grass growth-potential field");
         Self {
             chunk_id,
+            grass_audio: Default::default(),
             authored_response_instances: Vec::new(),
             plant_hydration: Resource::new(plant_hydration),
             hydration: vec![Vec::new(); species_count],
@@ -251,6 +253,9 @@ impl FloraInstanceResources {
 
     pub fn set_species_len(&mut self, species_index: usize, len: u32) {
         self.species_instance_len[species_index] = len;
+        if species_index < 2 {
+            self.grass_audio.structure = self.grass_audio.structure.wrapping_add(1);
+        }
     }
 
     /// Append one admitted grass root without reading or rewriting its neighbors.
@@ -362,6 +367,9 @@ impl FloraInstanceResources {
     }
 
     pub fn upload_hydration(&self, species: usize) -> Result<()> {
+        if species < 2 {
+            self.grass_audio.shape_changed();
+        }
         let values: Vec<_> = self.hydration[species].iter().map(|p| p.1).collect();
         if !values.is_empty() {
             self.plant_hydration.fill_range_with_raw_u8(

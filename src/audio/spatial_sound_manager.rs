@@ -40,6 +40,8 @@ struct OneShotEmitter {
 struct TransientSpatialSource {
     volume_db: f32,
     position: Vec3,
+    priority_db: Option<f32>,
+    extent: SourceExtent,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -658,6 +660,8 @@ impl SpatialSoundManager {
             TransientSpatialSource {
                 volume_db,
                 position,
+                priority_db: None,
+                extent: SourceExtent::Point,
             },
         );
         let play_command_id = PlayCommandId(crate::audio::local_footstep_correlation_id(event_seq));
@@ -696,10 +700,41 @@ impl SpatialSoundManager {
             TransientSpatialSource {
                 volume_db,
                 position,
+                priority_db: None,
+                extent: SourceExtent::Point,
             },
         );
         self.mark_spatial_frame_structure_changed();
         Ok(TransientSpatialEmitter { emitter })
+    }
+
+    /// The complete spatial publication owns extent updates, just as it owns poses.
+    pub(super) fn set_transient_extent(
+        &self,
+        emitter: TransientSpatialEmitter,
+        extent: SourceExtent,
+    ) {
+        if let Some(source) = self
+            .transient_spatial_emitters
+            .lock()
+            .unwrap()
+            .get_mut(&emitter.emitter)
+        {
+            source.extent = extent;
+        }
+    }
+
+    /// Estimated pre-propagation loudness for bounded acoustic scheduling only.
+    /// Sample-controlled sources must not apply this gain a second time to PCM.
+    pub(super) fn set_transient_priority(&self, emitter: TransientSpatialEmitter, db: f32) {
+        if let Some(source) = self
+            .transient_spatial_emitters
+            .lock()
+            .unwrap()
+            .get_mut(&emitter.emitter)
+        {
+            source.priority_db = db.is_finite().then_some(db);
+        }
     }
 
     pub(super) fn move_transient_emitter(&self, emitter: TransientSpatialEmitter, position: Vec3) {
@@ -711,6 +746,16 @@ impl SpatialSoundManager {
         {
             source.position = position;
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn transient_emitter_extent(
+        &self,
+        emitter: TransientSpatialEmitter,
+    ) -> SourceExtent {
+        self.transient_spatial_emitters.lock().unwrap()[&emitter.emitter]
+            .extent
+            .clone()
     }
 
     #[cfg(test)]
@@ -860,7 +905,10 @@ impl SpatialSoundManager {
         emitters.extend(self.transient_spatial_emitters.lock().unwrap().iter().map(
             |(emitter, source)| {
                 EmitterSpatialState::new(*emitter, Self::pose(source.position))
-                    .with_acoustic_priority(Self::acoustic_priority(source.volume_db))
+                    .with_extent(source.extent.clone())
+                    .with_acoustic_priority(Self::acoustic_priority(
+                        source.priority_db.unwrap_or(source.volume_db),
+                    ))
             },
         ));
         let revision = self

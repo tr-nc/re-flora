@@ -11,12 +11,13 @@ pub enum AudioCategory {
     Terrain,
     Sprinklers,
     Bees,
+    GrassRustle,
     AppleImpacts,
     Interface,
 }
 
 impl AudioCategory {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Leaves,
         Self::TreeCicadas,
         Self::GroundCicadas,
@@ -24,6 +25,7 @@ impl AudioCategory {
         Self::Terrain,
         Self::Sprinklers,
         Self::Bees,
+        Self::GrassRustle,
         Self::AppleImpacts,
         Self::Interface,
     ];
@@ -36,6 +38,7 @@ impl AudioCategory {
             Self::Terrain => "terrain",
             Self::Sprinklers => "sprinklers",
             Self::Bees => "bees",
+            Self::GrassRustle => "grass_rustle",
             Self::AppleImpacts => "apple_impacts",
             Self::Interface => "interface",
         }
@@ -88,6 +91,7 @@ pub struct AudioMixSettings {
     pub terrain: MixChannel,
     pub sprinklers: MixChannel,
     pub bees: MixChannel,
+    pub grass_rustle: MixChannel,
     pub apple_impacts: MixChannel,
     pub interface: MixChannel,
 }
@@ -101,6 +105,7 @@ impl AudioMixSettings {
             AudioCategory::Terrain => self.terrain,
             AudioCategory::Sprinklers => self.sprinklers,
             AudioCategory::Bees => self.bees,
+            AudioCategory::GrassRustle => self.grass_rustle,
             AudioCategory::AppleImpacts => self.apple_impacts,
             AudioCategory::Interface => self.interface,
         }
@@ -121,6 +126,7 @@ struct StoredAudioMixSettings {
     terrain: MixChannel,
     sprinklers: MixChannel,
     bees: MixChannel,
+    grass_rustle: MixChannel,
     apple_impacts: MixChannel,
     interface: MixChannel,
 }
@@ -137,6 +143,7 @@ impl From<StoredAudioMixSettings> for AudioMixSettings {
             terrain: stored.terrain,
             sprinklers: stored.sprinklers,
             bees: stored.bees,
+            grass_rustle: stored.grass_rustle,
             apple_impacts: stored.apple_impacts,
             interface: stored.interface,
         }

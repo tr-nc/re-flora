@@ -2430,10 +2430,9 @@ impl App {
                         self.advance_tree_poses(frame_delta_time)
                     })
                     .expect("tree pose update must publish finite transforms");
+                let grass_wind = self.wind_prototype.field.frame();
                 let wind = match canopy_audio_frame.wind_policy() {
-                    launch_owners::CanopyAudioWindPolicy::Configured => {
-                        self.wind_prototype.field.frame()
-                    }
+                    launch_owners::CanopyAudioWindPolicy::Configured => grass_wind,
                     launch_owners::CanopyAudioWindPolicy::Diagnostic => {
                         let angle = 35_f32.to_radians();
                         crate::wind_field::WindFieldFrame::uniform(
@@ -3310,6 +3309,38 @@ impl App {
                 self.surface_builder
                     .refresh_grass_soil_cover(&mut self.plain_builder)
                     .expect("grass soil coverage must publish before rendering");
+                let gui = &self.debug_settings.adjustables;
+                let grass_settings = crate::audio::GrassWindSettings {
+                    trim_db: gui.grass_rustle_trim_db.value,
+                    full_wind: gui.grass_rustle_full_wind.value,
+                    radius: gui.grass_rustle_radius.value,
+                    attack: gui.grass_rustle_attack.value,
+                    release: gui.grass_rustle_release.value,
+                }
+                .sanitized();
+                let grass_enabled = world_updates_running
+                    && self.terrain_persistence.allows_sprinkler_audio()
+                    && !self.debug_settings.audio_mix.master.params().muted
+                    && !self.debug_settings.audio_mix.grass_rustle.params().muted;
+                let grass_projection_start = Instant::now();
+                let grass_patches = if grass_enabled {
+                    self.surface_builder
+                        .grass_audio_patches(
+                            self.tracer.camera_pose().position,
+                            grass_settings.radius,
+                            gui.flora_growth_override_enabled
+                                .value
+                                .then_some(gui.flora_growth_override.value),
+                            f64::from(time_since_start),
+                        )
+                        .unwrap_or_else(|error| {
+                            log::warn!("[GRASS_AUDIO_PROJECTION] unavailable: {error:#}");
+                            Vec::new()
+                        })
+                } else {
+                    Vec::new()
+                };
+                let grass_projection_us = grass_projection_start.elapsed().as_secs_f64() * 1e6;
                 let gpu_record_start = Instant::now();
                 let frame = match cpu_timings.time_if(
                     frame_perf_enabled,
@@ -3978,7 +4009,15 @@ impl App {
                     .update_camera_for_current_mode(frame_delta_time, f64::from(time_since_start));
                 let footstep_events = self.resolve_local_footstep_events(footstep_events);
                 let apple_impacts = self.terrain_physics.take_apple_landings();
+                let grass_audio_start = Instant::now();
                 let canopy_audio_observations = self.spatial_frame.advance(SpatialFrameFacts {
+                    grass: Some(crate::audio::GrassWindFrame {
+                        patches: &grass_patches,
+                        wind: &grass_wind,
+                        settings: grass_settings,
+                        dt: frame_delta_time,
+                        enabled: grass_enabled,
+                    }),
                     apple_impacts: &apple_impacts,
                     apple_impacts_enabled: world_updates_running
                         && self.terrain_persistence.allows_sprinkler_audio()
@@ -4002,6 +4041,14 @@ impl App {
                     footstep_volume_gain_db: -40.0
                         + self.debug_settings.adjustables.footstep_volume_db.value,
                 });
+                if self.perf_logging && self.time_info.total_frame_count().is_multiple_of(30) {
+                    let (active, reservations, starts) = self.spatial_frame.grass_diagnostics();
+                    log::info!(
+                        "[GRASS_WIND_AUDIO] patches={} active={active} reservations={reservations} starts={starts} projection_us={grass_projection_us:.0} spatial_frame_us={:.0}",
+                        grass_patches.len(),
+                        grass_audio_start.elapsed().as_secs_f64() * 1e6
+                    );
+                }
                 self.observe_sprinkler_audio_review();
                 self.tree_audio_manager
                     .observe_canopy_acoustic_telemetry(canopy_audio_observations);

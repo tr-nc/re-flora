@@ -63,5 +63,7 @@ mod apple_impacts;
 pub(crate) use apple_impacts::AppleImpact;
 
 mod bee_audio;
+mod grass_wind;
+pub(crate) use grass_wind::{GrassWindFrame, GrassWindSettings};
 mod sprinkler_audio;
 pub(crate) use sprinkler_audio::SprinklerSource;

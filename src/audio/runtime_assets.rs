@@ -21,6 +21,7 @@ pub(crate) const LEAF_STRONG_CLIPS: [&str; 4] = [
 ];
 
 pub(crate) const BEE_LOOP_PATH: &str = "assets/sfx/bee/bee-loop.wav";
+pub(crate) const GRASS_WIND_LOOP_PATH: &str = "assets/sfx/grass-wind/grass-wind-loop.wav";
 
 pub(crate) const SPRINKLER_LOOP_PATH: &str = "assets/sfx/sprinkler/sprinkler-first-6-loop.wav";
 
@@ -80,6 +81,7 @@ pub(super) fn paths() -> Vec<String> {
                 ITEM_PANEL_SCROLL_SFX_PATH,
                 SPRINKLER_LOOP_PATH,
                 BEE_LOOP_PATH,
+                GRASS_WIND_LOOP_PATH,
             ]
             .map(str::to_owned),
         )
@@ -95,7 +97,7 @@ mod tests {
     #[test]
     fn runtime_manifest_contains_only_unique_project_relative_wavs() {
         let paths = paths();
-        assert_eq!(paths.len(), 87);
+        assert_eq!(paths.len(), 88);
         assert!(LEAF_BREEZE_CLIPS
             .iter()
             .chain(LEAF_STRONG_CLIPS.iter())
@@ -106,7 +108,9 @@ mod tests {
         assert_eq!(paths.iter().collect::<HashSet<_>>().len(), paths.len());
         assert!(paths.contains(&SPRINKLER_LOOP_PATH.to_owned()));
         assert!(paths.contains(&BEE_LOOP_PATH.to_owned()));
+        assert!(paths.contains(&GRASS_WIND_LOOP_PATH.to_owned()));
         assert_eq!(paths.iter().filter(|p| p.contains("/bee/")).count(), 1);
+        assert_eq!(paths.iter().filter(|p| p.contains("/grass-wind/")).count(), 1);
         for path in paths {
             assert!(path.starts_with("assets/sfx/"));
             assert!(path.ends_with(".wav"));

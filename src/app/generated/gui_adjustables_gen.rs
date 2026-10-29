@@ -535,6 +535,36 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Tree Wind Response Max",
     },
     GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "grass_rustle_trim_db",
+        kind: "float",
+        label: "Grass rustle recording gain (dB)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "grass_rustle_full_wind",
+        kind: "float",
+        label: "Grass rustle full-response wind strength",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "grass_rustle_radius",
+        kind: "float",
+        label: "Grass rustle listening range (world units)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "grass_rustle_attack",
+        kind: "float",
+        label: "Grass rustle fade-in (seconds)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Wind",
+        id: "grass_rustle_release",
+        kind: "float",
+        label: "Grass rustle fade-out (seconds)",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Audio",
         id: "master_volume",
         kind: "float",
@@ -1751,6 +1781,11 @@ pub struct GuiAdjustables {
     pub wind_audio_release_decay: crate::gui_adjustables::FloatParam,
     pub tree_wind_response_min_strength: crate::gui_adjustables::FloatParam,
     pub tree_wind_response_max_strength: crate::gui_adjustables::FloatParam,
+    pub grass_rustle_trim_db: crate::gui_adjustables::FloatParam,
+    pub grass_rustle_full_wind: crate::gui_adjustables::FloatParam,
+    pub grass_rustle_radius: crate::gui_adjustables::FloatParam,
+    pub grass_rustle_attack: crate::gui_adjustables::FloatParam,
+    pub grass_rustle_release: crate::gui_adjustables::FloatParam,
     pub master_volume: crate::gui_adjustables::FloatParam,
     pub footstep_volume_db: crate::gui_adjustables::FloatParam,
     pub tree_wind_volume_db: crate::gui_adjustables::FloatParam,
@@ -2037,6 +2072,11 @@ impl GuiAdjustables {
         let mut wind_audio_release_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_response_min_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_response_max_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_rustle_trim_db_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_rustle_full_wind_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_rustle_radius_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_rustle_attack_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut grass_rustle_release_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut master_volume_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut footstep_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut tree_wind_volume_db_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2782,6 +2822,41 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             tree_wind_response_max_strength_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_rustle_trim_db" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_rustle_trim_db_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_rustle_full_wind" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_rustle_full_wind_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_rustle_radius" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_rustle_radius_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_rustle_attack" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_rustle_attack_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_rustle_release" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            grass_rustle_release_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "master_volume" => {
@@ -4135,6 +4210,11 @@ impl GuiAdjustables {
             wind_audio_release_decay: wind_audio_release_decay_field.expect("Missing parameter: wind_audio_release_decay"),
             tree_wind_response_min_strength: tree_wind_response_min_strength_field.expect("Missing parameter: tree_wind_response_min_strength"),
             tree_wind_response_max_strength: tree_wind_response_max_strength_field.expect("Missing parameter: tree_wind_response_max_strength"),
+            grass_rustle_trim_db: grass_rustle_trim_db_field.expect("Missing parameter: grass_rustle_trim_db"),
+            grass_rustle_full_wind: grass_rustle_full_wind_field.expect("Missing parameter: grass_rustle_full_wind"),
+            grass_rustle_radius: grass_rustle_radius_field.expect("Missing parameter: grass_rustle_radius"),
+            grass_rustle_attack: grass_rustle_attack_field.expect("Missing parameter: grass_rustle_attack"),
+            grass_rustle_release: grass_rustle_release_field.expect("Missing parameter: grass_rustle_release"),
             master_volume: master_volume_field.expect("Missing parameter: master_volume"),
             footstep_volume_db: footstep_volume_db_field.expect("Missing parameter: footstep_volume_db"),
             tree_wind_volume_db: tree_wind_volume_db_field.expect("Missing parameter: tree_wind_volume_db"),
@@ -4383,6 +4463,11 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "wind_audio_release_decay" => Some(&adjustables.wind_audio_release_decay),
         "tree_wind_response_min_strength" => Some(&adjustables.tree_wind_response_min_strength),
         "tree_wind_response_max_strength" => Some(&adjustables.tree_wind_response_max_strength),
+        "grass_rustle_trim_db" => Some(&adjustables.grass_rustle_trim_db),
+        "grass_rustle_full_wind" => Some(&adjustables.grass_rustle_full_wind),
+        "grass_rustle_radius" => Some(&adjustables.grass_rustle_radius),
+        "grass_rustle_attack" => Some(&adjustables.grass_rustle_attack),
+        "grass_rustle_release" => Some(&adjustables.grass_rustle_release),
         "master_volume" => Some(&adjustables.master_volume),
         "footstep_volume_db" => Some(&adjustables.footstep_volume_db),
         "tree_wind_volume_db" => Some(&adjustables.tree_wind_volume_db),
@@ -4703,6 +4788,11 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "wind_audio_release_decay" => Some(&mut adjustables.wind_audio_release_decay),
         "tree_wind_response_min_strength" => Some(&mut adjustables.tree_wind_response_min_strength),
         "tree_wind_response_max_strength" => Some(&mut adjustables.tree_wind_response_max_strength),
+        "grass_rustle_trim_db" => Some(&mut adjustables.grass_rustle_trim_db),
+        "grass_rustle_full_wind" => Some(&mut adjustables.grass_rustle_full_wind),
+        "grass_rustle_radius" => Some(&mut adjustables.grass_rustle_radius),
+        "grass_rustle_attack" => Some(&mut adjustables.grass_rustle_attack),
+        "grass_rustle_release" => Some(&mut adjustables.grass_rustle_release),
         "master_volume" => Some(&mut adjustables.master_volume),
         "footstep_volume_db" => Some(&mut adjustables.footstep_volume_db),
         "tree_wind_volume_db" => Some(&mut adjustables.tree_wind_volume_db),

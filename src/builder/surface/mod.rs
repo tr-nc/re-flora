@@ -1,4 +1,6 @@
 mod ecology;
+mod grass_audio;
+mod grass_audio_review;
 mod hydration;
 mod hydration_review;
 mod resources;
@@ -770,6 +772,15 @@ impl SurfaceBuilder {
             });
         }
 
+        if let Some(i) = flora_chunk_idx {
+            cmdbuf.use_buffer(
+                &self.resources.instances.chunk_flora_instances[i]
+                    .1
+                    .resource
+                    .instances_buf,
+                BufferUse::HostRead,
+            );
+        }
         if pass_timing.is_some() {
             assert_eq!(timing_pass_index, timing_passes.len());
         }
@@ -788,6 +799,12 @@ impl SurfaceBuilder {
             cmdbuf.submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "surface.build")?;
         if let Some(descriptor_retirement) = descriptor_retirement {
             gpu_job.retain_frame_retirement(descriptor_retirement);
+        }
+        if let Some(i) = flora_chunk_idx {
+            self.resources.instances.chunk_flora_instances[i]
+                .1
+                .grass_audio
+                .pending_builds += 1;
         }
         let submitted_at = Instant::now();
         let submit_elapsed = submit_start.elapsed();
@@ -809,6 +826,12 @@ impl SurfaceBuilder {
     pub fn finish_build_surface(&mut self, job: SurfaceBuildJob) -> Result<SurfaceBuildResult> {
         let gpu_completion_latency_elapsed = job.submitted_at.elapsed();
         let _completed_gpu_job = job.gpu_job.wait_complete()?;
+        if let Some(i) = job.flora_chunk_idx {
+            self.resources.instances.chunk_flora_instances[i]
+                .1
+                .grass_audio
+                .pending_builds -= 1;
+        }
         let readback_start = Instant::now();
         let make_surface_result = get_make_surface_result(&self.resources.make_surface_result);
         let active_voxel_len = make_surface_result.active_voxel_len;
@@ -1300,6 +1323,10 @@ impl SurfaceBuilder {
             .1
             .grass_growth_potential_levels
             .fill_range_with_raw_u8(0, bytemuck::cast_slice(&words))?;
+        self.resources.instances.chunk_flora_instances[chunk_idx]
+            .1
+            .grass_audio
+            .shape_changed();
         log::debug!(
             "[FLORA_GROWTH] rebuilt chunk {:?} influenced_voxels={}",
             chunk_id,
@@ -1733,6 +1760,7 @@ impl SurfaceBuilder {
             BufferUse::HostRead,
         );
 
+        cmdbuf.use_buffer(&chunk_resources.resource.instances_buf, BufferUse::HostRead);
         if pass_timing.is_some() {
             assert_eq!(timing_pass_index, flora_edit_timing_passes.len());
         }
@@ -1867,12 +1895,17 @@ impl SurfaceBuilder {
             BufferUse::HostRead,
         );
 
+        cmdbuf.use_buffer(&chunk_resources.resource.instances_buf, BufferUse::HostRead);
         cmdbuf.end();
         let mut gpu_job =
             cmdbuf.submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "surface.flora_growth")?;
         gpu_job.retain_frame_retirement(descriptor_retirement);
         let _completed_gpu_job = gpu_job.wait_complete()?;
 
+        self.resources.instances.chunk_flora_instances[chunk_idx]
+            .1
+            .grass_audio
+            .shape_changed();
         if let Some(timing) = self.pass_timing.as_ref() {
             timing.collect_and_log(
                 "FLORA_GROWTH_PASS_TIMING",

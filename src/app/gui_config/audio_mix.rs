@@ -28,6 +28,7 @@ pub(super) fn draw(ui: &mut SavedControls<'_>) {
     channel!(terrain, "Digging / terrain editing");
     channel!(sprinklers, "Sprinklers");
     channel!(bees, "Bees");
+    channel!(grass_rustle, "Grass rustle");
     channel!(apple_impacts, "Apple impacts");
     channel!(interface, "Interface / item selection");
     ui.hint("Master also respects M / --mute. Existing dB controls remain advanced input trims.");

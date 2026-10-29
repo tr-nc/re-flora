@@ -15,9 +15,9 @@
 | README 引用 / 发行包复制 | 1 |
 | 三条裁切版运行时预加载；original 为不加载的编辑参考 | 6 |
 | 仅 bee-loop.wav 预加载并用于飞行蜜蜂的空间循环；原件和精确两秒裁切版为制作参考 | 3 |
+| 仅 grass-wind-loop.wav 预加载；按真实草量和局部风力播放固定世界分区的 1.95 秒空间循环 | 3 |
 | 仅 selected loop 运行时预加载；original 为不加载的编辑参考 | 2 |
 | 八条 runtime 单声道循环预加载；原始立体声下载只保留作制作参考 | 18 |
-| 尚未加入运行时清单；原件、两秒裁切和 1.95 秒循环供试听及接入设计 | 3 |
 | 当前制作源，非游戏直接输入 | 2 |
 | 待审计 | 29 |
 | 文档/验收展示 | 3 |
@@ -44,7 +44,7 @@
 
 | 资产组 / ID | 文件数 | MiB | 具体用途 | 使用状态 | 分仓建议 | 来源/许可证据 | 尚缺信息 |
 | --- | ---: | ---: | --- | --- | --- | --- | --- |
-| 草叶风声原件与循环候选 (`grass-wind-candidate`) | 4 | 2.194 | 风吹过草叶的局部沙沙声候选，不是全场风声或脚步声；本轮不修改游戏音频 | 尚未加入运行时清单；原件、两秒裁切和 1.95 秒循环供试听及接入设计 | 本地素材准备；先评审方案再接入游戏，商用和公开分发权限待核实 | ElevenLabs SFX v3；截图确认 Loop on、8 秒、Prompt Influence 30%、改写 on；FFmpeg 50 ms 环形交叉淡化 | 生成时套餐、精确提交及服务改写提示词、商业和独立资源分发许可未提供；响度及短循环重复感待试听 |
+| 草叶风声循环与来源 (`grass-wind`) | 4 | 2.194 | 风吹过草叶的局部沙沙声；无草和无风时静音，割草及生长更新覆盖和强度，Grass rustle 混音及风响应设置可保存 | 仅 grass-wind-loop.wav 预加载；按真实草量和局部风力播放固定世界分区的 1.95 秒空间循环 | 用户已批准本地游戏接入；商用和公开分发权限仍待核实 | ElevenLabs SFX v3；截图确认 Loop on、8 秒、Prompt Influence 30%、改写 on；FFmpeg 50 ms 环形交叉淡化 | 生成时套餐、精确提交及服务改写提示词、商业和独立资源分发许可未提供；响度及短循环重复感待试听 |
 | 蜜蜂飞行循环与来源 (`bee-flight`) | 4 | 2.195 | 飞行时跟随每只蜜蜂的位置播放；落花、归巢、删除或暂停时停止；Audio mixer 独立保存 Bees 音量和静音 | 仅 bee-loop.wav 预加载并用于飞行蜜蜂的空间循环；原件和精确两秒裁切版为制作参考 | 用户授权本地游戏接入；商用及原件公开分发权限待确认 | ElevenLabs SFX v3；用户确认提示词、8 秒、Loop on、Prompt Influence 60%、改写 off；前两秒经 50 ms 交叉淡化成 1.95 秒循环 | 生成时套餐、商业及独立资源分发授权未提供；游戏内响度仍需试听 |
 | 轻风与强风树叶录音、来源和运行时循环 (`recorded-tree-leaves`) | 20 | 17.521 | 每个树冠声源独立选取轻风与强风各一条及独立相位，按局部风响应混音；2026-10-27 已移除 A/B 开关和旧常驻合成路径 | 八条 runtime 单声道循环预加载；原始立体声下载只保留作制作参考 | 按用户要求固定为本地树叶风声；商业及公开分发未获授权 | ElevenLabs SFX v3 Free-plan 原件；项目脚本生成可重建的单声道、接缝和电平处理版 | 沿用原商业/原件分发限制；听感与响度仍需人工确认 |
 | 苹果落地三种音效与来源 (`apple-impacts`) | 8 | 2.044 | 每颗动态苹果首次落地时随机播放三种单次音效之一，独立保存音量 | 三条裁切版运行时预加载；original 为不加载的编辑参考 | 用户要求恢复用于本地开发；商业及公开分发未获授权 | ElevenLabs SFX v3 Free-plan；历史原件及裁切版原样恢复 | 保留原有商业使用限制；本轮没有取得新授权或推送 |
@@ -111,7 +111,7 @@
 
 ## 引用与来源证据索引
 
-- **grass-wind-candidate**：[assets/sfx/grass-wind/README.md](../../assets/sfx/grass-wind/README.md)；[docs/reports/grass-wind-audio.html](../../docs/reports/grass-wind-audio.html)；[src/audio/runtime_assets.rs](../../src/audio/runtime_assets.rs)
+- **grass-wind**：[assets/sfx/grass-wind/README.md](../../assets/sfx/grass-wind/README.md)；[docs/reports/grass-wind-audio.html](../../docs/reports/grass-wind-audio.html)；[docs/reports/grass-wind-audio.md](../../docs/reports/grass-wind-audio.md)；[src/audio/runtime_assets.rs](../../src/audio/runtime_assets.rs)；[src/audio/grass_wind.rs](../../src/audio/grass_wind.rs)；[src/builder/surface/grass_audio.rs](../../src/builder/surface/grass_audio.rs)
 - **bee-flight**：[assets/sfx/bee/README.md](../../assets/sfx/bee/README.md)；[src/audio/runtime_assets.rs](../../src/audio/runtime_assets.rs)；[src/audio/bee_audio.rs](../../src/audio/bee_audio.rs)；[src/particles/bees.rs](../../src/particles/bees.rs)；[docs/reports/bee-audio.md](../../docs/reports/bee-audio.md)
 - **recorded-tree-leaves**：[assets/sfx/leaves-breeze/README.md](../../assets/sfx/leaves-breeze/README.md)；[assets/sfx/leaves-strong-wind/README.md](../../assets/sfx/leaves-strong-wind/README.md)；[scripts/prepare_tree_leaf_loops.py](../../scripts/prepare_tree_leaf_loops.py)；[src/audio/recorded_tree_leaves.rs](../../src/audio/recorded_tree_leaves.rs)；[src/audio/runtime_assets.rs](../../src/audio/runtime_assets.rs)
 - **apple-impacts**：[assets/sfx/apple-dirt/README.md](../../assets/sfx/apple-dirt/README.md)；[assets/sfx/apple-dirt/provenance.json](../../assets/sfx/apple-dirt/provenance.json)；[src/audio/apple_impacts.rs](../../src/audio/apple_impacts.rs)；[src/audio/runtime_assets.rs](../../src/audio/runtime_assets.rs)

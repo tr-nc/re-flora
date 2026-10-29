@@ -2,11 +2,15 @@
 
 User-supplied grass sound, imported on 2026-10-29. The user requested an exact
 first-two-seconds crop and a loop-ready derivative, plus an integration proposal
-before changing game playback. **Not yet a runtime sound:** this folder is not in
-`src/audio/runtime_assets.rs`. Importing it does not make grass audible in-game.
+before changing game playback. The user subsequently approved implementation.
+**Runtime:** only `grass-wind-loop.wav` is declared in `src/audio/runtime_assets.rs`.
+`GrassWindAudio` plays bounded world-anchored patches from committed grass coverage
+and local wind. Originals and the exact crop are not preloaded.
 
-[HTML integration review with local audio previews](../../../docs/reports/grass-wind-audio.html)
-proposes bounded, world-anchored grass patches; playback implementation awaits review.
+[Original HTML proposal with audio previews](../../../docs/reports/grass-wind-audio.html) ·
+[Implementation, saved controls and validation](../../../docs/reports/grass-wind-audio.md).
+The file bytes remain unchanged. Initial playback makeup is an explicit **+12 dB**
+Debug control, not normalization of the resource; listening approval is still pending.
 
 ## Files
 
@@ -16,7 +20,7 @@ All audio is stereo, 48,000 Hz, signed 16-bit PCM WAV.
 | --- | --- | ---: | ---: |
 | [grass-wind-original.wav](grass-wind-original.wav) | Unmodified original download | 384,000 | 8.000 s |
 | [grass-wind-first-2s.wav](grass-wind-first-2s.wav) | Exact source crop; editing/reference intermediate | 96,000 | 2.000 s |
-| [grass-wind-loop.wav](grass-wind-loop.wav) | Prepared playback candidate, circular 50 ms crossfade | 93,600 | 1.950 s |
+| [grass-wind-loop.wav](grass-wind-loop.wav) | Runtime loop, circular 50 ms crossfade | 93,600 | 1.950 s |
 
 Original download filename: `Seamless_loop_of_a_s_#3-1793254692653.wav`. Moved from
 the user's Downloads folder and renamed without modifying bytes; SHA-256 was

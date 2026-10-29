@@ -3,6 +3,7 @@ use crate::gameplay::{CameraPose, FootstepEvent};
 
 /// Domain facts observed by spatial audio at the end of one application frame.
 pub(crate) struct SpatialFrameFacts<'a> {
+    pub(crate) grass: Option<super::GrassWindFrame<'a>>,
     pub(crate) sprinkler_snapshot: Option<crate::sprinkler::SpraySnapshot>,
     pub(crate) sprinklers: &'a [super::SprinklerSource],
     pub(crate) world_running: bool,
@@ -31,6 +32,7 @@ pub(crate) struct SpatialFrame {
     sprinklers: super::sprinkler_audio::SprinklerAudio,
     sprinkler_reconcile_us: f64,
     bees: super::bee_audio::BeeAudio,
+    grass: super::grass_wind::GrassWindAudio,
     apple_impacts: super::apple_impacts::AppleImpactAudio,
 }
 
@@ -41,6 +43,7 @@ impl SpatialFrame {
             sprinklers: super::sprinkler_audio::SprinklerAudio::new(spatial_sound_manager.clone()),
             sprinkler_reconcile_us: 0.0,
             bees: super::bee_audio::BeeAudio::new(spatial_sound_manager.clone()),
+            grass: super::grass_wind::GrassWindAudio::new(spatial_sound_manager.clone()),
             apple_impacts: super::apple_impacts::AppleImpactAudio::new(
                 spatial_sound_manager.clone(),
             ),
@@ -59,7 +62,12 @@ impl SpatialFrame {
         self.bees.diagnostics()
     }
 
+    pub(crate) fn grass_diagnostics(&self) -> (usize, usize, u64) {
+        self.grass.diagnostics()
+    }
+
     pub(crate) fn clear_world_sources(&mut self) {
+        self.grass.clear();
         self.bees.clear();
         self.sprinklers.clear();
         self.apple_impacts.clear();
@@ -98,6 +106,18 @@ impl SpatialFrame {
             facts.listener.position,
             facts.bees_enabled,
         );
+        if let Some(grass) = facts.grass {
+            self.grass.prepare(
+                grass.patches,
+                grass.wind,
+                facts.listener.position,
+                grass.settings,
+                grass.dt,
+                grass.enabled,
+            );
+        } else {
+            self.grass.clear();
+        }
         match self
             .spatial_sound_manager
             .publish_spatial_frame(facts.sim_time_seconds)
@@ -108,11 +128,13 @@ impl SpatialFrame {
                 self.apple_impacts.finish_publication(true);
                 self.sprinkler_reconcile_us = prepare_us + start.elapsed().as_secs_f64() * 1e6;
                 self.bees.finish_publication(true);
+                self.grass.finish_publication(true);
                 self.local_player_footsteps
                     .play_after_publication(prepared, publication);
             }
             Err(err) => {
                 self.bees.finish_publication(false);
+                self.grass.finish_publication(false);
                 self.sprinklers.finish_publication(false);
                 self.apple_impacts.finish_publication(false);
                 self.sprinkler_reconcile_us = prepare_us;
@@ -265,6 +287,7 @@ mod tests {
 
         assert!(frame
             .advance(SpatialFrameFacts {
+                grass: None,
                 sprinkler_snapshot: None,
                 sprinklers: &[],
                 world_running: true,
@@ -329,6 +352,7 @@ mod tests {
 
         let retirement_time = completed_deadline.max(deadline) + 0.001;
         let mut canopy_owner_observations = frame.advance(SpatialFrameFacts {
+            grass: None,
             sprinkler_snapshot: None,
             sprinklers: &[],
             world_running: true,

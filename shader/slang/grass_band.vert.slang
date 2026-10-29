@@ -1,6 +1,7 @@
 import flora_types;
 import plant_hydration;
 import flora_vertex;
+import grass_growth_shape;
 import flora_lighting_cache;
 import surface_flora_vertex;
 import grass_moisture_material;

@@ -448,6 +448,11 @@ impl App {
         publication.complete_startup(self).unwrap_or_else(|err| {
             panic!("startup Visible Terrain Publication completion failed: {err:#}")
         });
+        if std::env::var_os("RE_FLORA_GRASS_AUDIO_REVIEW").is_some() {
+            self.surface_builder
+                .verify_grass_audio_runtime(&mut self.plain_builder)
+                .expect("grass audio runtime acceptance");
+        }
         if std::env::var_os("RE_FLORA_GRASS_SOIL_COVER_BENCH").is_some() {
             self.surface_builder
                 .benchmark_grass_soil_cover_runtime(&mut self.plain_builder)

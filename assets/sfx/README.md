@@ -5,9 +5,10 @@
 `src/audio/runtime_assets.rs` is the authoritative manifest for file-backed
 runtime sound effects. Playback and startup preloading share these declarations:
 70 footstep variations, two cicada calls, eight tree-leaf loops, three apple impacts,
-one sprinkler loop, one bee-flight loop, one terrain-edit loop, and one UI click
-(87 clips total). The [bee bundle](bee/README.md) records its prompt, generation
-settings, crop and loop preparation.
+one sprinkler loop, one bee-flight loop, one grass-wind loop, one terrain-edit loop,
+and one UI click (88 clips total). The [bee bundle](bee/README.md) and
+[grass-wind bundle](grass-wind/README.md) record generation settings, crop and loop
+preparation; their originals and intermediate crops are not runtime clips.
 The cache does not scan this directory. Importing a WAV, original recording, or
 candidate loop does not enable loading or playback; declare it and connect its
 playback consumer when integrating it. Procedural audio needs no WAV declaration.

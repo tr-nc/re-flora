@@ -58,10 +58,6 @@ public PushConstantFlora floraPushConstants()
 }
 
 public static const float FLORA_SCALING_FACTOR = 1.0 / 256.0;
-static const uint TALL_GRASS_HEIGHT_VOXELS = 8u;
-static const uint SHORT_GRASS_HEIGHT_VOXELS = 4u;
-static const uint TALL_GRASS_MIN_HEIGHT_VOXELS = 3u;
-static const uint SHORT_GRASS_MIN_HEIGHT_VOXELS = 2u;
 static const uint FLORA_VOXEL_LOOKUP_EMPTY_KEY = 0xffffffffu;
 static const uint FLORA_VOXEL_LOOKUP_MAX_PROBES = 64u;
 static const uint FLORA_LOOKUP_BITS_PER_AXIS = 10u;
@@ -146,28 +142,6 @@ float floraVoxelLookupMaxLength(uint instanceType)
 {
     if (instanceType > FLORA_SPECIES_APPLE) return 1.0;
     return max(float(flora_voxel_table_descs.descs[instanceType].w), 1.0);
-}
-
-float sampleStandardNormal(uint seed)
-{
-    uint stateA = wellonsHash(seed ^ 0xA511E9B3u);
-    uint stateB = wellonsHash(seed ^ 0x63D83595u);
-    return (constructFloat01(stateA) + constructFloat01(stateB) - 1.0) * 2.4494898;
-}
-
-public uint sampleGrassHeight(uint instanceType, uint seed)
-{
-    bool isShortGrass = instanceType == FLORA_SPECIES_SHORT_GRASS;
-    float meanHeight = isShortGrass ? 3.0 : 5.0;
-    float standardDeviation = isShortGrass ? 0.6 : 1.0;
-    float minimumHeight = float(isShortGrass
-        ? SHORT_GRASS_MIN_HEIGHT_VOXELS
-        : TALL_GRASS_MIN_HEIGHT_VOXELS);
-    float maximumHeight = float(isShortGrass
-        ? SHORT_GRASS_HEIGHT_VOXELS
-        : TALL_GRASS_HEIGHT_VOXELS);
-    return uint(round(clamp(meanHeight + sampleStandardNormal(seed) * standardDeviation,
-                            minimumHeight, maximumHeight)));
 }
 
 public float effectiveGrowthPotential(bool isSurfaceFlora, float competitionFactor,

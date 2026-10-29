@@ -18,6 +18,7 @@ import flora_lighting_resources;
 #endif
 import flora_types;
 import flora_vertex;
+import grass_growth_shape;
 import surface_flora_vertex;
 import grass_moisture_material;
 import vegetation_response_sample;
