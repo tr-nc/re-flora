@@ -67,7 +67,15 @@ float4 main(FragmentInput input) : SV_Target0 {
         irradiance += cached.w * (environment + direct);
     }
     float3 albedo = voxelColorByType(voxel_colors,VOXEL_TYPE_CHERRY_WOOD);
-    if(input.bark_style > 0.5) {
+    if(input.bark_style > 1.5) {
+        // Gray-brown ginkgo bark: interrupted vertical ridges in rest space.
+        // Pigment variation only; shared irradiance still owns all lighting.
+        float3 p = input.center * 256.0;
+        float ridges = barkNoise(p / float3(1.5,12.0,1.5));
+        float3 pigment = lerp(float3(0.39,0.36,0.30),float3(0.55,0.51,0.43),
+            smoothstep(0.25,0.72,ridges));
+        albedo = srgbToLinear(pigment);
+    } else if(input.bark_style > 0.5) {
         float3 p = input.center * 256.0;
         float3 warped = p + 1.1*sin(p.yzx*0.27 + sin(p.zxy*0.13));
         float patch = barkNoise(warped / float3(3.0,5.0,3.0));

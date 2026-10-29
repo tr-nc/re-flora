@@ -34,6 +34,8 @@ pub(in crate::tree_gen) struct SpreadingCrown {
     pub height: f32,
     pub crown_radius: f32,
     pub scaffold_lift: Range<f32>,
+    /// Reduction of radial spread toward the leader tip; zero preserves broad crowns.
+    pub crown_taper: f32,
     pub shoots: ShootRule,
 }
 
@@ -58,6 +60,7 @@ pub(in crate::tree_gen) const APPLE: GrowthRule = GrowthRule {
         height: 100.,
         crown_radius: 82.,
         scaffold_lift: 1.15..1.65,
+        crown_taper: 0.,
         shoots: ShootRule::Rising,
     }),
     foliage: FoliageRule::TwigTips,
@@ -79,6 +82,19 @@ pub(in crate::tree_gen) const PLANE: GrowthRule = GrowthRule {
         height: 190.,
         crown_radius: 112.,
         scaffold_lift: 0.65..1.0,
+        crown_taper: 0.,
+        shoots: ShootRule::Rising,
+    }),
+    foliage: FoliageRule::TwigAxes,
+};
+// An upright, irregular young-adult ginkgo, not pine whorls or a plane dome.
+pub(in crate::tree_gen) const GINKGO: GrowthRule = GrowthRule {
+    architecture: Architecture::Spreading(&SpreadingCrown {
+        stations: &[(2, 2), (3, 2), (4, 2), (5, 2), (6, 2), (7, 1)],
+        height: 165.,
+        crown_radius: 96.,
+        scaffold_lift: 1.0..1.45,
+        crown_taper: 0.82,
         shoots: ShootRule::Rising,
     }),
     foliage: FoliageRule::TwigAxes,
@@ -89,6 +105,7 @@ pub(in crate::tree_gen) const WILLOW: GrowthRule = GrowthRule {
         height: 182.,
         crown_radius: 98.,
         scaffold_lift: 0.50..0.75,
+        crown_taper: 0.,
         shoots: ShootRule::Pendant,
     }),
     foliage: FoliageRule::TwigAxes,

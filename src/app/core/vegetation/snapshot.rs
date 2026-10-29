@@ -328,7 +328,9 @@ impl App {
                 .get(&publication.tree_id)
                 .context("saved tree has no leaf draw resource")?;
             anyhow::ensure!(
-                rendered.appearance == publication.record.mature_desc.appearance,
+                rendered.appearance == publication.record.mature_desc.appearance
+                    && rendered.palette_srgb
+                        == publication.record.mature_desc.species.leaf_palette_srgb(),
                 "restored tree palette differs"
             );
             anyhow::ensure!(
@@ -508,7 +510,12 @@ mod tests {
             desc.branching.seed = 900 + index as u64;
             snapshot.trees.push(SavedTree {
                 id: 10 + index as u32,
-                position: [0.5 + index as f32 * 0.5, 0.5, 1.5],
+                position: [
+                    0.25 + 1.5 * index as f32
+                        / crate::tree_gen::TreeSpecies::PLANTABLE.len() as f32,
+                    0.5,
+                    1.5,
+                ],
                 mature_desc: desc,
                 age: None,
                 growth_seconds: None,

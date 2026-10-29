@@ -15,6 +15,7 @@ pub enum TreeSpecies {
     /// Decode-only legacy species; no longer offered for planting.
     WeepingWillow,
     LondonPlane,
+    Ginkgo,
 }
 
 /// The single registration of a species' architecture, foliage, fruit and authoring defaults.
@@ -46,16 +47,17 @@ struct GardenDefaults {
 
 impl TreeSpecies {
     #[cfg(test)]
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Conifer,
         Self::AppleTree,
         Self::Pine,
         Self::WeepingWillow,
         Self::LondonPlane,
+        Self::Ginkgo,
     ];
 
     /// Legacy identities remain loadable, but new gardens offer the finished species.
-    pub const PLANTABLE: [Self; 3] = [Self::AppleTree, Self::Pine, Self::LondonPlane];
+    pub const PLANTABLE: [Self; 4] = [Self::AppleTree, Self::Pine, Self::LondonPlane, Self::Ginkgo];
 
     fn definition(self) -> &'static SpeciesDefinition {
         match self {
@@ -115,6 +117,22 @@ impl TreeSpecies {
                     fruit_down_variance: 4.,
                 }),
             },
+            Self::Ginkgo => &SpeciesDefinition {
+                label: "Ginkgo",
+                growth: rules::GINKGO,
+                apples: false,
+                planting_size: 20.,
+                authoring: AuthoringDefaults::Garden(GardenDefaults {
+                    trunk_thickness: 0.23,
+                    leaf_size_level: 4,
+                    leaf_density: 0.12,
+                    spray_width: 1.0,
+                    spray_thickness: 0.28,
+                    spray_tip_offset: 0.20,
+                    fruit_down_offset: 14.,
+                    fruit_down_variance: 4.,
+                }),
+            },
             Self::WeepingWillow => &SpeciesDefinition {
                 label: "Weeping Willow (legacy)",
                 growth: rules::WILLOW,
@@ -150,12 +168,29 @@ impl TreeSpecies {
         )
     }
 
-    pub(crate) fn exfoliating_bark(self) -> bool {
-        self == Self::LondonPlane
+    pub(crate) fn bark_style(self) -> u32 {
+        match self {
+            Self::LondonPlane => 1,
+            Self::Ginkgo => 2,
+            _ => 0,
+        }
     }
 
-    pub(super) fn palmate_foliage(self) -> bool {
-        self == Self::LondonPlane
+    pub(super) fn foliage_shape(self) -> super::foliage::SprayShape {
+        match self {
+            Self::LondonPlane => super::foliage::SprayShape::Palmate,
+            Self::Ginkgo => super::foliage::SprayShape::Fan,
+            _ => super::foliage::SprayShape::Ellipsoid,
+        }
+    }
+
+    /// Fixed autumn art direction, before the individual's saved color variation.
+    /// None preserves the existing shared Debug palette for all older species.
+    pub(crate) fn leaf_palette_srgb(self) -> Option<[glam::Vec3; 2]> {
+        (self == Self::Ginkgo).then_some([
+            glam::Vec3::new(0.78, 0.43, 0.045),
+            glam::Vec3::new(1.0, 0.84, 0.12),
+        ])
     }
 
     pub fn bears_apples(self) -> bool {

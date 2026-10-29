@@ -372,6 +372,23 @@ mod tests {
         bag.validate().unwrap();
     }
     #[test]
+    fn ginkgo_saplings_are_purchasable_and_stock_survives_restore() {
+        let goods = PlantGoods::Sapling(TreeSpecies::Ginkgo);
+        let item = product_for(goods).unwrap();
+        assert_eq!(item.id, "sapling/ginkgo");
+        assert_eq!(item.price, 35);
+        let mut bag = GardenEconomy::default();
+        let coins = bag.coins;
+        bag.buy(&item.id).unwrap();
+        assert_eq!(bag.coins, coins - item.price);
+        assert_eq!(bag.count(&item.id), 1);
+        let saved: GardenEconomy =
+            serde_json::from_slice(&serde_json::to_vec(&bag).unwrap()).unwrap();
+        assert_eq!(saved, bag);
+        saved.validate().unwrap();
+    }
+
+    #[test]
     fn allium_uses_flower_seed_and_reusable_seedling_ownership() {
         let allium = species::species()
             .iter()

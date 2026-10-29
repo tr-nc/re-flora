@@ -129,7 +129,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_preserves_flora_and_offers_three_distinct_garden_tree_species() {
+    fn catalog_preserves_flora_and_offers_four_distinct_garden_tree_species() {
         use crate::tree_gen::TreeDesc;
         assert_eq!(
             PlantType::Flora.varieties(),
@@ -144,7 +144,8 @@ mod tests {
             vec![
                 PlantVariety::Tree(TreeSpecies::AppleTree),
                 PlantVariety::Tree(TreeSpecies::Pine),
-                PlantVariety::Tree(TreeSpecies::LondonPlane)
+                PlantVariety::Tree(TreeSpecies::LondonPlane),
+                PlantVariety::Tree(TreeSpecies::Ginkgo)
             ]
         );
         let authored = TreeDesc::default();

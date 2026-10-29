@@ -2649,10 +2649,11 @@ impl App {
                 );
                 let current_camera_is_free_fly = self.is_free_fly_camera_mode();
                 let hide_ui_for_garden_capture = self.launch_owners.screenshot().is_scheduled()
-                    && self
-                        .launch_owners
-                        .snapshot_name()
-                        .is_some_and(garden_opening::is_review_preset);
+                    && (self.tree_species_review.is_some()
+                        || self
+                            .launch_owners
+                            .snapshot_name()
+                            .is_some_and(garden_opening::is_review_preset));
                 let hide_ui_for_environment_test_capture = hide_ui_for_garden_capture
                     || (self
                         .launch_owners

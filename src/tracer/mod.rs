@@ -1089,7 +1089,11 @@ fn flora_height_color_table(
 fn tree_leaf_color_tables(
     tables: FloraHeightColorTables,
     appearance: crate::tree_gen::TreeAppearance,
+    palette_srgb: Option<[Vec3; 2]>,
 ) -> FloraHeightColorTables {
+    let tables = palette_srgb.map_or(tables, |[bottom, tip]| {
+        solid_flora_height_color_tables(bottom, tip)
+    });
     if appearance == Default::default() {
         return tables;
     }
@@ -1118,17 +1122,49 @@ mod tree_appearance_tests {
     use super::*;
 
     #[test]
+    fn ginkgo_base_palette_is_independent_and_user_variation_is_applied_afterward() {
+        use crate::tree_gen::{TreeAppearance, TreeSpecies};
+        let source = solid_flora_height_color_tables(Vec3::Y * 0.4, Vec3::Y * 0.8);
+        let palette = TreeSpecies::Ginkgo.leaf_palette_srgb();
+        let gold = tree_leaf_color_tables(source, Default::default(), palette);
+        let [bottom, tip] = palette.unwrap();
+        assert_eq!(gold, solid_flora_height_color_tables(bottom, tip));
+        assert_ne!(gold, source);
+        assert_ne!(gold[0][0], gold[0][FLORA_HEIGHT_COLOR_TABLE_LEN - 1]);
+        let variation = TreeAppearance {
+            hue_degrees: 15.,
+            ..Default::default()
+        };
+        assert_eq!(
+            tree_leaf_color_tables(source, variation, palette),
+            tree_leaf_color_tables(gold, variation, None)
+        );
+        for species in TreeSpecies::PLANTABLE {
+            if species != TreeSpecies::Ginkgo {
+                assert_eq!(
+                    tree_leaf_color_tables(source, Default::default(), species.leaf_palette_srgb()),
+                    source
+                );
+            }
+        }
+    }
+
+    #[test]
     fn tree_palette_is_local_neutral_for_old_saves_and_preserves_gradient() {
         let source =
             solid_flora_height_color_tables(Vec3::new(0.1, 0.4, 0.05), Vec3::new(0.5, 0.8, 0.1));
         let original = source;
-        assert_eq!(tree_leaf_color_tables(source, Default::default()), source);
+        assert_eq!(
+            tree_leaf_color_tables(source, Default::default(), None),
+            source
+        );
         let red = tree_leaf_color_tables(
             source,
             crate::tree_gen::TreeAppearance {
                 hue_degrees: -90.,
                 ..Default::default()
             },
+            None,
         );
         let green = tree_leaf_color_tables(
             source,
@@ -1136,6 +1172,7 @@ mod tree_appearance_tests {
                 hue_degrees: 20.,
                 ..Default::default()
             },
+            None,
         );
         assert_eq!(
             source, original,
@@ -4980,7 +5017,11 @@ impl Tracer {
                         time,
                         LEAF_INSTANCE_TYPE,
                         tree_instance.chunk_world_offset,
-                        tree_leaf_color_tables(leaf_color_tables, tree_instance.appearance),
+                        tree_leaf_color_tables(
+                            leaf_color_tables,
+                            tree_instance.appearance,
+                            tree_instance.palette_srgb,
+                        ),
                     );
                     push_constant.lighting_cache_location = flora_lighting_cache_location(
                         batch
@@ -5600,7 +5641,11 @@ impl Tracer {
                             time,
                             LEAF_INSTANCE_TYPE,
                             prepared.instance.chunk_world_offset,
-                            tree_leaf_color_tables(leaf_color_tables, prepared.instance.appearance),
+                            tree_leaf_color_tables(
+                                leaf_color_tables,
+                                prepared.instance.appearance,
+                                prepared.instance.palette_srgb,
+                            ),
                         );
                         leaf_push.response_offset =
                             self.vegetation_response.leaf_offset(batch.tree_id());
@@ -7891,6 +7936,7 @@ impl Tracer {
         leaf_positions: &[UVec3],
         leaf_local_positions: &[IVec3],
         appearance: crate::tree_gen::TreeAppearance,
+        palette_srgb: Option<[Vec3; 2]>,
     ) -> Result<()> {
         anyhow::ensure!(
             leaf_positions.len() == leaf_local_positions.len(),
@@ -7959,6 +8005,7 @@ impl Tracer {
             "tree leaf",
         )?;
         tree_leaves_instance.appearance = appearance;
+        tree_leaves_instance.palette_srgb = palette_srgb;
         if !response_sources.is_empty() {
             tree_leaves_instance
                 .resources

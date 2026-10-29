@@ -2,6 +2,7 @@ mod axis;
 mod compatibility;
 #[cfg(test)]
 mod compatibility_capture;
+mod foliage;
 pub(crate) mod gpu_pose;
 mod growth;
 pub(crate) mod kick;

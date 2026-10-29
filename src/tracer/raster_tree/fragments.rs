@@ -237,6 +237,7 @@ mod tests {
         for species in [
             crate::tree_gen::TreeSpecies::AppleTree,
             crate::tree_gen::TreeSpecies::LondonPlane,
+            crate::tree_gen::TreeSpecies::Ginkgo,
         ] {
             let mut desc = species.default_desc();
             desc.size = 20.;

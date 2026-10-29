@@ -1944,6 +1944,7 @@ impl AppTreePublicationHost<'_> {
             &record.leaf_render_positions,
             &record.leaf_render_local_positions,
             record.mature_desc.appearance,
+            record.mature_desc.species.leaf_palette_srgb(),
         )?;
         self.publish_attached_fruit_instances(tree_id)?;
         self.app
@@ -2052,6 +2053,7 @@ impl TreePublicationPrimitiveHost for AppTreePublicationHost<'_> {
             &record.leaf_render_positions,
             &record.leaf_render_local_positions,
             record.mature_desc.appearance,
+            record.mature_desc.species.leaf_palette_srgb(),
         )
     }
 

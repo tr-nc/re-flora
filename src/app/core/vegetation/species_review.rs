@@ -21,9 +21,10 @@ impl TreeSpeciesReview {
             "apple" | "apple-walk" => vec![TreeSpecies::AppleTree],
             "pine" => vec![TreeSpecies::Pine],
             "plane" => vec![TreeSpecies::LondonPlane],
+            "ginkgo" => vec![TreeSpecies::Ginkgo],
             "mixed" => TreeSpecies::PLANTABLE.to_vec(),
             _ => anyhow::bail!(
-                "RE_FLORA_TREE_SPECIES_REVIEW must be apple, apple-walk, pine, plane or mixed"
+                "RE_FLORA_TREE_SPECIES_REVIEW must be apple, apple-walk, pine, plane, ginkgo or mixed"
             ),
         };
         let seed = std::env::var("RE_FLORA_TREE_SPECIES_SEED")
@@ -76,7 +77,10 @@ impl App {
                     // valid fixture for the terrain publication or snapshot contract.
                     let extent =
                         (self.world_chunk_dim * super::super::VOXEL_DIM_PER_CHUNK).as_vec3() / 256.;
-                    Vec2::new(extent.x * (0.25 + index as f32 * 0.25), extent.z * 0.62)
+                    Vec2::new(
+                        extent.x * (0.25 + 0.5 * index as f32 / (review.species.len() - 1) as f32),
+                        extent.z * 0.62,
+                    )
                 };
                 let position = Vec3::new(
                     horizontal.x,
@@ -125,7 +129,7 @@ impl App {
             let xz = review.target.xz() + Vec2::new(0.12, 0.28);
             Vec3::new(xz.x, self.query_terrain_height_cpu(xz) + 0.08, xz.y)
         } else {
-            let distance = if review.species.len() == 1 { 1.0 } else { 1.8 };
+            let distance = if review.species.len() == 1 { 0.8 } else { 1.8 };
             review.target + Vec3::new(0.25, 0.16, distance)
         };
         anyhow::ensure!(
@@ -146,6 +150,14 @@ impl App {
             self.update_all_tree_ages_from_gui()?;
         }
         if review.frame == 60 {
+            for record in self.trees.records.values() {
+                anyhow::ensure!(
+                    record.age == 1.
+                        && record.rest_tree.branches()
+                            == Tree::new(record.mature_desc.clone()).branches(),
+                    "review must return to the captured mature tree after restore"
+                );
+            }
             self.validate_tree_poses()?;
             self.validate_tree_surface_pose()?;
             self.tracer.validate_gpu_tree_surface()?;

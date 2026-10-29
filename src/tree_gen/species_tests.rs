@@ -82,7 +82,7 @@ fn legacy_willow_has_pendant_shoots_but_current_crowns_ascend() {
                 assert_eq!(down, twigs.len(), "every free willow shoot descends");
                 assert!(twigs.iter().all(|b| b.end.y >= 16.));
             } else {
-                assert_eq!(down, 0, "apple/pine twig tips turn upward");
+                assert_eq!(down, 0, "current species twig tips turn upward");
             }
         }
     }
@@ -95,6 +95,7 @@ fn foliage_rules_keep_tip_crowns_and_along_shoot_sprays_distinct() {
         TreeSpecies::Pine,
         TreeSpecies::WeepingWillow,
         TreeSpecies::LondonPlane,
+        TreeSpecies::Ginkgo,
         TreeSpecies::Conifer,
     ] {
         for seed in [7, 122, 907] {
@@ -174,6 +175,57 @@ fn plane_has_a_clear_trunk_broad_crown_and_its_own_bark_without_apples() {
         Tree::new(TreeSpecies::AppleTree.default_desc()).bark_style(),
         0
     );
+}
+
+#[test]
+fn ginkgo_has_a_tapered_upright_crown_fan_sprays_and_no_apples() {
+    use crate::util::stable_perpendicular_basis;
+    for seed in [0, 7, 122, 907, u64::MAX] {
+        let mut desc = TreeSpecies::Ginkgo.default_desc();
+        desc.branching.seed = seed;
+        assert!(!desc.species.bears_apples());
+        assert_eq!(serde_json::to_value(desc.species).unwrap(), "ginkgo");
+        let tree = Tree::new(desc.clone());
+        assert_eq!(tree.bark_style(), 2);
+        assert!((110. ..150.).contains(&tree.height_voxels()));
+        let scaffolds: Vec<_> = tree
+            .branches()
+            .iter()
+            .zip(tree.axis_segments())
+            .filter(|(_, meta)| meta.order == 1 && meta.u_end == 1.)
+            .collect();
+        let lower_span = scaffolds
+            .iter()
+            .filter(|(b, _)| b.start.y < 70.)
+            .map(|(b, _)| glam::Vec2::new(b.end.x, b.end.z).length())
+            .fold(0., f32::max);
+        let upper_span = scaffolds
+            .iter()
+            .filter(|(b, _)| b.start.y > 90.)
+            .map(|(b, _)| glam::Vec2::new(b.end.x, b.end.z).length())
+            .fold(0., f32::max);
+        assert!(lower_span > upper_span * 1.3, "upper crown should narrow");
+        let radius = 2.0_f32.powi(desc.leaves_size_level as i32) * 0.5;
+        for (leaf, &branch) in tree
+            .relative_leaf_placements()
+            .iter()
+            .zip(tree.leaf_branch_indices())
+        {
+            let b = tree.branches()[branch];
+            let axis = (b.end - b.start).normalize();
+            let (side, vertical) = stable_perpendicular_basis(axis);
+            let local =
+                leaf.position - leaf.anchor - axis * radius * desc.leaf_spray_tip_offset_ratio;
+            let sample = Vec3::new(
+                local.dot(axis) / radius,
+                local.dot(side) / (radius * desc.leaf_spray_width_ratio),
+                local.dot(vertical) / (radius * desc.leaf_spray_thickness_ratio),
+            );
+            assert!(sample.length_squared() <= 1.00001);
+            assert!(sample.y.abs() <= (sample.x + 0.80) * 0.95 + 0.00001);
+            assert!(sample.x <= 0.70 + 0.65 * sample.y.abs() + 0.00001);
+        }
+    }
 }
 
 #[test]

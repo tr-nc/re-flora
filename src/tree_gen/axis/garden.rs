@@ -66,7 +66,8 @@ pub(super) fn spreading(desc: &TreeDesc, profile: &SpreadingCrown) -> AxisSkelet
                 + rng.random_range(-0.28..0.28);
             let dir = radial(angle);
             let side = radial(angle + PI * 0.5);
-            let length = crown * envelope * rng.random_range(0.78..1.15);
+            let length =
+                crown * envelope * (1. - profile.crown_taper * u) * rng.random_range(0.78..1.15);
             let curl = rng.random_range(-0.14..0.14);
             let lift = rng.random_range(profile.scaffold_lift.clone());
             let root = trunk_points[station];
