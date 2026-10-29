@@ -631,6 +631,12 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/builder/surface/make_brush_surface.comp",
+        source_path: "shader/slang/make_brush_surface.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/builder/surface/make_surface.comp",
         source_path: "shader/slang/make_surface.slang",
         module_path: "shader/slang",

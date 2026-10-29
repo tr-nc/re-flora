@@ -1,10 +1,8 @@
 use crate::builder::SurfaceBuilder;
 use crate::flora::species::{FloraPaintBrushSettings, FloraPaintSelection};
 use crate::geom::UAabb3;
-use crate::util::BENCH;
 use anyhow::Result;
 use glam::{UVec3, Vec3};
-use std::time::Instant;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct FloraBrushEdit {
@@ -28,14 +26,6 @@ pub(crate) fn mesh_regenerate_flora_for_brush_edit(
         get_affected_chunk_indices(bound.min(), bound.max(), voxel_dim_per_chunk);
 
     for chunk_id in affected_chunk_indices {
-        let now = Instant::now();
-        let res = surface_builder.build_surface(chunk_id, false);
-        if let Err(e) = res {
-            log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
-            continue;
-        }
-        BENCH.lock().unwrap().record("build_surface", now.elapsed());
-
         let _regen_stats = surface_builder.regenerate_flora_instances_for_brush(
             chunk_id,
             flora_edit.start,
@@ -62,14 +52,6 @@ pub(crate) fn mesh_remove_flora_for_brush_edit(
         get_affected_chunk_indices(bound.min(), bound.max(), voxel_dim_per_chunk);
 
     for chunk_id in affected_chunk_indices {
-        let now = Instant::now();
-        let res = surface_builder.build_surface(chunk_id, false);
-        if let Err(e) = res {
-            log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
-            continue;
-        }
-        BENCH.lock().unwrap().record("build_surface", now.elapsed());
-
         surface_builder.edit_flora_instances_for_brush(
             chunk_id,
             flora_edit.start,
@@ -95,14 +77,6 @@ pub(crate) fn mesh_trim_flora_for_brush_edit(
     let mut growing_chunks = Vec::new();
 
     for chunk_id in affected_chunk_indices {
-        let now = Instant::now();
-        let res = surface_builder.build_surface(chunk_id, false);
-        if let Err(e) = res {
-            log::error!("Failed to build surface for chunk {}: {}", chunk_id, e);
-            continue;
-        }
-        BENCH.lock().unwrap().record("build_surface", now.elapsed());
-
         let regen_stats = surface_builder.trim_flora_instances_for_brush(
             chunk_id,
             flora_edit.start,

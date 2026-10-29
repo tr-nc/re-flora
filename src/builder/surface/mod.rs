@@ -1,3 +1,4 @@
+mod brush_region;
 mod ecology;
 mod grass_audio;
 mod grass_audio_review;
@@ -112,7 +113,7 @@ impl SurfacePassTiming {
 
         let max_pass_count = SURFACE_BUILD_TIMING_PASSES_WITH_FLORA
             .len()
-            .max(FLORA_EDIT_TIMING_PASSES_WITH_INSTANCES.len())
+            .max(FLORA_EDIT_TIMING_PASSES_WITH_INSTANCES.len() + 1)
             .max(FLORA_GROWTH_TIMING_PASSES.len());
         let max_query_count = (max_pass_count * 2) as u32;
         let query_pool = TimestampQueryPool::maybe_new(
@@ -411,6 +412,7 @@ pub struct SurfaceBuilder {
 
     prepare_sparse_surface_dispatch_ppl: ComputePipeline,
     make_surface_ppl: ComputePipeline,
+    make_brush_surface_ppl: ComputePipeline,
     clear_occupancy_ppl: ComputePipeline,
     instances_to_occupancy_ppl: ComputePipeline,
     edit_occupancy_ppl: ComputePipeline,
@@ -453,6 +455,13 @@ impl SurfaceBuilder {
         let prepare_sparse_surface_dispatch_sm = ShaderModule::from_precompiled(
             device,
             "shader/builder/surface/prepare_sparse_surface_dispatch.comp",
+            "main",
+        )
+        .unwrap();
+
+        let make_brush_surface_sm = ShaderModule::from_precompiled(
+            device,
+            "shader/builder/surface/make_brush_surface.comp",
             "main",
         )
         .unwrap();
@@ -535,6 +544,12 @@ impl SurfaceBuilder {
             &pool,
             &[&resources, plain_builder_resources],
         );
+        let make_brush_surface_ppl = ComputePipeline::new(
+            device,
+            &make_brush_surface_sm,
+            &pool,
+            &[&resources, plain_builder_resources],
+        );
         let clear_occupancy_ppl = ComputePipeline::new(
             device,
             &clear_occupancy_sm,
@@ -596,6 +611,7 @@ impl SurfaceBuilder {
             pool,
             prepare_sparse_surface_dispatch_ppl,
             make_surface_ppl,
+            make_brush_surface_ppl,
             clear_occupancy_ppl,
             instances_to_occupancy_ppl,
             edit_occupancy_ppl,
@@ -1667,11 +1683,20 @@ impl SurfaceBuilder {
             self.bind_instance_descriptors(&self.occupancy_to_instances_ppl, chunk_resources)?,
         ];
 
-        let flora_edit_timing_passes: &[SurfacePassTimingPass] = if max_len > 0 {
-            &FLORA_EDIT_TIMING_PASSES_WITH_INSTANCES
+        let mut flora_edit_timing_passes = if max_len > 0 {
+            FLORA_EDIT_TIMING_PASSES_WITH_INSTANCES.to_vec()
         } else {
-            &FLORA_EDIT_TIMING_PASSES_WITHOUT_INSTANCES
+            FLORA_EDIT_TIMING_PASSES_WITHOUT_INSTANCES.to_vec()
         };
+        if mode == OccupancyEditMode::Add {
+            flora_edit_timing_passes.insert(
+                0,
+                SurfacePassTimingPass {
+                    label: "make_brush_surface",
+                    bench_key: "flora_edit_brush_surface_gpu",
+                },
+            );
+        }
 
         let device = self.vulkan_ctx.device();
         let cmdbuf = CommandBuffer::new(device, self.vulkan_ctx.command_pool());
@@ -1696,6 +1721,26 @@ impl SurfaceBuilder {
                 }
                 result
             }};
+        }
+
+        // Scratch surface is regenerated from authoritative terrain, only where new
+        // roots may be admitted. No persistent cache, invalidation or extra submit/wait.
+        if mode == OccupancyEditMode::Add {
+            let (_, dim) = brush_region::surface_region(
+                edit_start_vox,
+                edit_end_vox,
+                edit_radius_vox,
+                chunk_world_offset,
+                self.voxel_dim_per_chunk,
+            );
+            cmdbuf.use_buffer(&self.resources.edit_occupancy_info, BufferUse::HostWrite);
+            record_timed_flora_edit_pass!({
+                self.make_brush_surface_ppl.record(
+                    &cmdbuf,
+                    Extent3D::new(dim.x, dim.y, dim.z),
+                    None,
+                );
+            });
         }
 
         record_timed_flora_edit_pass!({
@@ -1778,7 +1823,7 @@ impl SurfaceBuilder {
                 "FLORA_EDIT_PASS_TIMING",
                 "flora_edit_pass_timed_total_gpu",
                 chunk_id,
-                flora_edit_timing_passes,
+                &flora_edit_timing_passes,
             );
         }
 
@@ -2163,7 +2208,16 @@ fn update_edit_occupancy_info(
     _paint_dab_serial: u32,
     _paint_brush: species::FloraPaintBrushSettings,
 ) -> Result<()> {
+    let (surface_offset, surface_dim) = brush_region::surface_region(
+        edit_start_vox,
+        edit_end_vox,
+        edit_radius_vox,
+        chunk_world_offset,
+        chunk_dim,
+    );
     edit_occupancy_info.fill_uniform(&EditOccupancyInfo {
+        surface_offset: surface_offset.to_array(),
+        surface_dim: surface_dim.to_array(),
         edit_segment_start_radius_vox: [
             edit_start_vox.x,
             edit_start_vox.y,

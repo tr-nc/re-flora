@@ -974,6 +974,10 @@ pub struct EditOccupancyInfo {
     pub target_age: u32,
     pub paint_selection: u32,
     pub _pad1: [u8; 4],
+    pub surface_offset: [u32; 3],
+    pub _pad2: [u8; 4],
+    pub surface_dim: [u32; 3],
+    pub _pad3: [u8; 4],
 }
 
 /// Auto-generated from `U_EnvInfo` (native Slang source of truth).

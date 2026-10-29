@@ -1,3 +1,4 @@
+import flora_brush;
 import flora_occupancy;
 import flora_surface_planting;
 import flora_types;
@@ -14,18 +15,6 @@ static const uint OCCUPANCY_MODE_TRIM = 2u;
 static const uint OCCUPANCY_MODE_REFRESH_GROWTH_POTENTIAL = 3u;
 static const uint OCCUPANCY_MODE_VALIDATE_TERRAIN = 4u;
 static const uint OCCUPANCY_TRIM_MIN_GROWTH_PROGRESS = 128u;
-
-struct U_EditOccupancyInfo
-{
-    float4 edit_segment_start_radius_vox;
-    float4 edit_segment_end_radius_vox;
-    uint3 chunk_world_offset;
-    uint3 chunk_dim;
-    uint mode;
-    uint flora_tick;
-    uint target_age;
-    uint paint_selection;
-};
 
 [[vk::binding(0, 0)]]
 ConstantBuffer<U_EditOccupancyInfo> edit_occupancy_info;

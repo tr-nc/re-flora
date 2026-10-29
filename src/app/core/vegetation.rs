@@ -3481,7 +3481,6 @@ impl App {
             compiled.rebuild_bound,
             super::VOXEL_DIM_PER_CHUNK,
         ) {
-            self.surface_builder.build_surface(chunk, false)?;
             receipts.push(self.surface_builder.remove_flora_reversibly(
                 chunk,
                 edit.start,
