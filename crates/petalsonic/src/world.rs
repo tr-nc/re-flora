@@ -168,6 +168,7 @@ impl EmitterRegistry {
 
         for spatial in frame.emitters() {
             let state = self.get(spatial.emitter)?;
+            state.desc.extent().validate_update(spatial.extent())?;
             if !state.desc.is_spatial() {
                 return Err(PetalSonicError::InvalidConfiguration {
                     field: "spatial_frame",

@@ -322,6 +322,7 @@ impl AcousticVoice {
         {
             snapshot.emitter_world_pose = emitter.pose;
             snapshot.acoustic_priority = emitter.acoustic_priority();
+            snapshot.source_extent.refresh_live(emitter.extent());
         }
         snapshot
     }
@@ -4645,6 +4646,44 @@ mod tests {
         input.voices[1].audibility = 0.95;
         let stable = ranked_voices(&input, &previous);
         assert_eq!(stable[0].voice.voice_id, VoiceId::from(1));
+    }
+
+    #[test]
+    fn live_extent_solver_snapshot_tracks_same_frame_without_rt_memory_activity() {
+        use crate::{ExtentSample, ExtentSampleId};
+        let fixture = input(Arc::new(NoGeometry));
+        let mut voice = fixture.voices[0].active_for_test();
+        let sample =
+            |id, power| ExtentSample::new(ExtentSampleId(id), Vec3::X * id as f32, power).unwrap();
+        voice.source_extent = SourceExtent::live_weighted_samples(vec![sample(0, 1.0)]).unwrap();
+        let next =
+            SourceExtent::live_weighted_samples(vec![sample(1, 1.0), sample(2, 3.0)]).unwrap();
+        let frame = SpatialFrame::new(
+            2,
+            0.1,
+            Pose::identity(),
+            vec![
+                EmitterSpatialState::new(voice.emitter, Pose::identity()).with_extent(next.clone()),
+            ],
+        )
+        .unwrap();
+        let mut captured = None;
+        let activity = crate::test_support::realtime_memory_activity(|| {
+            captured = Some(voice.snapshot(Some(&frame)));
+        });
+        assert_eq!(activity, 0);
+        assert_eq!(captured.unwrap().source_extent, next);
+        voice.detached = true;
+        assert_eq!(
+            voice.snapshot(Some(&frame)).source_extent,
+            voice.source_extent
+        );
+        voice.detached = false;
+        voice.source_extent = SourceExtent::weighted_samples(vec![sample(0, 1.0)]).unwrap();
+        assert_eq!(
+            voice.snapshot(Some(&frame)).source_extent,
+            voice.source_extent
+        );
     }
 
     #[test]

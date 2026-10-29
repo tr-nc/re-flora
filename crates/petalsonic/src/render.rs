@@ -455,7 +455,19 @@ impl RenderQuantum {
     fn apply_command(&mut self, command: PlaybackCommand) {
         match command {
             PlaybackCommand::Play(prepared) => {
-                let (voice_id, instance, acoustic_voice) = prepared.start();
+                let (voice_id, mut instance, acoustic_voice) = prepared.start();
+                // A coalesced newer frame may precede this queued Play. Live
+                // domains begin against that same frame on both render/solver paths.
+                if !instance.detached
+                    && instance.source_extent.is_live()
+                    && let Some(spatial) = self
+                        .current_spatial_frame
+                        .as_ref()
+                        .and_then(|f| f.emitter_state(instance.emitter))
+                {
+                    instance.render_state.set_spatial_pose(spatial.pose);
+                    instance.source_extent.refresh_live(spatial.extent());
+                }
                 if self.active_playback.insert(voice_id, instance).is_some() {
                     self.active_voice_count.fetch_sub(1, Ordering::AcqRel);
                 }
@@ -555,6 +567,7 @@ impl RenderQuantum {
             }
             if let Some(spatial) = frame.emitter_state(voice.emitter) {
                 voice.render_state.set_spatial_pose(spatial.pose);
+                voice.source_extent.refresh_live(spatial.extent());
             }
         }
     }
@@ -1476,7 +1489,7 @@ mod tests {
 
     #[test]
     fn spatial_frame_moves_only_attached_voice_and_preserves_captured_extent() {
-        let mut harness = harness(32, 2);
+        let mut harness = harness(32, 4);
         let emitter = Emitter {
             world_id: 1,
             index: 4,
@@ -1494,7 +1507,11 @@ mod tests {
             ExtentSample::new(ExtentSampleId(17), crate::math::Vec3::X, 1.0).unwrap(),
         ])
         .unwrap();
-        for (id, detached) in [(1, false), (2, true)] {
+        let live_extent = SourceExtent::live_weighted_samples(vec![
+            ExtentSample::new(ExtentSampleId(17), crate::math::Vec3::X, 1.0).unwrap(),
+        ])
+        .unwrap();
+        for (id, detached) in [(1, false), (2, true), (3, false), (4, true)] {
             let mut options = PlayOptions::looping();
             if detached {
                 options = options.detached();
@@ -1503,7 +1520,11 @@ mod tests {
                 VoiceId::from(id),
                 emitter,
                 clip.clone(),
-                EmitterDesc::spatial(old_pose).with_extent(captured_extent.clone()),
+                EmitterDesc::spatial(old_pose).with_extent(if id < 3 {
+                    captured_extent.clone()
+                } else {
+                    live_extent.clone()
+                }),
                 options,
                 None,
                 0,
@@ -1516,15 +1537,37 @@ mod tests {
                 .active_playback
                 .insert(VoiceId::from(id), voice);
         }
+        let updated_extent = SourceExtent::live_weighted_samples(vec![
+            ExtentSample::new(ExtentSampleId(19), crate::math::Vec3::Y, 1.0).unwrap(),
+            ExtentSample::new(ExtentSampleId(20), crate::math::Vec3::Z, 3.0).unwrap(),
+        ])
+        .unwrap();
         let frame = SpatialFrame::new(
             1,
             0.0,
             crate::math::Pose::default(),
-            vec![EmitterSpatialState::new(emitter, new_pose).with_extent(SourceExtent::Point)],
+            vec![EmitterSpatialState::new(emitter, new_pose).with_extent(updated_extent.clone())],
         )
         .unwrap();
 
-        RenderQuantum::apply_spatial_frame_to_voices(&frame, &mut harness.quantum.active_playback);
+        let activity = crate::test_support::realtime_memory_activity(|| {
+            RenderQuantum::apply_spatial_frame_to_voices(
+                &frame,
+                &mut harness.quantum.active_playback,
+            );
+        });
+        assert_eq!(
+            activity, 0,
+            "live updates must neither allocate nor free on the callback"
+        );
+        assert_eq!(
+            harness.quantum.active_playback[&VoiceId::from(3)].source_extent,
+            updated_extent
+        );
+        assert_eq!(
+            harness.quantum.active_playback[&VoiceId::from(4)].source_extent,
+            live_extent
+        );
 
         assert_eq!(
             harness.quantum.active_playback[&VoiceId::from(1)]

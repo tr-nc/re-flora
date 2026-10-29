@@ -26,7 +26,7 @@ impl ExtentSampleId {
 }
 
 /// One immutable local-space representative of source power.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ExtentSample {
     id: ExtentSampleId,
     local_position: Vec3,
@@ -76,8 +76,28 @@ impl ExtentSample {
 /// Validated, deterministically ordered weighted source representatives.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WeightedSamples {
-    samples: Arc<[ExtentSample]>,
+    samples: SampleStorage,
     bounding_radius: f32,
+}
+
+// Live domains are copied by the callback. Keeping their bounded storage inline
+// avoids both allocation and last-Arc destruction on the real-time thread.
+const MAX_LIVE_SAMPLES: usize = 4;
+#[derive(Clone, Debug, PartialEq)]
+enum SampleStorage {
+    Captured(Arc<[ExtentSample]>),
+    Live {
+        values: [ExtentSample; MAX_LIVE_SAMPLES],
+        len: usize,
+    },
+}
+impl SampleStorage {
+    fn as_slice(&self) -> &[ExtentSample] {
+        match self {
+            Self::Captured(samples) => samples,
+            Self::Live { values, len } => &values[..*len],
+        }
+    }
 }
 
 impl WeightedSamples {
@@ -128,13 +148,13 @@ impl WeightedSamples {
             .map(|sample| sample.local_position.length())
             .fold(0.0_f32, f32::max);
         Ok(Self {
-            samples: samples.into(),
+            samples: SampleStorage::Captured(samples.into()),
             bounding_radius,
         })
     }
 
     pub fn samples(&self) -> &[ExtentSample] {
-        &self.samples
+        self.samples.as_slice()
     }
 
     pub fn bounding_radius(&self) -> f32 {
@@ -142,7 +162,9 @@ impl WeightedSamples {
     }
 }
 
-/// Immutable local domain of one Voice's source power.
+/// Local domain of one Voice's source power, captured at admission by default.
+/// [`SourceExtent::live_weighted_samples`] opts attached Voices into bounded,
+/// allocation-free updates from each complete spatial frame.
 ///
 /// `Point` is the compatibility default. `WeightedSamples` is a finite discretization of an
 /// arbitrary area or volume; future analytic shapes can extend this enum without changing route
@@ -159,6 +181,47 @@ impl SourceExtent {
     /// Validates, normalizes, and stable-ID-orders a weighted source extent.
     pub fn weighted_samples(samples: Vec<ExtentSample>) -> Result<Self> {
         Self::weighted_samples_with_limit(samples, MAX_EXTENT_SAMPLES)
+    }
+
+    /// Opt-in live extent for attached Voices: 1..=4 samples, updated by complete
+    /// spatial frames without restarting PCM. Detached Voices still capture their
+    /// admission domain. Existing weighted_samples retain immutable semantics.
+    /// Once an emitter uses a live extent, subsequent descriptions/frames must
+    /// keep using live extents; destroy it to switch policy. Construction allocates
+    /// only on the caller; render and acoustic snapshot updates copy inline data.
+    pub fn live_weighted_samples(samples: Vec<ExtentSample>) -> Result<Self> {
+        let mut weighted = WeightedSamples::new(samples, MAX_LIVE_SAMPLES)?;
+        let samples = weighted.samples();
+        let len = samples.len();
+        let mut values = [samples[0]; MAX_LIVE_SAMPLES];
+        values[..len].copy_from_slice(samples);
+        weighted.samples = SampleStorage::Live { values, len };
+        Ok(Self::WeightedSamples(weighted))
+    }
+
+    pub(crate) fn is_live(&self) -> bool {
+        matches!(
+            self,
+            Self::WeightedSamples(WeightedSamples {
+                samples: SampleStorage::Live { .. },
+                ..
+            })
+        )
+    }
+
+    pub(crate) fn refresh_live(&mut self, next: &Self) {
+        if self.is_live() && next.is_live() {
+            *self = next.clone();
+        }
+    }
+
+    pub(crate) fn validate_update(&self, next: &Self) -> Result<()> {
+        if self.is_live() && !next.is_live() {
+            return Err(invalid_extent(
+                "live emitters require live extents in every update",
+            ));
+        }
+        Ok(())
     }
 
     /// Constructs an extent with a caller-owned sample budget, without truncation.
@@ -192,7 +255,7 @@ impl SourceExtent {
     pub fn sample_count(&self) -> usize {
         match self {
             Self::Point => 1,
-            Self::WeightedSamples(weighted) => weighted.samples.len(),
+            Self::WeightedSamples(weighted) => weighted.samples().len(),
         }
     }
 
@@ -208,6 +271,38 @@ impl SourceExtent {
             Self::Point => 0.0,
             Self::WeightedSamples(weighted) => weighted.bounding_radius,
         }
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+    #[test]
+    fn live_extent_bounds_normalization_and_policy_are_explicit() {
+        let sample = |i| ExtentSample::new(ExtentSampleId(i), Vec3::X, i as f32 + 1.0).unwrap();
+        assert!(SourceExtent::live_weighted_samples(vec![]).is_err());
+        assert!(SourceExtent::live_weighted_samples((0..5).map(sample).collect()).is_err());
+        let live = SourceExtent::live_weighted_samples((0..4).rev().map(sample).collect()).unwrap();
+        assert_eq!(live.sample_count(), 4);
+        assert_eq!(
+            live.weighted().unwrap().samples()[0].id(),
+            ExtentSampleId(0)
+        );
+        assert!(
+            (live
+                .weighted()
+                .unwrap()
+                .samples()
+                .iter()
+                .map(|s| s.power_weight())
+                .sum::<f32>()
+                - 1.0)
+                .abs()
+                < 1e-6
+        );
+        assert!(live.validate_update(&SourceExtent::Point).is_err());
+        assert!(live.validate_update(&live).is_ok());
+        assert!(SourceExtent::Point.validate_update(&live).is_ok());
     }
 }
 
