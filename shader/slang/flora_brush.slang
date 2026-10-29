@@ -1,5 +1,13 @@
 module flora_brush;
 
+// Zero means no mutation: skip compaction and preserve draw order / CPU state.
+public struct B_OccupancyEditDispatch
+{
+    public uint x;
+    public uint y;
+    public uint z;
+};
+
 // One brush description shared by local surface extraction and occupancy edits.
 public struct U_EditOccupancyInfo
 {

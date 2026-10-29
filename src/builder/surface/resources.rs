@@ -490,6 +490,7 @@ pub struct SurfaceResources {
     pub clear_occupancy_info: Resource<Buffer>,
     pub instances_to_occupancy_info: Resource<Buffer>,
     pub edit_occupancy_info: Resource<Buffer>,
+    pub occupancy_edit_dispatch: Resource<Buffer>,
     pub occupancy_to_instances_info: Resource<Buffer>,
     pub occupancy_to_instances_result: Resource<Buffer>,
     pub occupancy_data: Resource<Texture>,
@@ -651,6 +652,19 @@ impl SurfaceResources {
             edit_occupancy_info_layout.clone(),
         );
 
+        let occupancy_edit_dispatch = Buffer::from_buffer_layout(
+            device.clone(),
+            allocator.clone(),
+            edit_occupancy_sm
+                .get_buffer_layout("B_OccupancyEditDispatch")
+                .unwrap()
+                .clone(),
+            BufferUsage::from_flags(
+                vk::BufferUsageFlags::INDIRECT_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+            ),
+            MemoryLocation::CpuToGpu,
+        );
+
         let occupancy_to_instances_info_layout = occupancy_to_instances_sm
             .get_buffer_layout("U_OccupancyToInstancesInfo")
             .unwrap();
@@ -695,6 +709,7 @@ impl SurfaceResources {
             clear_occupancy_info: Resource::new(clear_occupancy_info),
             instances_to_occupancy_info: Resource::new(instances_to_occupancy_info),
             edit_occupancy_info: Resource::new(edit_occupancy_info),
+            occupancy_edit_dispatch: Resource::new(occupancy_edit_dispatch),
             occupancy_to_instances_info: Resource::new(occupancy_to_instances_info),
             occupancy_to_instances_result: Resource::new(occupancy_to_instances_result),
             occupancy_data: Resource::new(occupancy_data),

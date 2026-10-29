@@ -275,6 +275,15 @@ pub struct NodeOffsetForLevels {
     pub data: [u32; 0],
 }
 
+/// Auto-generated from `B_OccupancyEditDispatch` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct OccupancyEditDispatch {
+    pub x: u32,
+    pub y: u32,
+    pub z: u32,
+}
+
 /// Auto-generated from `B_OccupancyToInstancesResult` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]

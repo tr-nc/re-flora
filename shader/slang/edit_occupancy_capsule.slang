@@ -1,5 +1,6 @@
 import flora_brush;
 import flora_occupancy;
+import flora_instance_placement;
 import flora_surface_planting;
 import flora_types;
 import grass_growth_potential;
@@ -26,6 +27,18 @@ RWTexture3D<uint> occupancy_data;
 [[vk::binding(2, 0)]]
 [[vk::image_format("r32ui")]]
 readonly RWTexture3D<uint> surface;
+
+[[vk::binding(3, 0)]]
+GLSLShaderStorageBuffer<B_OccupancyEditDispatch, Std430DataLayout> occupancy_edit_dispatch;
+
+void markChanged()
+{
+    uint3 groups = (edit_occupancy_info.chunk_dim + uint3(7u)) / 8u;
+    uint ignored;
+    InterlockedMax(occupancy_edit_dispatch.x, groups.x, ignored);
+    InterlockedMax(occupancy_edit_dispatch.y, groups.y, ignored);
+    InterlockedMax(occupancy_edit_dispatch.z, groups.z, ignored);
+}
 
 float distanceSquaredToEditSegment(float3 point)
 {
@@ -65,8 +78,11 @@ uint randomizedTrimGrowthProgress(uint3 stemWorldPosition,
 [numthreads(OCCUPANCY_WORKGROUP_SIZE,
             OCCUPANCY_WORKGROUP_SIZE,
             OCCUPANCY_WORKGROUP_SIZE)]
-void main(uint3 baseLocal : SV_DispatchThreadID)
+void main(uint3 dispatchId : SV_DispatchThreadID)
 {
+    uint3 baseLocal = dispatchId;
+    if (edit_occupancy_info.mode <= OCCUPANCY_MODE_TRIM)
+        baseLocal += edit_occupancy_info.surface_offset;
     if (any(baseLocal >= edit_occupancy_info.chunk_dim))
     {
         return;
@@ -74,6 +90,7 @@ void main(uint3 baseLocal : SV_DispatchThreadID)
     if (edit_occupancy_info.mode ==
         OCCUPANCY_MODE_REFRESH_GROWTH_POTENTIAL)
     {
+        if (all(dispatchId == uint3(0u))) markChanged();
         return;
     }
 
@@ -85,6 +102,7 @@ void main(uint3 baseLocal : SV_DispatchThreadID)
         chunk_atlas.GetDimensions(width,height,depth);
         if (any(root >= uint3(width,height,depth))) {
             occupancy_data[baseLocal] = 0u;
+            markChanged();
             return;
         }
         // World-space atlas reads cross vertical chunk boundaries. Outside the
@@ -94,8 +112,10 @@ void main(uint3 baseLocal : SV_DispatchThreadID)
             cover[i] = 0u;
             if(root.y+i+1u < height) cover[i] = chunk_atlas[root+uint3(0,i+1u,0)];
         }
-        if (!grassSurvivesTerrain(chunk_atlas[root],cover[0],cover[1],cover[2]))
+        if (!grassSurvivesTerrain(chunk_atlas[root],cover[0],cover[1],cover[2])) {
             occupancy_data[baseLocal] = 0u;
+            markChanged();
+        }
         return;
     }
 
@@ -110,30 +130,26 @@ void main(uint3 baseLocal : SV_DispatchThreadID)
 
     if (edit_occupancy_info.mode == OCCUPANCY_MODE_REMOVE)
     {
-        occupancy_data[baseLocal] = 0u;
+        if (occupancy_data[baseLocal] != 0u) {
+            occupancy_data[baseLocal] = 0u;
+            markChanged();
+        }
         return;
     }
 
     if (edit_occupancy_info.mode == OCCUPANCY_MODE_ADD)
     {
-        uint surfaceData = surface[baseLocal];
-        if (surfaceData == 0u)
+        if (occupancy_data[baseLocal] != 0u) return;
+        uint floraType;
+        if (selectPaintedSurfaceFlora(surface[baseLocal], edit_occupancy_info.paint_selection,
+                int3(edit_occupancy_info.chunk_world_offset + baseLocal), floraType))
         {
-            return;
-        }
-        if (isFloraSurfacePlantable(voxelTypeFromData(surfaceData)))
-        {
-            uint currentOccupancy = occupancy_data[baseLocal];
-            if (currentOccupancy != 0u)
-            {
-                return;
-            }
-
             uint growthProgress = grassGrowthProgressLimit(
                 baseLocal, edit_occupancy_info.chunk_dim);
             uint occupancyValue = packFloraOccupancyWithSpawnAge(
                 edit_occupancy_info.paint_selection, growthProgress, 0u);
             occupancy_data[baseLocal] = occupancyValue;
+            markChanged();
         }
     }
 
@@ -156,6 +172,7 @@ void main(uint3 baseLocal : SV_DispatchThreadID)
                 unpackFloraOccupancySelection(currentOccupancy);
             occupancy_data[baseLocal] = packFloraOccupancy(
                 selection, trimmedGrowthProgress) | (currentOccupancy & FLORA_OCCUPANCY_EXISTING_BIT);
+            markChanged();
         }
     }
 }

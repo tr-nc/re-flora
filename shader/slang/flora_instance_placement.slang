@@ -5,6 +5,23 @@ import flora_placement;
 import flora_surface_planting;
 import flora_types;
 import gradient_noise;
+import voxel_data;
+
+// Admission is shared by edit change detection and instance emission. A rejected
+// density/slope/species candidate must not turn an idempotent dab into a rebuild.
+public bool selectPaintedSurfaceFlora(uint surfaceData, uint selection,
+                                     int3 worldPosition, out uint floraType)
+{
+    floraType = 0u;
+    if (surfaceData == 0u) return false;
+    bool anyFlora, tallGrass, shortGrass;
+    calculateFloraDensityPlacement(worldPosition, anyFlora, tallGrass, shortGrass);
+    if (!(anyFlora || tallGrass || shortGrass)) return false;
+    if (!checkFloraSurfacePlantability(voxelTypeFromData(surfaceData),
+            voxelSurfaceNormalFromData(surfaceData), worldPosition)) return false;
+    return selectPaintedFloraType(selection, worldPosition, anyFlora,
+                                 tallGrass, shortGrass, floraType);
+}
 
 public bool checkFloraSurfacePlantability(uint voxelType, float3 normal,
                                            int3 worldPosition)

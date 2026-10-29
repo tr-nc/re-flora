@@ -1578,7 +1578,8 @@ impl SurfaceBuilder {
         if let Some(instances) = self.authored_flora.instances_by_chunk.get_mut(&chunk_id) {
             trim_authored_flora_instances(instances, edit_start, edit_end, edit_radius, target_age);
         }
-        // run_occupancy_edit republishes authored instances too, preserving their identities.
+        // Authored publication belongs to its owner, even if ordinary grass is a no-op.
+        self.sync_authored_flora_chunk_to_gpu(chunk_id)?;
         self.run_occupancy_edit(
             chunk_id,
             edit_start,
@@ -1636,6 +1637,23 @@ impl SurfaceBuilder {
             *species = len;
             max_len = max_len.max(len);
         }
+
+        if max_len == 0 && mode != OccupancyEditMode::Add {
+            return Ok(unchanged_flora_stats(before_total, false));
+        }
+        let (_, brush_dim) = brush_region::surface_region(
+            edit_start_vox,
+            edit_end_vox,
+            edit_radius_vox,
+            chunk_world_offset,
+            self.voxel_dim_per_chunk,
+        );
+        let edit_dim = match mode {
+            OccupancyEditMode::Add | OccupancyEditMode::Remove | OccupancyEditMode::Trim => {
+                brush_dim
+            }
+            _ => self.voxel_dim_per_chunk,
+        };
 
         update_clear_occupancy_info(
             &self.resources.clear_occupancy_info,
@@ -1767,15 +1785,12 @@ impl SurfaceBuilder {
         }
 
         cmdbuf.use_buffer(&self.resources.edit_occupancy_info, BufferUse::HostWrite);
+        record_clear_buffer_for_compute(&cmdbuf, &self.resources.occupancy_edit_dispatch);
 
         record_timed_flora_edit_pass!({
             self.edit_occupancy_ppl.record(
                 &cmdbuf,
-                Extent3D::new(
-                    self.voxel_dim_per_chunk.x,
-                    self.voxel_dim_per_chunk.y,
-                    self.voxel_dim_per_chunk.z,
-                ),
+                Extent3D::new(edit_dim.x, edit_dim.y, edit_dim.z),
                 None,
             );
         });
@@ -1790,13 +1805,9 @@ impl SurfaceBuilder {
         );
 
         record_timed_flora_edit_pass!({
-            self.occupancy_to_instances_ppl.record(
+            self.occupancy_to_instances_ppl.record_indirect(
                 &cmdbuf,
-                Extent3D::new(
-                    self.voxel_dim_per_chunk.x,
-                    self.voxel_dim_per_chunk.y,
-                    self.voxel_dim_per_chunk.z,
-                ),
+                &self.resources.occupancy_edit_dispatch,
                 None,
             );
         });
@@ -1806,6 +1817,7 @@ impl SurfaceBuilder {
         );
 
         cmdbuf.use_buffer(&chunk_resources.resource.instances_buf, BufferUse::HostRead);
+        cmdbuf.use_buffer(&self.resources.occupancy_edit_dispatch, BufferUse::HostRead);
         if pass_timing.is_some() {
             assert_eq!(timing_pass_index, flora_edit_timing_passes.len());
         }
@@ -1827,6 +1839,12 @@ impl SurfaceBuilder {
             );
         }
 
+        let dispatch = self.resources.occupancy_edit_dispatch.read_back()?;
+        if u32::from_ne_bytes(dispatch[..4].try_into().unwrap()) == 0 {
+            // No compaction ran: leave counts, order, hydration and root/audio/soil
+            // dirty sets untouched. Conservatively retain any existing growth work.
+            return Ok(unchanged_flora_stats(before_total, max_len > 0));
+        }
         let result = get_occupancy_to_instances_result(
             &self.resources.occupancy_to_instances_result,
             self.flora_species_count,
@@ -2165,6 +2183,16 @@ fn get_make_surface_result(make_surface_result: &Buffer) -> MakeSurfaceResultRea
         active_voxel_len: data[0],
         active_brick_len: data[1],
         solid_workgroup_len: data[2],
+    }
+}
+
+fn unchanged_flora_stats(total: u32, has_growing_flora: bool) -> FloraRegenStats {
+    FloraRegenStats {
+        appended_total: 0,
+        before_total: total,
+        after_total: total,
+        dispatch_dim: UVec3::ZERO,
+        has_growing_flora,
     }
 }
 

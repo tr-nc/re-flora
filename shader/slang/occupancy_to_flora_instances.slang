@@ -104,36 +104,9 @@ void main(uint3 baseLocal : SV_DispatchThreadID)
     }
 
     uint surfaceData = surface[baseLocal];
-    if (surfaceData == 0u)
-    {
-        return;
-    }
-    uint voxelType = voxelTypeFromData(surfaceData);
-    float3 normal = voxelSurfaceNormalFromData(surfaceData);
-
-    bool allowAnyFlora;
-    bool allowTallGrass;
-    bool allowShortGrass;
-    calculateFloraDensityPlacement(worldBasePosition, allowAnyFlora,
-                                   allowTallGrass, allowShortGrass);
-
-    if (!(allowAnyFlora || allowTallGrass || allowShortGrass))
-    {
-        return;
-    }
-    if (!checkFloraSurfacePlantability(
-            voxelType, normal, worldBasePosition))
-    {
-        return;
-    }
-
     uint floraType;
-    if (!selectPaintedFloraType(
-            paintSelection, worldBasePosition, allowAnyFlora,
-            allowTallGrass, allowShortGrass, floraType))
-    {
+    if (!selectPaintedSurfaceFlora(surfaceData, paintSelection, worldBasePosition, floraType))
         return;
-    }
 
     addFloraInstance(worldBasePosition, floraType,
                      min(growthProgress, growthLimit), growthLimit,
