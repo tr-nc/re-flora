@@ -16,7 +16,7 @@ struct FragmentInput
 [shader("fragment")]
 float4 main(FragmentInput input) : SV_Target0
 {
-    // Both backdrop filter passes completed before this surface's render pass.
+    // Backdrop filtering completed before this surface's render pass.
     // The encoded-sRGB backdrop includes the scene and all earlier UI layers.
     float3 surface;
     if (input.pixel_cell_size != 0u)

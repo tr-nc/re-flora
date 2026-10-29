@@ -11,7 +11,7 @@ Requires cargo build --release, a Vulkan display and ImageMagick (magick).
 Captures three overlapping glass panels in hidden/muted Release mode, changes
 bottom color, reverses paint order, fades and clips the upper panel.
 Pixelated glass is always enabled; --pixelated is accepted for older invocations.
-Also verifies cell uniformity and exact area averages of a patterned lower panel
+Also verifies cell uniformity and five-tap averages of a patterned lower panel
 through independently anchored panels at sizes 12 and 21, including panel movement,
 clipping (which must not reset grid phase), and viewport resize.
 Uses an isolated config; never changes your saved settings.
@@ -80,9 +80,11 @@ function gridCheck(image, size, moved = false) {
         const [x0, y0] = cellStart(x, y, layer), key = [layer, x0, y0].join(',');
         if (cache.has(key)) return cache.get(key);
         let average = [0, 0, 0];
-        for (let sy = y0; sy < y0 + size; sy++) for (let sx = x0; sx < x0 + size; sx++) {
-            const rgb = expected(sx, sy, layer - 1);
-            average = average.map((v, c) => v + rgb[c] / (size * size));
+        // Independent five-point oracle: center + quadrant centers, nearest
+        // texels, equal weights. These interior fixtures do not touch viewport edges.
+        for (const [u, v] of [[0.5, 0.5], [0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]]) {
+            const rgb = expected(x0 + Math.floor(size * u), y0 + Math.floor(size * v), layer - 1);
+            average = average.map((value, c) => value + rgb[c] / 5);
         }
         const result = tint(average);
         cache.set(key, result);
@@ -99,7 +101,7 @@ function gridCheck(image, size, moved = false) {
             for (let c = 0; c < 3; c++) worstError = Math.max(worstError, Math.abs(rgb[c] - average[c] * 255));
         }
     }
-    assert.ok(worstError <= 2, `area average differs by ${worstError} bytes; inspect ${image}`);
+    assert.ok(worstError <= 2, `five-tap average differs by ${worstError} bytes; inspect ${image}`);
     return {size, moved, worstError};
 }
 try {

@@ -1,4 +1,4 @@
-//! Current-composite Gaussian frost or compact cell means, refreshed per surface.
+//! Current-composite Gaussian frost or five-tap cells, refreshed per surface.
 use re_flora_vkn::{
     vk, Allocator, CommandBuffer, ComputePipeline, DescriptorPool, DescriptorResource,
     DescriptorUpdate, Device, FrameRetirement, FrameRetirementSink, ImageDesc, ResourceContainer,
@@ -25,6 +25,7 @@ impl ResourceContainer for PassResources<'_> {
 
 struct Images {
     source: Texture,
+    pixelated: bool,
     horizontal: Texture,
     blurred: Texture,
 }
@@ -63,8 +64,10 @@ impl MatteBlur {
         grid_origin: [i32; 2],
         retirement: &FrameRetirementSink,
     ) -> &Texture {
+        let pixelated = pixel_cell_size != 0;
         let unchanged = self.images.as_ref().is_some_and(|images| {
             images.source.get_image().as_raw() == source.get_image().as_raw()
+                && images.pixelated == pixelated
         });
         if !unchanged {
             let desc = ImageDesc {
@@ -82,6 +85,7 @@ impl MatteBlur {
             };
             let images = Images {
                 source: source.clone(),
+                pixelated,
                 horizontal: Texture::new(
                     self.device.clone(),
                     self.allocator.clone(),
@@ -93,7 +97,11 @@ impl MatteBlur {
             for (pipeline, resources) in self.passes.iter().zip([
                 PassResources {
                     source: &images.source,
-                    output: &images.horizontal,
+                    output: if pixelated {
+                        &images.blurred
+                    } else {
+                        &images.horizontal
+                    },
                 },
                 PassResources {
                     source: &images.horizontal,
@@ -154,8 +162,9 @@ impl MatteBlur {
                 grid_origin,
                 _pad0: [0; 8],
             };
-            // Dependencies still cover composite -> H -> V -> fragment and all
-            // surfaces/frames. Only the spatial workload changes.
+            // Pixel cells: composite -> cells -> fragment. Gaussian fallback:
+            // composite -> H -> V -> fragment. Resource tracking covers both,
+            // including reuse across all surfaces and frames.
             let mut extent = viewport;
             extent.width = region.extent[0];
             extent.height = region.extent[1];

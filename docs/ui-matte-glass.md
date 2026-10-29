@@ -1,5 +1,90 @@
 # Pixel matte UI glass
 
+## Current filter: five taps per cell
+
+Pixelated glass is permanent. Each cell now reads **five nearest source texels**:
+center `(1/2, 1/2)` and four quadrant centers `(1/4, 1/4)`, `(3/4, 1/4)`,
+`(1/4, 3/4)`, `(3/4, 3/4)`, with equal weights. Coordinates are floored to
+integer texels within the viewport-clipped cell; tiny cells may repeat texels.
+This is a Kawase-inspired sparse approximation, **not** a full multipass Kawase
+blur or an exact area average. Fine lines/bright details can be missed or alias
+as the backdrop moves. Visual acceptance remains with the user.
+
+`ui_matte_pixel.slang` owns the sampling recipe. `matte_blur/region.rs` dispatches
+one invocation per demanded cell, directly reading the current lower composite
+and writing the final packed cell image. The horizontal pass and its dependent
+vertical pass are replaced by **one dispatch** for pixelated glass. For an N×N
+interior cell, filter reads fall from N²+N to 5; each displayed fragment still
+fetches its shared cell result once. A 24×24 physical-pixel cell changes from
+600 filter reads to 5, not a claim of 120× faster UI rendering.
+
+Encoded-sRGB averaging, fern tint/desaturation, panel-local grid origin, saved
+cell size, clipping, fades and recursive painter-order composition are retained.
+The sampling domain is the whole cell intersected with the viewport, **not** the
+panel or its clip rectangle. Output stays uniform within fully covered cells;
+own text/controls are drawn afterward. Resource tracking now enforces
+composite → cell output → fragment. Descriptor ownership includes the source
+image and filter mode, so the retained internal Gaussian fallback cannot reuse
+pixel-path bindings. That fallback is not exposed as a user setting.
+
+This change does not shrink allocations or move material tint into compute: the
+existing two RGBA16F images remain allocated, although pixelated rendering no
+longer uses the horizontal image. Historical Gaussian/area-mean descriptions and
+measurements below are retained as implementation history, not current behavior.
+
+### Validation and Release measurements
+
+Apple M4 Pro / MoltenVK, 5120×2880 native UI, Debug Panel searching **UI Glass**,
+three alternating before/after pairs, 15 seconds after loading per run:
+
+| Pair | Before UI GPU | Five-tap UI GPU |
+| --- | --- | --- |
+| 1 | 2.492 ms | 2.250 ms |
+| 2 | 2.497 ms | 2.242 ms |
+| 3 | 2.502 ms | 2.251 ms |
+
+Median of run medians: **2.497 → 2.250 ms**, about **0.247 ms / 9.9% less UI
+GPU time**. This scope includes all UI composition, not just the cell filter.
+Total GPU run-median medians were 6.856 → 6.591 ms; regularly logged CPU frame
+medians were 10.45 → 10.30 ms. Short diagnostic samples (three GPU samples and
+30 regular CPU samples per run), not universal FPS or other-platform acceptance.
+Evidence: `target/matte-perf/paired-gac9l5/summary.json` and its six logs.
+The benchmark now preserves `VK_LAYER_PATH` for SDK discovery and samples the
+regular `[PERF] frame` cadence rather than `[PERF][FRAME]`, which additionally
+logs slow frames and would bias the sample. Default duration is now 15 seconds;
+the previous eight-second run collected only 26 regular samples here. Earlier
+failed/noisy runs are not used in the table.
+
+- `cargo check`, `cargo build --release`, 15 renderer Rust tests, and three direct
+  Slang UI executable contracts pass (local SDK Slang 2025.11-12-gc5295eae2, not
+  the repository-wide pinned test runner). The five-tap contract checks isolated
+  impulses/weights, constant colors, all grid phases, clipped viewport edges,
+  one-pixel cells and cells larger than the viewport.
+- Native screenshot suite: **14 captures pass**, including transmission, reversed
+  order, fades, clipping, differently anchored/moved grids at sizes 12/21, and
+  startup resize. Cells are byte-for-byte uniform; independent recursive five-tap
+  color oracle differs by at most **0.577 of one 8-bit channel step**. Inspected
+  `grid-moved-21.png`. Evidence: `target/matte-stack/run-lcwiD5/`. No ERROR/VUID/
+  hazard/panic; all captures shut down with `failures=0`. Tests use isolated
+  settings and verify the original config hash. ImageMagick was installed to run
+  this existing validator on this machine.
+- Ordinary hidden/muted Release smoke passes; inspected the per-worktree log via
+  `--tail-latest-log`: first game frame ready, application exited successfully,
+  no error diagnostics. Evidence: `target/matte-five-tap/smoke-tail.log`.
+- Changed Rust modules are formatted; repository-wide `cargo fmt --check` remains
+  blocked by pre-existing differences beginning in `src/audio/runtime_assets.rs`.
+  Full Rust suite was not rerun; prior baseline failures are documented below.
+  No generated struct changes, saved config changes or new image/audio assets.
+
+Reproduce after building both revisions:
+
+```sh
+node scripts/benchmark-ui-glass.mjs --before /path/to/before --after target/release/re-flora --seconds 15
+node scripts/validate-matte-stack.mjs
+```
+
+## Original material and implementation history
+
 The native material adopts the approved `re-flora/matte-glass-study/v1` browser
 recipe from `experiments/matte-glass/`:
 
@@ -13,10 +98,11 @@ recipe from `experiments/matte-glass/`:
 | Pixel size | `1` CSS px | One logical point; two-step corner cuts |
 | Texture | `seeded-monochrome-32x32-v1` | Exact 32×32 LCG sequence, evaluated procedurally |
 
-This remains the default (unchecked) native surface. The approved material
-color constants live in `shader/slang/ui_matte_material.slang`; the spatial frost
-recipe and dispatch footprint live together in `matte_blur/region.rs`. The optional pixelated
-A/B mode below is declaratively saved; no per-setting save hooks are used.
+This was the original unchecked native surface, before pixelated glass became
+permanent. The approved material color constants live in
+`shader/slang/ui_matte_material.slang`; the spatial frost recipe and dispatch
+footprint live together in `matte_blur/region.rs`. The historical optional
+pixelated A/B mode was declaratively saved; no per-setting save hooks were used.
 
 ## Scope
 

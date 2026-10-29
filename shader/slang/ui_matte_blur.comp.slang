@@ -37,6 +37,15 @@ struct SceneLine : IMatteBlurLine
     }
 }
 
+struct SceneCell : IMatteCellSource
+{
+    float3 sample(uint2 pixel)
+    {
+        // Average in the same encoded-sRGB space as the former area filter.
+        return linearToSrgb(blur_source[pixel].rgb);
+    }
+}
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void main(uint3 thread : SV_DispatchThreadID)
@@ -48,20 +57,16 @@ void main(uint3 thread : SV_DispatchThreadID)
     uint cellSize = blur_push.pixel_cell_size;
     if (cellSize != 0u)
     {
-        // Horizontal: one mean per cell-column and source row, packed at x=cell.
-        // Vertical: one mean per complete cell, packed at (cellX, cellY).
-        // Every source pixel contributes once, rather than repeating NxN work
-        // for every fragment of the block. Existing images are reused on toggles.
-        bool horizontal = blur_push.horizontal != 0u;
+        // One invocation and five source reads per cell, directly from the
+        // current composite. No horizontal intermediate or second dispatch.
         uint2 cells = (uint2(int2(width, height) - blur_push.grid_origin) + cellSize - 1u) / cellSize;
-        uint2 dispatchExtent = horizontal ? uint2(cells.x, height) : cells;
-        if (any(thread.xy >= dispatchExtent)) return;
-        uint2 range = uiMatteCellRange(horizontal ? thread.x : thread.y,
-            cellSize, horizontal ? width : height,
-            horizontal ? blur_push.grid_origin.x : blur_push.grid_origin.y);
-        int2 origin = horizontal ? int2(range.x, thread.y) : int2(thread.x, range.x);
-        SceneLine cellLine = { origin, int2(width, height) };
-        blur_output.Store(thread.xy, float4(uiMatteCellMean(cellLine, range.y - range.x), 1.0));
+        if (any(thread.xy >= cells)) return;
+        uint2 xr = uiMatteCellRange(thread.x, cellSize, width, blur_push.grid_origin.x);
+        uint2 yr = uiMatteCellRange(thread.y, cellSize, height, blur_push.grid_origin.y);
+        if (xr.x == xr.y || yr.x == yr.y) return;
+        SceneCell source;
+        blur_output.Store(thread.xy, float4(uiMatteCellFiveTap(source,
+            uint2(xr.x, yr.x), uint2(xr.y, yr.y)), 1.0));
         return;
     }
     if (any(thread.xy >= uint2(width, height))) return;

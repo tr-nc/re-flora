@@ -76,22 +76,9 @@ impl FilterPlan {
             let end = std::array::from_fn::<_, 2, _>(|a| {
                 ((hi[a] as i32 - grid_origin[a]) as u32).div_ceil(cell)
             });
-            // Horizontal means are packed by cell-column/source-row; vertical
-            // means by cell-column/cell-row. Read entire cells, not panel crops.
-            plan.passes = [
-                Region::between(
-                    [
-                        start[0],
-                        (start[1] as i32 * cell as i32 + grid_origin[1]).max(0) as u32,
-                    ],
-                    [
-                        end[0],
-                        (end[1] as i32 * cell as i32 + grid_origin[1]).clamp(0, viewport[1] as i32)
-                            as u32,
-                    ],
-                ),
-                Region::between(start, end),
-            ];
+            // One output per complete cell; five taps read the current composite
+            // directly. Only the viewport clips the sampling domain, not panels.
+            plan.passes = [Region::between(start, end), Region::default()];
         }
         plan
     }
@@ -144,26 +131,15 @@ mod tests {
             [0, 0],
         );
         assert_eq!(
-            p.passes[0],
-            Region {
-                origin: [1, 12],
-                extent: [3, 17]
-            }
+            p.passes,
+            [
+                Region {
+                    origin: [1, 1],
+                    extent: [3, 2]
+                },
+                Region::default()
+            ]
         );
-        assert_eq!(
-            p.passes[1],
-            Region {
-                origin: [1, 1],
-                extent: [3, 2]
-            }
-        );
-        for cy in 1..3 {
-            for cx in 1..4 {
-                for y in cy * 12..((cy + 1) * 12).min(29) {
-                    assert!(contains(p.passes[0], cx, y));
-                }
-            }
-        }
     }
 
     #[test]
@@ -181,12 +157,8 @@ mod tests {
                     for x in 4..37 {
                         let cx = (x as i32 - origin[0]) as u32 / cell;
                         let cy = (y as i32 - origin[1]) as u32 / cell;
-                        assert!(contains(p.passes[1], cx, cy));
-                        let first_y = (origin[1] + (cy * cell) as i32).max(0) as u32;
-                        let end_y = (origin[1] + ((cy + 1) * cell) as i32).min(29) as u32;
-                        for sy in first_y..end_y {
-                            assert!(contains(p.passes[0], cx, sy));
-                        }
+                        assert!(contains(p.passes[0], cx, cy));
+                        assert_eq!(p.passes[1], Region::default());
                     }
                 }
             }
@@ -214,7 +186,10 @@ mod tests {
             );
             assert_eq!(p.passes[0].origin, [0, 0]);
             assert_eq!(p.passes[1].origin, [0, 0]);
-            assert_eq!(p.passes[0].extent[1], 29);
+            assert_eq!(
+                p.passes[0].extent[1],
+                if cell == 0 { 29 } else { 29u32.div_ceil(cell) }
+            );
         }
     }
 }

@@ -6,22 +6,22 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {parseArgs} from 'node:util';
 import {createHash} from 'node:crypto';
-const help = `Usage: node scripts/benchmark-ui-glass.mjs --before PATH --after PATH [--seconds 8] [--repeats 3]
+const help = `Usage: node scripts/benchmark-ui-glass.mjs --before PATH --after PATH [--seconds 15] [--repeats 3]
 Compare two already-built Release binaries at the native fullscreen resolution,
 with the same saved scene/quality and Debug Panel searching UI Glass. Runs
 pixelated glass, hidden/muted with --perf; alternates variant order.
 Requires a Vulkan display. Stop other game/GPU jobs before running; do not build
 concurrently. Uses isolated config copies, never writes your settings.
-Default: 8 seconds after loading per case, 3 paired repeats (6 runs).
-Retains the last 30 CPU frame samples and up to 3 GPU scope samples per run;
-reports median frame, total GPU and egui GPU milliseconds. These short diagnostic
+Default: 15 seconds after loading per case, 3 paired repeats (6 runs).
+Retains the last 30 regularly logged CPU frame samples and up to 3 GPU scope
+samples per run; reports median frame, total GPU and egui GPU milliseconds. These short diagnostic
 samples are not a general performance-budget acceptance or a VSync-free benchmark.
 Evidence: target/matte-perf/paired-*/ including logs, hashes and summary.json.
 Exit: 0 captured/help, 1 runtime/evidence failure, 2 invalid arguments.`;
 let options;
 try {
     options = parseArgs({options: {before: {type: 'string'}, after: {type: 'string'},
-        seconds: {type: 'string', default: '8'}, repeats: {type: 'string', default: '3'},
+        seconds: {type: 'string', default: '15'}, repeats: {type: 'string', default: '3'},
         help: {type: 'boolean'}}}).values;
     if (options.help) { console.log(help); process.exit(0); }
     if (!options.before || !options.after || !Number.isFinite(+options.seconds) || +options.seconds < 8 ||
@@ -50,7 +50,10 @@ try {
         for (const variant of repeat % 2 ? ['after', 'before'] : ['before', 'after']) {
             const name = `${repeat}-pixelated-${variant}`;
             const env = {...process.env, RUST_LOG: 'info'};
-            for (const key of Object.keys(env)) if (key.startsWith('RE_FLORA_') || key.startsWith('VK_LAYER')) delete env[key];
+            // Keep loader discovery paths (required by the macOS Vulkan SDK),
+            // while clearing optional validation settings for matched timings.
+            for (const key of Object.keys(env)) if (key.startsWith('RE_FLORA_') ||
+                (key.startsWith('VK_LAYER') && key !== 'VK_LAYER_PATH')) delete env[key];
             delete env.VK_INSTANCE_LAYERS;
             if (env.DISPLAY) { delete env.WAYLAND_DISPLAY; delete env.WAYLAND_SOCKET; }
             Object.assign(env, {RE_FLORA_ROOT: runtime, RE_FLORA_DEBUG_PANEL_REVIEW: '1', RE_FLORA_DEBUG_SEARCH_REVIEW: 'UI Glass'});
@@ -61,7 +64,9 @@ try {
             assert.equal(run.status, 0, `${name}: ${run.error ?? 'app failed'}`);
             assert.doesNotMatch(log, /\bERROR\b|VUID|SYNC-HAZARD|panicked at/);
             assert.match(log, /phase=complete failures=0/);
-            const frame = [...log.matchAll(/\[PERF\]\[FRAME\] frame \d+ total ([\d.]+)ms/g)].map(m => +m[1]).slice(-30);
+            // [PERF][FRAME] also logs slow frames outside the regular cadence;
+            // including those would bias this sample toward the slower variant.
+            const frame = [...log.matchAll(/\[PERF\] frame \d+ total ([\d.]+)ms/g)].map(m => +m[1]).slice(-30);
             const gpu = [...log.matchAll(/frame.render=(\d+)us/g)].map(m => +m[1] / 1000).slice(-3);
             const ui = [...log.matchAll(/egui.render=(\d+)us/g)].map(m => +m[1] / 1000).slice(-3);
             assert.ok(frame.length === 30 && gpu.length && ui.length, `${name}: insufficient steady timing samples`);
