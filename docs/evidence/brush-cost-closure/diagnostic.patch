@@ -1,0 +1,576 @@
+diff --git a/src/app/core/brush_cost_research.rs b/src/app/core/brush_cost_research.rs
+new file mode 100644
+index 00000000..f81aa0fe
+--- /dev/null
++++ b/src/app/core/brush_cost_research.rs
+@@ -0,0 +1,362 @@
++//! Disposable, opt-in Release research replay. Not a player feature.
++//! Every timed call uses the production App edit/publication interface. Fixture/reset/readback
++//! validation are outside the event timer. Run only in an isolated worktree, with --flat-terrain.
++use super::*;
++use crate::app::world_edits::TerrainBrushEdit;
++use crate::builder::{FloraInstanceResources, Instance};
++use std::collections::BTreeMap;
++
++pub(super) struct Replay {
++    case: String,
++    frame: u32,
++    sample: u32,
++    samples: u32,
++    seed_step: usize,
++    edit: TerrainBrushEdit,
++    events: Vec<serde_json::Value>,
++    baseline: RootMap,
++    output: std::path::PathBuf,
++}
++
++impl Replay {
++    pub(super) fn from_env() -> Result<Option<Self>> {
++        let Ok(case) = std::env::var("RE_FLORA_BRUSH_RESEARCH") else {
++            return Ok(None);
++        };
++        let parts: Vec<_> = case.split('-').collect();
++        anyhow::ensure!(
++            parts.len() == 3,
++            "expected <add|remove|dig|place|noop>-<empty|sparse|dense>-<tiny|point|long|cross>"
++        );
++        anyhow::ensure!(
++            ["add", "remove", "dig", "place", "noop"].contains(&parts[0]),
++            "invalid operation"
++        );
++        let seed_step = match parts[1] {
++            "empty" => 0,
++            "sparse" => 16,
++            "dense" => 2,
++            _ => anyhow::bail!("invalid density"),
++        };
++        let (a, b, r) = match parts[2] {
++            "tiny" => (
++                Vec3::new(128., 127.5, 112.),
++                Vec3::new(128., 127.5, 112.),
++                2.,
++            ),
++            "point" => (
++                Vec3::new(128., 127.5, 112.),
++                Vec3::new(128., 127.5, 112.),
++                14.,
++            ),
++            "long" => (
++                Vec3::new(64., 127.5, 64.),
++                Vec3::new(224., 127.5, 176.),
++                14.,
++            ),
++            "cross" => (
++                Vec3::new(192., 127.5, 96.),
++                Vec3::new(320., 127.5, 160.),
++                14.,
++            ),
++            _ => anyhow::bail!("invalid shape"),
++        };
++        let output = std::env::var("RE_FLORA_BRUSH_REPORT")?.into();
++        let samples = std::env::var("RE_FLORA_BRUSH_SAMPLES")
++            .ok()
++            .map(|s| s.parse())
++            .transpose()?
++            .unwrap_or(30);
++        anyhow::ensure!((3..=200).contains(&samples), "sample count 3..200");
++        Ok(Some(Self {
++            case,
++            frame: 0,
++            sample: 0,
++            samples,
++            seed_step,
++            edit: TerrainBrushEdit {
++                start: a / 256.,
++                end: b / 256.,
++                radius: r / 256.,
++            },
++            events: vec![],
++            baseline: BTreeMap::new(),
++            output,
++        }))
++    }
++
++    fn reset(&self, app: &mut App) -> Result<()> {
++        app.vulkan_ctx.device().wait_idle();
++        // A fixed top slab, away from the tree at z=256. No persistence/save calls.
++        let origin = UVec3::new(32, 96, 32);
++        let dim = UVec3::new(448, 64, 160);
++        let mut bytes = vec![0u8; dim.element_product() as usize];
++        for z in 0..dim.z {
++            for y in 0..32 {
++                for x in 0..dim.x {
++                    bytes[(x + dim.x * (y + dim.y * z)) as usize] = 0x32;
++                }
++            }
++        }
++        app.plain_builder
++            .write_chunk_atlas_region(origin, dim, &bytes)?;
++        // Remove previous ordinary roots before publishing restored terrain.
++        for (_, r) in &mut app
++            .surface_builder
++            .resources
++            .instances
++            .chunk_flora_instances
++        {
++            for s in 0..2 {
++                r.write_species_instances(s, &[])?;
++            }
++        }
++        let change =
++            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildMeshWithoutFlora(
++                UAabb3::new(origin, origin + dim - UVec3::ONE),
++            )])?
++            .unwrap();
++        app.publish_visible_terrain(change)?;
++        if self.seed_step > 0 {
++            for (_, r) in &mut app
++                .surface_builder
++                .resources
++                .instances
++                .chunk_flora_instances
++            {
++                let mut roots = [Vec::new(), Vec::new()];
++                for z in (33u32..480).step_by(self.seed_step) {
++                    for x in (33u32..480).step_by(self.seed_step) {
++                        let p = UVec3::new(x, 127, z);
++                        if p / 256 != r.chunk_id {
++                            continue;
++                        }
++                        let local = p % 256;
++                        let s =
++                            ((x / self.seed_step as u32 + z / self.seed_step as u32) % 2) as usize;
++                        roots[s].push(Instance {
++                            packed_local_pos: local.x
++                                | (local.y << 8)
++                                | (local.z << 16)
++                                | (255 << 24),
++                            spawn_start_ms: u32::MAX,
++                        });
++                    }
++                }
++                for (s, roots) in roots.iter().enumerate() {
++                    r.write_species_instances(s, roots)?;
++                }
++            }
++        }
++        app.player_tools.planting.flora_index = 0;
++        if self.case.starts_with("noop-") {
++            app.apply_surface_flora_regeneration_at(self.edit, 7, true, 10_000)?;
++        }
++        app.surface_builder
++            .refresh_grass_soil_cover(&mut app.plain_builder)?;
++        Ok(())
++    }
++}
++
++// Stable species/root keys and whole instance payload; mutable draw order is not identity.
++type RootKey = (u32, u32, u32, usize, u32);
++type RootMap = BTreeMap<RootKey, (u32, u32, u32)>;
++fn roots(app: &App) -> Result<RootMap> {
++    let mut result = BTreeMap::new();
++    for (_, r) in &app
++        .surface_builder
++        .resources
++        .instances
++        .chunk_flora_instances
++    {
++        for s in 0..2 {
++            let count = r.species_len(s);
++            if count == 0 {
++                continue;
++            }
++            let data = r.resource.instances_buf.read_back_range(
++                u64::from(FloraInstanceResources::species_offset(s)) * 8,
++                u64::from(count) * 8,
++            )?;
++            let instances: &[Instance] =
++                bytemuck::try_cast_slice(&data).map_err(|e| anyhow::anyhow!("{e}"))?;
++            let hydration: BTreeMap<_, _> = r.hydration[s].iter().copied().collect();
++            for i in instances {
++                let root = i.packed_local_pos & 0xffffff;
++                let old = result.insert(
++                    (r.chunk_id.x, r.chunk_id.y, r.chunk_id.z, s, root),
++                    (
++                        i.packed_local_pos >> 24,
++                        i.spawn_start_ms,
++                        hydration[&root].to_bits(),
++                    ),
++                );
++                anyhow::ensure!(old.is_none(), "duplicate grass root");
++            }
++        }
++    }
++    Ok(result)
++}
++fn hash(data: impl IntoIterator<Item = u8>) -> String {
++    let h = data.into_iter().fold(0xcbf29ce484222325u64, |h, b| {
++        (h ^ u64::from(b)).wrapping_mul(0x100000001b3)
++    });
++    format!("{h:016x}")
++}
++
++impl App {
++    pub(super) fn advance_brush_cost_research(&mut self) -> Result<bool> {
++        let Some(mut replay) = self.brush_cost_research.take() else {
++            return Ok(false);
++        };
++        let result = (|| -> Result<bool> {
++            // Reset one frame, then render 8 settled frames before each measured edit.
++            if replay.frame.is_multiple_of(10) {
++                replay.reset(self)?;
++                replay.baseline = roots(self)?;
++            }
++            if replay.frame % 10 == 8 {
++                // Avoid a GPU readback / O(N log N) validation walk just before the timer:
++                // it would consume the queue backlog we intend to measure. The expensive
++                // baseline capture belongs to reset, eight rendered frames earlier.
++                let before = &replay.baseline;
++                let water: Vec<_> = self
++                    .surface_builder
++                    .resources
++                    .instances
++                    .chunk_flora_instances
++                    .iter()
++                    .flat_map(|(_, r)| {
++                        r.hydration
++                            .iter()
++                            .take(2)
++                            .enumerate()
++                            .flat_map(move |(s, values)| {
++                                values.iter().map(move |&(root, value)| {
++                                    (
++                                        (r.chunk_id.x, r.chunk_id.y, r.chunk_id.z, s, root),
++                                        value.to_bits(),
++                                    )
++                                })
++                            })
++                    })
++                    .collect();
++                log::info!(
++                    "[BRUSH_RESEARCH] begin case={} sample={} warmup={} roots={}",
++                    replay.case,
++                    replay.sample,
++                    replay.sample < 3,
++                    before.len()
++                );
++                let preflight = Instant::now();
++                if std::env::var_os("RE_FLORA_BRUSH_PREFLIGHT_DRAIN").is_some() {
++                    self.vulkan_ctx.device().wait_idle();
++                }
++                let preflight_ms = preflight.elapsed().as_secs_f64() * 1000.;
++                let started = Instant::now();
++                let mut changed = 0;
++                let op = replay.case.split('-').next().unwrap();
++                match op {
++                    "add" | "noop" => {
++                        self.apply_surface_flora_regeneration_at(replay.edit, 7, true, 10_000)?
++                    }
++                    "remove" => self.apply_surface_flora_removal(replay.edit)?,
++                    "dig" => {
++                        let result = self.apply_surface_terrain_removal(
++                            replay.edit,
++                            None,
++                            Some(65_536),
++                            None,
++                        )?;
++                        changed = result.stats.removed_counts.iter().sum();
++                    }
++                    "place" => {
++                        let result = self.apply_surface_terrain_placement(
++                            replay.edit,
++                            crate::builder::VOXEL_TYPE_DIRT,
++                            65_536,
++                        )?;
++                        changed = result.stats.added_counts.iter().sum();
++                    }
++                    _ => unreachable!(),
++                }
++                let edit_ms = started.elapsed().as_secs_f64() * 1000.;
++                let after = roots(self)?;
++                if op == "add" || op == "noop" || op == "remove" {
++                    for (key, value) in before {
++                        if let Some(next) = after.get(key) {
++                            anyhow::ensure!(
++                                (value.0, value.1) == (next.0, next.1),
++                                "surviving grass payload changed"
++                            );
++                        }
++                    }
++                    for (key, value) in water {
++                        if let Some(next) = after.get(&key) {
++                            anyhow::ensure!(value == next.2, "surviving grass hydration changed");
++                        }
++                    }
++                    if op == "add" {
++                        anyhow::ensure!(after.len() >= before.len(), "add deleted roots");
++                    }
++                    if op == "remove" {
++                        anyhow::ensure!(after.len() <= before.len(), "remove added roots");
++                    }
++                    if op == "noop" {
++                        anyhow::ensure!(
++                            before.keys().eq(after.keys()),
++                            "repeat grass dab is not idempotent"
++                        );
++                    }
++                }
++                let keys: Vec<u8> = after
++                    .iter()
++                    .flat_map(|(key, value)| {
++                        [key.0, key.1, key.2, key.3 as u32, key.4, value.0, value.1]
++                            .into_iter()
++                            .flat_map(u32::to_le_bytes)
++                    })
++                    .collect();
++                let root_hash = hash(keys);
++                // Exact changed region, outside all timers. Ignore appearance/moisture bits.
++                let origin = (replay.edit.start.min(replay.edit.end) * 256.
++                    - Vec3::splat(replay.edit.radius * 256. + 2.))
++                .floor()
++                .as_uvec3();
++                let end = (replay.edit.start.max(replay.edit.end) * 256.
++                    + Vec3::splat(replay.edit.radius * 256. + 2.))
++                .ceil()
++                .as_uvec3();
++                let atlas = self
++                    .plain_builder
++                    .read_chunk_atlas_region(origin, end - origin)?;
++                let atlas_hash = hash(atlas.into_iter().map(|b| b & 15));
++                let event = serde_json::json!({"sample":replay.sample,"warmup":replay.sample<3,"edit_ms":edit_ms,"preflight_ms":preflight_ms,"before_roots":before.len(),"after_roots":after.len(),"changed_voxels":changed,"root_hash":root_hash,"atlas_hash":atlas_hash});
++                log::info!("[BRUSH_RESEARCH] end case={} event={}", replay.case, event);
++                replay.events.push(event);
++                replay.sample += 1;
++                if replay.sample >= replay.samples + 3 {
++                    if let Some(p) = replay.output.parent() {
++                        std::fs::create_dir_all(p)?;
++                    }
++                    std::fs::write(
++                        &replay.output,
++                        serde_json::to_string_pretty(
++                            &serde_json::json!({"case":replay.case,"events":replay.events,"scope":"production edit call; excludes input pick, fixture reset, validation and future frames"}),
++                        )?,
++                    )?;
++                    log::info!(
++                        "[BRUSH_RESEARCH] complete case={} samples={}",
++                        replay.case,
++                        replay.samples
++                    );
++                    return Ok(true);
++                }
++            }
++            replay.frame += 1;
++            Ok(false)
++        })();
++        self.brush_cost_research = Some(replay);
++        result
++    }
++}
+diff --git a/src/app/core/mod.rs b/src/app/core/mod.rs
+index 24c4542e..1e225ada 100644
+--- a/src/app/core/mod.rs
++++ b/src/app/core/mod.rs
+@@ -5,6 +5,7 @@ use crate::util::Timer;
+
+ mod authored_flora_bench;
+ mod boot;
++mod brush_cost_research;
+ mod butterfly_foraging_review;
+ mod camera_control;
+ mod camera_snapshot_ui;
+@@ -487,6 +488,7 @@ pub struct App {
+     frame_timing_panel_visible: bool,
+     frame_timing_snapshot: FrameTimingSnapshot,
+     soil_performance_bench: Option<soil_performance_bench::SoilPerformanceBench>,
++    brush_cost_research: Option<brush_cost_research::Replay>,
+     soil_bag_preview: soil_bag_preview::State,
+     soil_shovel: soil_shovel::State,
+     card_display_visible: bool,
+@@ -1613,6 +1615,7 @@ impl App {
+             frame_timing_panel_visible: render.perf_logging,
+             frame_timing_snapshot: FrameTimingSnapshot::default(),
+             soil_performance_bench: soil_performance_bench::SoilPerformanceBench::from_env()?,
++            brush_cost_research: brush_cost_research::Replay::from_env()?,
+             soil_bag_preview: soil_bag_preview::State::from_env()?,
+             soil_shovel: Default::default(),
+             card_display_visible: false,
+@@ -3196,6 +3199,13 @@ impl App {
+                     log::warn!("Failed to prepare kick leaf rustle: {error:#}");
+                 }
+
++                if self
++                    .advance_brush_cost_research()
++                    .expect("isolated brush research")
++                {
++                    self.on_terminate(event_loop);
++                    return;
++                }
+                 self.advance_soil_performance_bench()
+                     .expect("soil performance replay");
+                 if TreeBench::run_next(self) {
+diff --git a/src/builder/plain/mod.rs b/src/builder/plain/mod.rs
+index ec392718..b776cd1c 100644
+--- a/src/builder/plain/mod.rs
++++ b/src/builder/plain/mod.rs
+@@ -13,7 +13,6 @@ use anyhow::{Context, Result};
+ use bytemuck::{Pod, Zeroable};
+ use glam::{IVec3, UVec3, Vec3};
+ use re_flora_vkn::execute_one_time_command;
+-use re_flora_vkn::execute_one_time_gpu_job;
+ use re_flora_vkn::vk;
+ use re_flora_vkn::Allocator;
+ use re_flora_vkn::Buffer;
+@@ -1862,40 +1861,73 @@ impl PlainBuilder {
+             _pad0: [0; 12],
+         };
+         self.next_edit_sample_seed = self.next_edit_sample_seed.wrapping_add(1);
++        // Isolated research instrumentation; never a production optimization.
++        let research = std::env::var_os("RE_FLORA_EDIT_COST_PROBE").is_some();
++        let query = research
++            .then(|| {
++                re_flora_vkn::TimestampQueryPool::maybe_new(&self.vulkan_ctx, 3, "EDIT_COST_PROBE")
++            })
++            .flatten();
++        let drain_start = Instant::now();
++        if research && std::env::var_os("RE_FLORA_EDIT_DRAIN").is_some() {
++            self.vulkan_ctx.device().wait_idle();
++        }
++        let drain_us = drain_start.elapsed().as_secs_f64() * 1e6;
+         let gpu_start = Instant::now();
+-        execute_one_time_gpu_job(
+-            self.vulkan_ctx.device(),
+-            self.vulkan_ctx.command_pool(),
+-            &self.vulkan_ctx.get_general_queue(),
+-            |cmdbuf| {
+-                cmdbuf.use_buffer(&self.resources.chunk_modify_info, BufferUse::HostWrite);
+-                cmdbuf.use_buffer(&self.resources.trunk_bvh_nodes, BufferUse::HostWrite);
+-                cmdbuf.use_buffer(&self.resources.round_cones, BufferUse::HostWrite);
+-                cmdbuf.use_buffer(&self.resources.cuboids, BufferUse::HostWrite);
+-                cmdbuf.use_buffer(&self.resources.spheres, BufferUse::HostWrite);
+-                cmdbuf.use_buffer(&self.resources.edit_stats, BufferUse::HostWrite);
+-                cmdbuf.use_buffer(
+-                    &self.resources.edit_removal_candidates,
+-                    BufferUse::HostWrite,
+-                );
+-                self.chunk_modify_ppl.record(
+-                    cmdbuf,
+-                    Extent3D {
+-                        width: dim.x,
+-                        height: dim.y,
+-                        depth: dim.z,
+-                    },
+-                    None,
+-                );
+-                self.chunk_modify_sample_ppl.record(
+-                    cmdbuf,
+-                    Extent3D::new(EDIT_REMOVAL_SAMPLE_COUNT as u32, 1, 1),
+-                    Some(bytemuck::bytes_of(&sample_push)),
+-                );
+-                cmdbuf.use_buffer(&self.resources.edit_stats, BufferUse::HostRead);
+-                cmdbuf.use_buffer(&self.resources.edit_removal_sample, BufferUse::HostRead);
+-            },
+-        );
++        let cmdbuf = CommandBuffer::new(self.vulkan_ctx.device(), self.vulkan_ctx.command_pool());
++        cmdbuf.begin(true);
++        let record = |cmdbuf: &CommandBuffer| {
++            cmdbuf.use_buffer(&self.resources.chunk_modify_info, BufferUse::HostWrite);
++            cmdbuf.use_buffer(&self.resources.trunk_bvh_nodes, BufferUse::HostWrite);
++            cmdbuf.use_buffer(&self.resources.round_cones, BufferUse::HostWrite);
++            cmdbuf.use_buffer(&self.resources.cuboids, BufferUse::HostWrite);
++            cmdbuf.use_buffer(&self.resources.spheres, BufferUse::HostWrite);
++            cmdbuf.use_buffer(&self.resources.edit_stats, BufferUse::HostWrite);
++            cmdbuf.use_buffer(
++                &self.resources.edit_removal_candidates,
++                BufferUse::HostWrite,
++            );
++            if let Some(q) = &query {
++                q.record_reset(cmdbuf, 3);
++                q.record_timestamp(cmdbuf, re_flora_vkn::PipelineStage::COMPUTE_SHADER, 0);
++            }
++            self.chunk_modify_ppl.record(
++                cmdbuf,
++                Extent3D {
++                    width: dim.x,
++                    height: dim.y,
++                    depth: dim.z,
++                },
++                None,
++            );
++            if let Some(q) = &query {
++                q.record_timestamp(cmdbuf, re_flora_vkn::PipelineStage::COMPUTE_SHADER, 1);
++            }
++            self.chunk_modify_sample_ppl.record(
++                cmdbuf,
++                Extent3D::new(EDIT_REMOVAL_SAMPLE_COUNT as u32, 1, 1),
++                Some(bytemuck::bytes_of(&sample_push)),
++            );
++            if let Some(q) = &query {
++                q.record_timestamp(cmdbuf, re_flora_vkn::PipelineStage::COMPUTE_SHADER, 2);
++            }
++            cmdbuf.use_buffer(&self.resources.edit_stats, BufferUse::HostRead);
++            cmdbuf.use_buffer(&self.resources.edit_removal_sample, BufferUse::HostRead);
++        };
++        record(&cmdbuf);
++        cmdbuf.end();
++        let record_us = gpu_start.elapsed().as_secs_f64() * 1e6;
++        let submitted = Instant::now();
++        let job = cmdbuf.submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "edit.cost_probe")?;
++        let submit_us = submitted.elapsed().as_secs_f64() * 1e6;
++        let waiting = Instant::now();
++        let _completed = job.wait_complete()?;
++        let wait_us = waiting.elapsed().as_secs_f64() * 1e6;
++        if let Some(q) = &query {
++            let t = q.read_u64(3)?;
++            let scale = f64::from(q.timestamp_period_ns()) / 1000.;
++            log::info!("[EDIT_COST_PROBE] dim={:?} fill={} drain_us={drain_us:.3} record_us={record_us:.3} submit_us={submit_us:.3} wait_us={wait_us:.3} modify_gpu_us={:.3} sample_gpu_us={:.3}", dim, fill_voxel_type, t[1].saturating_sub(t[0]) as f64 * scale, t[2].saturating_sub(t[1]) as f64 * scale);
++        }
+         crate::util::BENCH
+             .lock()
+             .unwrap()
+diff --git a/src/builder/surface/mod.rs b/src/builder/surface/mod.rs
+index 7a038cfd..11a88210 100644
+--- a/src/builder/surface/mod.rs
++++ b/src/builder/surface/mod.rs
+@@ -1593,6 +1593,7 @@ impl SurfaceBuilder {
+         paint_brush: species::FloraPaintBrushSettings,
+         mode: OccupancyEditMode,
+     ) -> Result<FloraRegenStats> {
++        let research_start = Instant::now();
+         if !self.chunk_bound.in_bound(chunk_id) {
+             return Err(anyhow::anyhow!("Chunk ID out of bounds"));
+         }
+@@ -1766,12 +1767,17 @@ impl SurfaceBuilder {
+         }
+
+         cmdbuf.end();
++        let prepare_us = research_start.elapsed().as_secs_f64() * 1e6;
++        let submitted = Instant::now();
+         let mut gpu_job =
+             cmdbuf.submit_gpu_job(&self.vulkan_ctx.get_general_queue(), "surface.flora_edit")?;
+         for retirement in descriptor_retirements {
+             gpu_job.retain_frame_retirement(retirement);
+         }
++        let submit_us = submitted.elapsed().as_secs_f64() * 1e6;
++        let waiting = Instant::now();
+         let _completed_gpu_job = gpu_job.wait_complete()?;
++        let wait_us = waiting.elapsed().as_secs_f64() * 1e6;
+
+         if let Some(timing) = self.pass_timing.as_ref() {
+             timing.collect_and_log(
+@@ -1797,10 +1803,16 @@ impl SurfaceBuilder {
+             chunk_resources_mut.set_species_len(species_idx, *len);
+             after_total = after_total.saturating_add(*len);
+         }
++        let hydration_start = Instant::now();
+         chunk_resources_mut.reconcile_grass_hydration()?;
++        let hydration_us = hydration_start.elapsed().as_secs_f64() * 1e6;
++        let authored_start = Instant::now();
+         if mode != OccupancyEditMode::ValidateTerrain {
+             self.sync_authored_flora_chunk_to_gpu(chunk_id)?;
+         }
++        if std::env::var_os("RE_FLORA_EDIT_COST_PROBE").is_some() {
++            log::info!("[GRASS_COST_PROBE] chunk={:?} mode={} before={} after={} prepare_us={prepare_us:.3} submit_us={submit_us:.3} wait_us={wait_us:.3} hydration_us={hydration_us:.3} authored_us={:.3} total_us={:.3}", chunk_id, mode as u32, before_total, after_total, authored_start.elapsed().as_secs_f64()*1e6, research_start.elapsed().as_secs_f64()*1e6);
++        }
+
+         let appended_total = if mode == OccupancyEditMode::Add {
+             after_total.saturating_sub(before_total)

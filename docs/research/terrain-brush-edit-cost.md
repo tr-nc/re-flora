@@ -2,6 +2,8 @@
 
 研究快照：`288a907f`，2026-10-29。只调研，未改变输入、笔刷、Rust 或 shader 实现。
 
+**第一轮历史调查。后续已补齐分段计时与 1,980 笔回放，结论以[闭环调研](terrain-brush-edit-cost-closure.md)为准：原先约 7 ms 的修改阶段主要是共享队列完成等待，而不是体素修改 kernel 自身。本文保留初始证据与假设，不再视为最新优先级。**
+
 [可视化报告](../reports/terrain-brush-edit-cost.html) · [保留的原始日志摘录](../evidence/terrain-brush-edit-cost.log)
 
 ## 结论与边界

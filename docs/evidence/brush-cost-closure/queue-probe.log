@@ -1,0 +1,28 @@
+Isolated Release queue attribution: selected raw logs, not a performance fix.
+Probe source commit 938911ad; later replay source 5a8b7efc.
+
+=== probe-far ===
+[19:38:49.347 INFO re_flora_vkn::context::physical_device] Selected physical device: Apple M4 Pro
+[19:38:49.386 INFO re_flora_vkn::swapchain] Chosen swapchain present mode: FIFO
+[19:38:50.666 INFO re_flora_vkn::swapchain] Chosen swapchain present mode: FIFO
+[19:38:52.215 INFO re_flora::app::core::vegetation::surface] [TREE_EDIT_DIAG] compile wait_ms=0.048 read_ms=0.263 append_ms=0.635 finish_ms=0.022 bind_ms=0.263 mesh_bind_ms=0.078 upload_ms=2.022 bounds=[UAabb3 { min: UVec3(236, 101, 237), max: UVec3(276, 145, 280) }]
+[19:38:57.237 INFO re_flora::builder::plain] [EDIT_COST_PROBE] dim=UVec3(30, 30, 30) fill=0 drain_us=0.542 record_us=69.792 submit_us=80.250 wait_us=7092.666 modify_gpu_us=16.042 sample_gpu_us=6.166
+[19:38:57.242 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] end step=0 edit_ms=13.413
+[19:39:00.238 INFO re_flora::builder::plain] [EDIT_COST_PROBE] dim=UVec3(30, 30, 29) fill=0 drain_us=0.417 record_us=72.833 submit_us=66.291 wait_us=236.291 modify_gpu_us=18.167 sample_gpu_us=3.416
+[19:39:00.241 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] end step=1 edit_ms=3.568
+[19:39:03.232 INFO re_flora::builder::plain] [EDIT_COST_PROBE] dim=UVec3(30, 30, 30) fill=0 drain_us=0.250 record_us=58.833 submit_us=72.291 wait_us=7271.583 modify_gpu_us=14.208 sample_gpu_us=5.250
+[19:39:03.235 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] end step=2 edit_ms=10.661
+[19:39:04.323 INFO re_flora] Application exited successfully
+
+=== probe-drain ===
+[19:39:12.906 INFO re_flora_vkn::context::physical_device] Selected physical device: Apple M4 Pro
+[19:39:12.955 INFO re_flora_vkn::swapchain] Chosen swapchain present mode: FIFO
+[19:39:13.729 INFO re_flora_vkn::swapchain] Chosen swapchain present mode: FIFO
+[19:39:15.254 INFO re_flora::app::core::vegetation::surface] [TREE_EDIT_DIAG] compile wait_ms=0.054 read_ms=0.268 append_ms=0.607 finish_ms=0.022 bind_ms=0.243 mesh_bind_ms=0.063 upload_ms=1.906 bounds=[UAabb3 { min: UVec3(236, 101, 237), max: UVec3(276, 145, 280) }]
+[19:39:20.273 INFO re_flora::builder::plain] [EDIT_COST_PROBE] dim=UVec3(30, 30, 30) fill=0 drain_us=6929.042 record_us=68.083 submit_us=73.667 wait_us=263.708 modify_gpu_us=18.833 sample_gpu_us=3.167
+[19:39:20.279 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] end step=0 edit_ms=13.166
+[19:39:23.268 INFO re_flora::builder::plain] [EDIT_COST_PROBE] dim=UVec3(30, 30, 29) fill=0 drain_us=7563.792 record_us=61.000 submit_us=67.917 wait_us=251.625 modify_gpu_us=18.041 sample_gpu_us=2.834
+[19:39:23.270 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] end step=1 edit_ms=11.024
+[19:39:26.270 INFO re_flora::builder::plain] [EDIT_COST_PROBE] dim=UVec3(30, 30, 30) fill=0 drain_us=7274.084 record_us=79.667 submit_us=93.834 wait_us=273.500 modify_gpu_us=18.792 sample_gpu_us=3.250
+[19:39:26.273 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] end step=2 edit_ms=10.835
+[19:39:27.344 INFO re_flora] Application exited successfully
