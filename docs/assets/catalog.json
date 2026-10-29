@@ -3,6 +3,19 @@
   "reviewed_on": "2026-10-24",
   "groups": [
     {
+      "id": "grass-wind-candidate",
+      "name": "草叶风声原件与循环候选",
+      "patterns": ["assets/sfx/grass-wind/*"],
+      "exclude": [],
+      "usage": "尚未加入运行时清单；原件、两秒裁切和 1.95 秒循环供试听及接入设计",
+      "decision": "本地素材准备；先评审方案再接入游戏，商用和公开分发权限待核实",
+      "source": "ElevenLabs SFX v3；截图确认 Loop on、8 秒、Prompt Influence 30%、改写 on；FFmpeg 50 ms 环形交叉淡化",
+      "gap": "生成时套餐、精确提交及服务改写提示词、商业和独立资源分发许可未提供；响度及短循环重复感待试听",
+      "evidence": ["assets/sfx/grass-wind/README.md", "src/audio/runtime_assets.rs"],
+      "purpose": "风吹过草叶的局部沙沙声候选，不是全场风声或脚步声；本轮不修改游戏音频",
+      "reviewed_on": "2026-10-29"
+    },
+    {
       "id": "bee-flight",
       "name": "蜜蜂飞行循环与来源",
       "patterns": ["assets/sfx/bee/*"],
