@@ -5,6 +5,9 @@ first-two-seconds crop and a loop-ready derivative, plus an integration proposal
 before changing game playback. **Not yet a runtime sound:** this folder is not in
 `src/audio/runtime_assets.rs`. Importing it does not make grass audible in-game.
 
+[HTML integration review with local audio previews](../../../docs/reports/grass-wind-audio.html)
+proposes bounded, world-anchored grass patches; playback implementation awaits review.
+
 ## Files
 
 All audio is stereo, 48,000 Hz, signed 16-bit PCM WAV.

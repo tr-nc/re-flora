@@ -4,7 +4,7 @@
 引用/许可人工审阅基线：`f9d0f2f41c8bdf95ea91da79601a51be4c1e51dd`；审阅日期：2026-10-24。
 文件数量、字节数与哈希来自当前 Git 跟踪文件的工作树内容，不代表自动重新审核过代码或许可。
 
-共 **676** 个登记文件/容器，**131.558 MiB**；
+共 **676** 个登记文件/容器，**131.559 MiB**；
 其中 `assets/` **556** 个，外部 **120** 个。
 随包说明也计文件；HTML 按容器计一个，不展开内嵌媒体；未按哈希去重。
 
@@ -111,7 +111,7 @@
 
 ## 引用与来源证据索引
 
-- **grass-wind-candidate**：[assets/sfx/grass-wind/README.md](../../assets/sfx/grass-wind/README.md)；[src/audio/runtime_assets.rs](../../src/audio/runtime_assets.rs)
+- **grass-wind-candidate**：[assets/sfx/grass-wind/README.md](../../assets/sfx/grass-wind/README.md)；[docs/reports/grass-wind-audio.html](../../docs/reports/grass-wind-audio.html)；[src/audio/runtime_assets.rs](../../src/audio/runtime_assets.rs)
 - **bee-flight**：[assets/sfx/bee/README.md](../../assets/sfx/bee/README.md)；[src/audio/runtime_assets.rs](../../src/audio/runtime_assets.rs)；[src/audio/bee_audio.rs](../../src/audio/bee_audio.rs)；[src/particles/bees.rs](../../src/particles/bees.rs)；[docs/reports/bee-audio.md](../../docs/reports/bee-audio.md)
 - **recorded-tree-leaves**：[assets/sfx/leaves-breeze/README.md](../../assets/sfx/leaves-breeze/README.md)；[assets/sfx/leaves-strong-wind/README.md](../../assets/sfx/leaves-strong-wind/README.md)；[scripts/prepare_tree_leaf_loops.py](../../scripts/prepare_tree_leaf_loops.py)；[src/audio/recorded_tree_leaves.rs](../../src/audio/recorded_tree_leaves.rs)；[src/audio/runtime_assets.rs](../../src/audio/runtime_assets.rs)
 - **apple-impacts**：[assets/sfx/apple-dirt/README.md](../../assets/sfx/apple-dirt/README.md)；[assets/sfx/apple-dirt/provenance.json](../../assets/sfx/apple-dirt/provenance.json)；[src/audio/apple_impacts.rs](../../src/audio/apple_impacts.rs)；[src/audio/runtime_assets.rs](../../src/audio/runtime_assets.rs)
