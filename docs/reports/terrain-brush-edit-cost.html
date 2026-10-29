@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>单次编辑的代价 · re-flora 调研</title>
+<style>
+:root{--ink:#18342d;--muted:#5b6e65;--green:#226a51;--line:#d6dfd5;--paper:#f5f6ee;--warm:#be703c}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.75 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}main{max-width:1140px;margin:auto;padding:64px 36px 48px}h1,h2,h3,p{margin:0}h1{font-size:clamp(34px,5.5vw,62px);line-height:1.16;letter-spacing:-2px;margin:18px 0 22px}h2{font-size:27px;letter-spacing:-.5px;margin-bottom:18px}h3{font-size:19px;margin-bottom:10px}.eyebrow{font:12px/1.6 ui-monospace,monospace;letter-spacing:2px;text-transform:uppercase;color:var(--green)}.intro{font-size:19px;max-width:770px;color:var(--muted)}.meta{display:flex;gap:10px;flex-wrap:wrap;margin:25px 0 0}.pill{font-size:12px;border:1px solid var(--line);border-radius:20px;padding:4px 12px}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:36px 0 48px}.metric{padding:25px;background:#e7ede1;border-top:3px solid var(--green)}.metric b{display:block;font-size:35px;font-weight:650;letter-spacing:-1px}.metric span{display:block;font-size:14px;color:var(--muted)}.metric small{display:block;font-size:12px;margin-top:12px;color:var(--muted)}section{margin-top:46px}.cols{display:grid;grid-template-columns:1fr 1fr;gap:22px}.card{background:#fffef8;border:1px solid var(--line);padding:27px;border-radius:6px}.flow{list-style:none;padding:0;margin:12px 0}.flow li{border-left:2px solid #afc7b8;padding:8px 0 8px 18px;position:relative}.flow li:before{content:"";position:absolute;width:8px;height:8px;background:var(--green);border-radius:50%;left:-5px;top:19px}.flow small{display:block;color:var(--muted);font-size:13px}.tag{font-size:11px;color:var(--green);background:#e4eee3;padding:3px 7px;border-radius:3px;margin-left:8px;white-space:nowrap}.note{font-size:14px;color:var(--muted)}.caution{border-left:3px solid var(--warm);padding:17px 21px;background:#f2e9db;margin-top:22px}.caution strong{color:#87502d}.bar{display:flex;height:47px;border-radius:4px;overflow:hidden;margin:22px 0 14px;font-size:14px;font-weight:600;color:white}.bar div{display:flex;align-items:center;justify-content:center}.bar .a{background:var(--green);width:67.75%}.bar .b{background:#789888;width:32.25%}.legend{display:flex;justify-content:space-between;gap:20px;font-size:14px;color:var(--muted)}.legend>div{flex:1}.legend strong{color:var(--ink)}.table-wrap{overflow:auto;margin:20px 0}table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;padding:13px 12px;border-bottom:1px solid var(--line);white-space:nowrap}th{color:var(--muted);font-weight:500;background:#edf1e7}td:not(:first-child){font-variant-numeric:tabular-nums}.steps{counter-reset:step;display:grid;gap:13px}.step{display:grid;grid-template-columns:40px 1fr;gap:16px;padding:22px 0;border-top:1px solid var(--line)}.step:before{counter-increment:step;content:"0" counter(step);font:24px/1.4 ui-monospace,monospace;color:var(--green)}.step p{color:var(--muted);font-size:15px}.step h3{margin-bottom:5px}.bottom{padding:26px 30px;background:var(--ink);color:#f1f5e8;margin-top:26px;border-radius:5px}.bottom p{color:#c6d6cc;margin-top:7px}a{color:var(--green);text-underline-offset:4px}footer{border-top:1px solid var(--line);padding-top:23px;margin-top:44px;font-size:13px;color:var(--muted)}footer a{margin-right:18px}.scope{margin-top:18px;font-size:13px;color:var(--muted)}@media(max-width:700px){main{padding:32px 20px}h1{letter-spacing:-1px}.metrics{grid-template-columns:1fr;gap:10px;margin:27px 0 35px}.metric{padding:16px 20px}.metric b{font-size:30px}.metric small{margin-top:4px}.cols{grid-template-columns:1fr}.card{padding:21px}.legend{flex-direction:column;gap:8px}section{margin-top:34px}.bar{font-size:12px}.step{gap:10px;grid-template-columns:34px 1fr}.intro{font-size:17px}.bottom{padding:22px}footer a{display:inline-block;margin-bottom:9px}}
+</style>
+</head>
+<body><main>
+<header><div class="eyebrow">re-flora / performance research / 2026.10.29</div>
+<h1>别补更多点，<br>先让每一笔更便宜。</h1>
+<p class="intro">优化空间确实存在。核心不是连线算法，而是一次局部编辑会触发多少整块工作，以及主线程要等 GPU 多少次。保留现有 capsule 连线兜底。</p>
+<div class="meta"><span class="pill">源码快照 288a907f</span><span class="pill">Apple M4 Pro · Release</span><span class="pill">只调研 · 未改实现</span></div></header>
+<div class="metrics">
+<div class="metric"><b>9.3–12.3 <span style="display:inline">ms</span></b><span>本机小范围挖地 / 次</span><small>6 笔诊断样本，1–2 chunks；非 p95。</small></div>
+<div class="metric"><b>256³ × 3</b><span>普通草编辑的全体积 dispatch</span><small>每个 chunk；另有实例转换和表面重建。</small></div>
+<div class="metric"><b>80 <span style="display:inline">ms</span></b><span>挖地与普通草刷的固定间隔</span><small>变快能减少额外卡顿，不会自动恢复轨迹。</small></div>
+</div>
+<section aria-labelledby="chain"><h2 id="chain">局部一笔，成本在哪里放大？</h2>
+<div class="cols">
+<article class="card"><h3>普通草 capsule 绘制 <span class="tag">无限材料模式</span></h3><ol class="flow">
+<li>按笔刷包围盒选 chunk<small>长线、跨边界会扩大候选范围。</small></li>
+<li>重新构建该 chunk 的表面<small>已有 sparse surface 优化，但仍需执行并等待。</small></li>
+<li>清占用图 → 实例写入 → 编辑 → 重建实例<small>clear / edit / rebuild 三次完整 256³ dispatch。</small></li>
+<li>读回所有普通草实例，重新对齐状态<small>CPU 根集合、含水量映射及上传随整块草数量增长。</small></li>
+</ol><p class="note">这是优先缩小工作量的对象，而不是继续优化 capsule 的几次距离运算。</p></article>
+<article class="card"><h3>地形挖 / 填 <span class="tag">保留草状态</span></h3><ol class="flow">
+<li>笔刷 AABB 内修改体素<small>atlas 修改已局部化；统计和粒子采样一起执行。</small></li>
+<li>提交 general queue，主线程等待<small>CPU 计时混合了排队、实际执行与同步。</small></li>
+<li>surface → contree → scene texture<small>按候选 chunk 重建；保留草路径仍有串行等待。</small></li>
+<li>草存活检查与派生系统通知<small>有草 chunk 的存活检查仍走整块 occupancy。</small></li>
+</ol><p class="note">应分别测「改体素」和「发布这一笔」，不能只盯着写入 shader。</p></article>
+</div>
+<p class="scope">适用范围：有限种子种草已经走单根追加，不走上述完整草刷流程；模型花卉是另一条 authored 路径。它们不能混用基准。</p>
+</section>
+<section aria-labelledby="measure"><h2 id="measure">实测：先把这段 7 ms 拆清楚</h2>
+<div class="card"><h3>far 回放 · 3 笔分段日志的平均成本</h3>
+<div class="bar" role="img" aria-label="terrain removal 平均 10.638 ms，其中提交修改并等待 7.208 ms，其余约 3.431 ms"><div class="a">提交修改并等待 · 7.208 ms</div><div class="b">其余 · 3.431 ms</div></div>
+<div class="legend"><div><strong>约 68% 在修改任务的 CPU wall time。</strong><br>包含录制、提交、GPU 排队、执行和等待，不是纯 shader 耗时。</div><div><strong>terrain removal 总均值 10.638 ms。</strong><br>其余包含准备、读回、表面/索引重建及发布；分段日志为累计均值。</div></div>
+<div class="table-wrap"><table><thead><tr><th>完整诊断调用</th><th>第 1 笔 · 2 chunks</th><th>第 2 笔 · 1 chunk</th><th>第 3 笔 · 1 chunk</th></tr></thead><tbody><tr><td>far</td><td>11.836 ms</td><td>9.737 ms</td><td>9.276 ms</td></tr><tr><td>near</td><td>12.348 ms</td><td>10.171 ms</td><td>9.815 ms</td></tr></tbody></table></div>
+<p class="note">半径约 14 voxel，每笔移除 568–616 个 dirt voxel。表格的外层调用还包含高度查询等，与上方 removal 计时范围不同。不是鼠标到显示的端到端延迟，也不是严格同工作量 A/B。</p>
+</div>
+<div class="cols" style="margin-top:22px">
+<div class="card"><h3>草：极小编辑也有固定扫描成本</h3><p>验收 fixture 中，两次微小草移除的 occupancy GPU 子流程为 <strong>0.738 / 0.767 ms</strong>；两次存活检查为 <strong>0.793 / 0.824 ms</strong>。</p><p class="note" style="margin-top:12px">不含表面重建与 CPU hydration，对普通草添加也不是完整笔刷基准。证据支持「固定成本存在」，不支持承诺完整提速幅度。</p></div>
+<div class="card"><h3>土壤变绿：已有增量路径</h3><p>1,024 / 65,536 个根的 fixture，单根变化后的 soil-cover refresh 中位数分别为 <strong>0.198 / 0.246 ms</strong>。</p><p class="note" style="margin-top:12px">每档 12 次，仅计 refresh，不含前置实例/含水量对齐。无变化约 0–0.001 ms，暂时不优先重写。</p></div>
+</div>
+<div class="caution"><strong>不能把读回与等待混为一谈。</strong>统计、采样结果的 CPU 复制各约 1 μs 或更低；约 7 ms 在此前的任务提交与等待。下一步需要独立 GPU timestamps 和 queue / wait 归因。</div>
+</section>
+<section aria-labelledby="plan"><h2 id="plan">建议怎么做，而不是先做什么小技巧</h2><div class="steps">
+<div class="step"><div><h3>补齐一笔的分段基线</h3><p>草 add/remove、地形 dig/place，覆盖稀草/密草、长段/短点、跨 chunk。分开 GPU 执行、等待、CPU 状态对齐和后续帧；先定位 7 ms 的真正来源。</p></div></div>
+<div class="step"><div><h3>让草编辑按局部表面 / 现有根工作</h3><p>移除、修剪、存活检查遍历根；添加遍历局部可种植表面并查重。稳定根身份，增量维护含水量与结构变化，避免每笔整块重排。只缩小 edit dispatch 还不能消除另外两个全量 pass。</p></div></div>
+<div class="step"><div><h3>让地形派生重建跟着真实变化走</h3><p>跳过无地形变化的重建，但保留植物清理语义；再收紧 dirty bounds / chunks。砖级更新必须维护法线邻域、跨界草存活及碰撞/光照依赖，不能靠降低质量换速度。</p></div></div>
+<div class="step"><div><h3>等待确实主导时，再做提交流水化</h3><p>独立 scratch、批量提交和延迟读回需要明确的所有权。不能直接删除 wait 或把旧逻辑丢到后台线程：库存、可见 revision、拾取和 GPU 资源生命周期都要一致。</p></div></div>
+</div>
+<div class="bottom"><h3>这次不动连线兜底，也不先提高编辑频率。</h3><p>80 ms 节流与单 pending pick 是独立上限。降低成本能减少额外停顿；若以后要保留更细轨迹，再单独讨论高频输入采样与编辑消费解耦。</p></div>
+</section>
+<section aria-labelledby="bounds"><h2 id="bounds">证据能说明什么，尚不能说明什么</h2><div class="card"><p><strong>已确认：</strong>整块工作放大、串行等待、固定采样间隔；Release 小范围挖地及稀疏草 GPU 子流程的实际成本。</p><p style="margin-top:12px"><strong>尚未测：</strong>完整普通草添加、密草 CPU hydration、长 capsule、真实鼠标到显示的 p95。尚无候选实现，因此没有提速百分比或性能验收承诺。</p><p class="note" style="margin-top:16px">Release 构建与 hidden/mute smoke 成功。5 个研究运行均成功退出，日志未见 ERROR / VUID / panic；源码、生成文件和 tracked 配置未改。历史 RTX 数据没有作为本机证据。</p></div></section>
+<footer><p><a href="../research/terrain-brush-edit-cost.md">完整研究笔记与源码索引</a><a href="../evidence/terrain-brush-edit-cost.log">原始测量摘录</a></p><p>研究快照，不是当前行为的长期维护手册。数据来自本机 Release 原生 app；报告不依赖外部图片、字体或脚本。</p></footer>
+</main></body></html>

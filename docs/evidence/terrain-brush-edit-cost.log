@@ -1,0 +1,115 @@
+Terrain brush cost research — selected raw Release evidence
+Tested source: 288a907fe8b8c68c65a4c490734056476e6f0b21
+Binary SHA256: f8f0a5d90e5d9b1e37989503e14ee5e964c8281626da789a801dc91cf8edb5d6
+Platform: ProductName:		macOS
+ProductVersion:		26.6.2
+BuildVersion:		25G83
+These are filtered excerpts, not complete logs. Full local logs: target/perf/edit-cost-research/
+Measurements are diagnostics, not an A/B optimization result.
+
+===== far.log =====
+[19:23:56.716 INFO re_flora_vkn::context::physical_device] Selected physical device: Apple M4 Pro
+[19:23:56.911 INFO re_flora::tracer::scene_resolution] [SCENE_PIXELS] screen=5120x2880 scene=1024x576 ratio=25:1 pixel_stride=5 pixels=1024x576 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native
+[19:23:57.442 INFO re_flora::tracer::scene_resolution] [SCENE_PIXELS] screen=5120x2880 scene=1024x576 ratio=25:1 pixel_stride=5 pixels=1024x576 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native
+[19:24:03.993 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] begin step=0 xz=Vec2(1.625, 1.0) radius=0.055
+[19:24:04.005 INFO re_flora::app::core::visible_terrain] [PERF][VISIBLE_TERRAIN_PUBLICATION] chunks=2 terrain_changed=true revision=Some(2) elapsed_ms=4.66
+[19:24:04.005 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] removed_by_material=[0, 0, 616, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+[19:24:04.005 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] end step=0 edit_ms=11.836
+[19:24:06.992 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] begin step=1 xz=Vec2(1.625, 1.08) radius=0.055
+[19:24:07.001 INFO re_flora::app::core::visible_terrain] [PERF][VISIBLE_TERRAIN_PUBLICATION] chunks=1 terrain_changed=true revision=Some(3) elapsed_ms=2.42
+[19:24:07.001 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] removed_by_material=[0, 0, 616, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+[19:24:07.001 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] end step=1 edit_ms=9.737
+[19:24:09.992 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] begin step=2 xz=Vec2(1.625, 1.16) radius=0.055
+[19:24:10.001 INFO re_flora::app::core::visible_terrain] [PERF][VISIBLE_TERRAIN_PUBLICATION] chunks=1 terrain_changed=true revision=Some(4) elapsed_ms=2.47
+[19:24:10.001 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] removed_by_material=[0, 0, 616, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+[19:24:10.001 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] end step=2 edit_ms=9.276
+[19:24:11.064 INFO re_flora] Application exited successfully
+[19:24:11.064 INFO re_flora] Run log saved to /Users/bytedance/code/side-projects/re-flora/target/re-flora-logs/re-flora-20261029-192356.522-22462.log
+
+===== near.log =====
+[19:24:11.298 INFO re_flora_vkn::context::physical_device] Selected physical device: Apple M4 Pro
+[19:24:11.508 INFO re_flora::tracer::scene_resolution] [SCENE_PIXELS] screen=5120x2880 scene=1024x576 ratio=25:1 pixel_stride=5 pixels=1024x576 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native
+[19:24:12.075 INFO re_flora::tracer::scene_resolution] [SCENE_PIXELS] screen=5120x2880 scene=1024x576 ratio=25:1 pixel_stride=5 pixels=1024x576 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native
+[19:24:18.616 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] begin step=0 xz=Vec2(1.125, 1.0) radius=0.055
+[19:24:18.629 INFO re_flora::app::core::visible_terrain] [PERF][VISIBLE_TERRAIN_PUBLICATION] chunks=2 terrain_changed=true revision=Some(2) elapsed_ms=4.75
+[19:24:18.629 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] removed_by_material=[0, 0, 593, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+[19:24:18.629 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] end step=0 edit_ms=12.348
+[19:24:21.624 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] begin step=1 xz=Vec2(1.125, 1.08) radius=0.055
+[19:24:21.635 INFO re_flora::app::core::visible_terrain] [PERF][VISIBLE_TERRAIN_PUBLICATION] chunks=1 terrain_changed=true revision=Some(3) elapsed_ms=2.51
+[19:24:21.635 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] removed_by_material=[0, 0, 579, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+[19:24:21.635 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] end step=1 edit_ms=10.171
+[19:24:24.621 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] begin step=2 xz=Vec2(1.125, 1.16) radius=0.055
+[19:24:24.631 INFO re_flora::app::core::visible_terrain] [PERF][VISIBLE_TERRAIN_PUBLICATION] chunks=1 terrain_changed=true revision=Some(4) elapsed_ms=2.56
+[19:24:24.631 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] removed_by_material=[0, 0, 568, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+[19:24:24.631 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] end step=2 edit_ms=9.815
+[19:24:25.685 INFO re_flora] Application exited successfully
+[19:24:25.685 INFO re_flora] Run log saved to /Users/bytedance/code/side-projects/re-flora/target/re-flora-logs/re-flora-20261029-192411.091-22543.log
+
+===== far-instrumented.log =====
+[19:25:03.119 INFO re_flora_vkn::context::physical_device] Selected physical device: Apple M4 Pro
+[19:25:03.317 INFO re_flora::tracer::scene_resolution] [SCENE_PIXELS] screen=5120x2880 scene=1024x576 ratio=25:1 pixel_stride=5 pixels=1024x576 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native
+[19:25:03.817 INFO re_flora::tracer::scene_resolution] [SCENE_PIXELS] screen=5120x2880 scene=1024x576 ratio=25:1 pixel_stride=5 pixels=1024x576 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native
+[19:25:10.440 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] begin step=0 xz=Vec2(1.625, 1.0) radius=0.055
+[19:25:10.448 DEBUG re_flora::builder::surface] [PERF][SURFACE_BUILD_PASS_TIMING] chunk UVec3(1, 0, 0) pass_total=1.317ms surface_clear=0.011ms active_brick_flags_clear=0.241ms prepare_sparse_surface=0.006ms make_surface_sparse=1.058ms
+[19:25:10.449 DEBUG re_flora::builder::surface] [PERF][SURFACE_BUILD] chunk UVec3(1, 0, 0) total 1.69ms setup 0.00ms record 0.05ms gpu_submit 0.08ms gpu_completion_latency 0.00ms readback 0.00ms flora 0.00ms active_voxels 194638 active_bricks 12896 solid_workgroups 17273 place_flora false flora_rebuilt false
+[19:25:10.451 DEBUG re_flora::builder::surface] [PERF][SURFACE_BUILD_PASS_TIMING] chunk UVec3(1, 0, 1) pass_total=1.376ms surface_clear=0.035ms active_brick_flags_clear=0.252ms prepare_sparse_surface=0.007ms make_surface_sparse=1.082ms
+[19:25:10.451 DEBUG re_flora::builder::surface] [PERF][SURFACE_BUILD] chunk UVec3(1, 0, 1) total 1.68ms setup 0.00ms record 0.03ms gpu_submit 0.07ms gpu_completion_latency 0.00ms readback 0.00ms flora 0.00ms active_voxels 198195 active_bricks 13103 solid_workgroups 17442 place_flora false flora_rebuilt false
+[19:25:10.451 DEBUG re_flora::app::physical_visible_terrain] [PERF][MESH_REBUILD] chunks 2 rebuilt 2 total 4.48ms surface 3.39ms contree 0.70ms scene_tex 0.35ms contree_skipped 0 place_flora false
+[19:25:10.452 INFO re_flora::app::core::visible_terrain] [PERF][VISIBLE_TERRAIN_PUBLICATION] chunks=2 terrain_changed=true revision=Some(2) elapsed_ms=4.73
+| terrain_edit_prepare_buffers              | 67.792µs    | 67.792µs@1    | 67.792µs@1    | 1     |
+| terrain_edit_gpu_modify_and_sample        | 6.966583ms  | 6.966583ms@1  | 6.966583ms@1  | 1     |
+| terrain_edit_stats_readback               | 625ns       | 625ns@1       | 625ns@1       | 1     |
+| terrain_edit_sample_readback              | 375ns       | 375ns@1       | 375ns@1       | 1     |
+| terrain_edit_plain_builder_total          | 7.03725ms   | 7.03725ms@1   | 7.03725ms@1   | 1     |
+| terrain_edit_removal_total                | 11.804291ms | 11.804291ms@1 | 11.804291ms@1 | 1     |
+[19:25:10.452 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] removed_by_material=[0, 0, 616, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+[19:25:10.452 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] end step=0 edit_ms=12.018
+[19:25:13.435 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] begin step=1 xz=Vec2(1.625, 1.08) radius=0.055
+[19:25:13.444 DEBUG re_flora::builder::surface] [PERF][SURFACE_BUILD_PASS_TIMING] chunk UVec3(1, 0, 1) pass_total=1.357ms surface_clear=0.002ms active_brick_flags_clear=0.259ms prepare_sparse_surface=0.006ms make_surface_sparse=1.089ms
+[19:25:13.444 DEBUG re_flora::builder::surface] [PERF][SURFACE_BUILD] chunk UVec3(1, 0, 1) total 1.86ms setup 0.00ms record 0.08ms gpu_submit 0.14ms gpu_completion_latency 0.00ms readback 0.00ms flora 0.00ms active_voxels 198203 active_bricks 13118 solid_workgroups 17442 place_flora false flora_rebuilt false
+[19:25:13.445 DEBUG re_flora::app::physical_visible_terrain] [PERF][MESH_REBUILD] chunks 1 rebuilt 1 total 2.44ms surface 1.87ms contree 0.39ms scene_tex 0.16ms contree_skipped 0 place_flora false
+[19:25:13.445 INFO re_flora::app::core::visible_terrain] [PERF][VISIBLE_TERRAIN_PUBLICATION] chunks=1 terrain_changed=true revision=Some(3) elapsed_ms=2.70
+| terrain_edit_prepare_buffers              | 51.666µs    | 35.541µs@2    | 67.792µs@1    | 2     |
+| terrain_edit_gpu_modify_and_sample        | 7.079625ms  | 6.966583ms@1  | 7.192667ms@2  | 2     |
+| terrain_edit_stats_readback               | 812ns       | 625ns@1       | 1µs@2         | 2     |
+| terrain_edit_sample_readback              | 562ns       | 375ns@1       | 750ns@2       | 2     |
+| terrain_edit_plain_builder_total          | 7.134479ms  | 7.03725ms@1   | 7.231708ms@2  | 2     |
+| terrain_edit_removal_total                | 10.875124ms | 9.945958ms@2  | 11.804291ms@1 | 2     |
+[19:25:13.445 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] removed_by_material=[0, 0, 616, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+[19:25:13.445 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] end step=1 edit_ms=10.156
+[19:25:16.434 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] begin step=2 xz=Vec2(1.625, 1.16) radius=0.055
+[19:25:16.444 DEBUG re_flora::builder::surface] [PERF][SURFACE_BUILD_PASS_TIMING] chunk UVec3(1, 0, 1) pass_total=1.303ms surface_clear=0.005ms active_brick_flags_clear=0.210ms prepare_sparse_surface=0.007ms make_surface_sparse=1.081ms
+[19:25:16.444 DEBUG re_flora::builder::surface] [PERF][SURFACE_BUILD] chunk UVec3(1, 0, 1) total 1.82ms setup 0.00ms record 0.07ms gpu_submit 0.11ms gpu_completion_latency 0.00ms readback 0.00ms flora 0.00ms active_voxels 198216 active_bricks 13122 solid_workgroups 17442 place_flora false flora_rebuilt false
+[19:25:16.444 DEBUG re_flora::app::physical_visible_terrain] [PERF][MESH_REBUILD] chunks 1 rebuilt 1 total 2.39ms surface 1.83ms contree 0.39ms scene_tex 0.15ms contree_skipped 0 place_flora false
+[19:25:16.444 INFO re_flora::app::core::visible_terrain] [PERF][VISIBLE_TERRAIN_PUBLICATION] chunks=1 terrain_changed=true revision=Some(4) elapsed_ms=2.65
+| terrain_edit_prepare_buffers              | 45.847µs    | 34.209µs@3    | 67.792µs@1    | 3     |
+| terrain_edit_gpu_modify_and_sample        | 7.207583ms  | 6.966583ms@1  | 7.4635ms@3    | 3     |
+| terrain_edit_stats_readback               | 944ns       | 625ns@1       | 1.208µs@3     | 3     |
+| terrain_edit_sample_readback              | 514ns       | 375ns@1       | 750ns@2       | 3     |
+| terrain_edit_plain_builder_total          | 7.256819ms  | 7.03725ms@1   | 7.5015ms@3    | 3     |
+| terrain_edit_removal_total                | 10.638471ms | 9.945958ms@2  | 11.804291ms@1 | 3     |
+[19:25:16.445 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] removed_by_material=[0, 0, 616, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+[19:25:16.445 INFO re_flora::app::core::water::simulation] [TREE_EDIT_DIAG] end step=2 edit_ms=10.378
+[19:25:17.514 INFO re_flora] Application exited successfully
+[19:25:17.514 INFO re_flora] Run log saved to /Users/bytedance/code/side-projects/re-flora/target/re-flora-logs/re-flora-20261029-192502.915-22811.log
+
+===== grass-review.log =====
+[19:25:17.749 INFO re_flora_vkn::context::physical_device] Selected physical device: Apple M4 Pro
+[19:25:17.950 INFO re_flora::tracer::scene_resolution] [SCENE_PIXELS] screen=5120x2880 scene=1024x576 ratio=25:1 pixel_stride=5 pixels=1024x576 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native
+[19:25:18.488 INFO re_flora::tracer::scene_resolution] [SCENE_PIXELS] screen=5120x2880 scene=1024x576 ratio=25:1 pixel_stride=5 pixels=1024x576 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native
+[19:25:20.065 DEBUG re_flora::builder::surface] [PERF][FLORA_EDIT_PASS_TIMING] chunk UVec3(0, 0, 0) pass_total=0.767ms clear_occupancy=0.254ms instances_to_occupancy=0.002ms edit_occupancy=0.186ms occupancy_to_instances=0.324ms
+[19:25:20.067 DEBUG re_flora::builder::surface] [PERF][FLORA_EDIT_PASS_TIMING] chunk UVec3(1, 0, 0) pass_total=0.738ms clear_occupancy=0.253ms instances_to_occupancy=0.002ms edit_occupancy=0.186ms occupancy_to_instances=0.297ms
+[19:25:20.121 DEBUG re_flora::builder::surface] [PERF][FLORA_EDIT_PASS_TIMING] chunk UVec3(0, 0, 0) pass_total=0.793ms clear_occupancy=0.235ms instances_to_occupancy=0.002ms edit_occupancy=0.309ms occupancy_to_instances=0.247ms
+[19:25:20.123 DEBUG re_flora::builder::surface] [PERF][FLORA_EDIT_PASS_TIMING] chunk UVec3(0, 0, 0) pass_total=0.824ms clear_occupancy=0.246ms instances_to_occupancy=0.002ms edit_occupancy=0.314ms occupancy_to_instances=0.261ms
+[19:25:20.173 INFO re_flora::builder::surface::soil_cover_review] [SOIL_COVER_REVIEW] bare=true flowers_excluded=true tall_short=true cross_chunk=true interior_gap=true tight_boundary=true remove_last=true moisture=true restore=true burial=true uncover=true
+[19:25:20.749 INFO re_flora] Application exited successfully
+[19:25:20.749 INFO re_flora] Run log saved to /Users/bytedance/code/side-projects/re-flora/target/re-flora-logs/re-flora-20261029-192517.543-22898.log
+
+===== soil-cover.log =====
+[19:24:25.935 INFO re_flora_vkn::context::physical_device] Selected physical device: Apple M4 Pro
+[19:24:26.143 INFO re_flora::tracer::scene_resolution] [SCENE_PIXELS] screen=5120x2880 scene=1024x576 ratio=25:1 pixel_stride=5 pixels=1024x576 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native
+[19:24:26.686 INFO re_flora::tracer::scene_resolution] [SCENE_PIXELS] screen=5120x2880 scene=1024x576 ratio=25:1 pixel_stride=5 pixels=1024x576 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native
+[19:24:28.258 INFO re_flora::builder::surface::soil_cover_review] [SOIL_COVER_BENCH] roots=1024 edit=one_root samples=12 median_ms=0.198 max_ms=0.623 idle_ms=0.000
+[19:24:28.325 INFO re_flora::builder::surface::soil_cover_review] [SOIL_COVER_BENCH] roots=65536 edit=one_root samples=12 median_ms=0.246 max_ms=0.269 idle_ms=0.001
+[19:24:28.927 INFO re_flora] Application exited successfully
+[19:24:28.927 INFO re_flora] Run log saved to /Users/bytedance/code/side-projects/re-flora/target/re-flora-logs/re-flora-20261029-192425.712-22600.log
