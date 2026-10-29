@@ -684,7 +684,9 @@ impl RasterTreeGeometry {
 mod tests {
     use super::*;
     fn small_tree() -> Arc<Tree> {
-        let mut desc = crate::tree_gen::TreeDesc::default();
+        // These voxel coordinates (including the float-boundary regression) belong to
+        // the frozen recursive geometry, not the tunable/default living Apple profile.
+        let mut desc = crate::tree_gen::TreeDesc::legacy_wire_defaults().saved_geometry_desc();
         desc.branching.iterations = 3;
         Arc::new(Tree::new(desc))
     }
@@ -1022,11 +1024,11 @@ mod tests {
     #[test]
     fn neighboring_blocks_share_posed_corners_and_hits_recover_rest_surface() {
         use crate::{
-            tree_gen::{pose::TreePose, TreeDesc},
+            tree_gen::pose::TreePose,
             wind_field::WindFieldFrame,
         };
         use glam::Vec2;
-        let tree = Arc::new(Tree::new(TreeDesc::default()));
+        let tree = small_tree();
         let mut bytes = vec![0; 512];
         for x in [3, 4] {
             bytes[x + 8 * (3 + 8 * 3)] = 5;
@@ -1079,7 +1081,7 @@ mod tests {
 
     #[test]
     fn smooth_surface_omits_interior_cells_but_tracks_the_full_rest_volume() {
-        let tree = Tree::new(crate::tree_gen::TreeDesc::default());
+        let tree = small_tree();
         let mut mesh = RasterTreeMesh::default();
         mesh.append_region(UVec3::ZERO, UVec3::splat(8), &vec![5; 512], tree.trunks())
             .unwrap();

@@ -1662,6 +1662,7 @@ max = 2
     fn tree_planting_controls_upgrade_old_settings_without_touching_tree_authoring() {
         let mut config: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let defaults = crate::app::gui_config::GuiAdjustables::from_config(&config);
         config.section.retain(|s| s.name != "Tree Planting");
         config.tree.desc.size = 9.;
         config.tree.desc.fruit_spawn_probability = 0.8;
@@ -1674,8 +1675,14 @@ max = 2
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
         assert_eq!(loaded.tree.desc, tree);
         let fields = crate::app::gui_config::GuiAdjustables::from_config(&loaded);
-        assert_eq!(fields.tree_planting_scale.value, 1.);
-        assert_eq!(fields.tree_planting_apple_density.value, 0.25);
+        assert_eq!(
+            fields.tree_planting_scale.value,
+            defaults.tree_planting_scale.value
+        );
+        assert_eq!(
+            fields.tree_planting_apple_density.value,
+            defaults.tree_planting_apple_density.value
+        );
         for param in loaded.section.iter_mut().flat_map(|s| &mut s.param) {
             if let super::GuiParamValue::Float { value, .. } = &mut param.value {
                 match param.id.as_str() {
@@ -2316,6 +2323,7 @@ max = 2
     fn older_saves_gain_default_apple_size_without_rewriting_the_file() {
         let mut config: GuiConfigFile =
             toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+        let defaults = crate::app::gui_config::GuiAdjustables::from_config(&config);
         for section in &mut config.section {
             section.param.retain(|p| p.id != "apple_size_scale");
         }
@@ -2332,7 +2340,8 @@ max = 2
             .unwrap();
         assert!(matches!(
             size.value,
-            super::GuiParamValue::Float { value: 1.0, .. }
+            super::GuiParamValue::Float { value, .. }
+                if value == defaults.apple_size_scale.value
         ));
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
     }
