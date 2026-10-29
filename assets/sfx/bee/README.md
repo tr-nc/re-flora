@@ -20,8 +20,9 @@ left in place; it is not needed to reproduce this bundle.
 
 ## Generation provenance
 
-The user confirmed that this take used the bee prompt proposed in the conversation
-and supplied the [generation-settings screenshot](generation-settings.png).
+The user confirmed that this take used the bee prompt below. Generation settings
+were transcribed from the user-supplied screenshot; the image is not retained in
+this asset bundle.
 
 | Setting | Confirmed value |
 | --- | --- |
@@ -44,17 +45,6 @@ Exact text confirmed by the user (the screenshot shows settings, not prompt text
 ```text
 Seamless loop of a single honeybee hovering steadily in place. Close-up isolated wing buzz, soft warm mid-low hum with fine fluttering harmonics and subtle natural pitch variation. Calm, delicate and realistic, with consistent overall intensity. No flybys, Doppler shifts, swarm, mosquito whine, aggressive wasp buzz, background ambience, voices, music or reverb. No takeoff, landing or fades.
 ```
-
-### Settings screenshot provenance
-
-[generation-settings.png](generation-settings.png) is a user-supplied UI screenshot
-used solely as generation-reference evidence, not a runtime image. Original supplied
-filename: `pi-clipboard-a24f5070-88cf-45c6-9462-58062e146569.png`. It was moved from
-the temporary clipboard location and renamed without modifying its bytes. Format:
-PNG, **858 × 108 pixels**. No crop, resize, recompression or other processing was
-performed here; original capture tool and any prior cropping are unknown. This is
-not an AI-generated image. No source URL or screenshot redistribution license was
-provided; local import does not establish public redistribution permission.
 
 ## Reproduce the edits
 
@@ -105,7 +95,6 @@ SHA-256:
 9566786183c9e7dccd9d29aa4c2e3e7053a3edc61b961876427fb1550669554c  bee-original.wav
 cd5a80d7bf0675f0fff3d14bbf8860ee39b923a3ee4a766afa4241d574bede6d  bee-first-2s.wav
 631f979fe4523e4cd72bbdb44720c2292411207919736ac17fe157d941b54843  bee-loop.wav
-48a6becc36ff0017e26c657f5dce51143ebe01524300ca4dab696cf2375eead8  generation-settings.png
 ```
 
 ## Rights
