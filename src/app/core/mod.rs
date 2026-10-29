@@ -5,6 +5,7 @@ use crate::util::Timer;
 
 mod authored_flora_bench;
 mod boot;
+mod brush_edit_bench;
 mod butterfly_foraging_review;
 mod camera_control;
 mod camera_snapshot_ui;
@@ -487,6 +488,7 @@ pub struct App {
     frame_timing_panel_visible: bool,
     frame_timing_snapshot: FrameTimingSnapshot,
     soil_performance_bench: Option<soil_performance_bench::SoilPerformanceBench>,
+    brush_edit_bench: Option<brush_edit_bench::Replay>,
     soil_bag_preview: soil_bag_preview::State,
     soil_shovel: soil_shovel::State,
     card_display_visible: bool,
@@ -1613,6 +1615,7 @@ impl App {
             frame_timing_panel_visible: render.perf_logging,
             frame_timing_snapshot: FrameTimingSnapshot::default(),
             soil_performance_bench: soil_performance_bench::SoilPerformanceBench::from_env()?,
+            brush_edit_bench: brush_edit_bench::Replay::from_env()?,
             soil_bag_preview: soil_bag_preview::State::from_env()?,
             soil_shovel: Default::default(),
             card_display_visible: false,
@@ -3196,6 +3199,13 @@ impl App {
                     log::warn!("Failed to prepare kick leaf rustle: {error:#}");
                 }
 
+                if self
+                    .advance_brush_edit_bench()
+                    .expect("brush edit acceptance")
+                {
+                    self.on_terminate(event_loop);
+                    return;
+                }
                 self.advance_soil_performance_bench()
                     .expect("soil performance replay");
                 if TreeBench::run_next(self) {
