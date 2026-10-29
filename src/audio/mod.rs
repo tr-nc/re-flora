@@ -62,5 +62,6 @@ pub mod mixer;
 mod apple_impacts;
 pub(crate) use apple_impacts::AppleImpact;
 
+mod bee_audio;
 mod sprinkler_audio;
 pub(crate) use sprinkler_audio::SprinklerSource;

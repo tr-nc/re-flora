@@ -184,6 +184,8 @@ impl App {
                     bees.visits,
                     bees.returns
                 );
+                let (active, starts) = self.spatial_frame.bee_diagnostics();
+                log::info!("[BEE_AUDIO_REVIEW] active={active} starts={starts}");
                 self.garden_bees.review_started = None;
             }
         }

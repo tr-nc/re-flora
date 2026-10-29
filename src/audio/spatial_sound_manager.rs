@@ -349,6 +349,7 @@ impl SpatialSoundManager {
             // capacity. AudioTelemetryRouter drains the telemetry queues once into a frame-scoped
             // observation batch and never adds a second persistent inbox.
             event_queue_capacity: AUDIO_EVENT_QUEUE_CAPACITY,
+            max_buses: AudioCategory::ALL.len(),
             buses: AudioCategory::ALL
                 .into_iter()
                 .map(|category| petalsonic::BusDesc::new(category.bus_name()))
@@ -701,7 +702,7 @@ impl SpatialSoundManager {
         Ok(TransientSpatialEmitter { emitter })
     }
 
-    pub(super) fn move_sprinkler_emitter(&self, emitter: TransientSpatialEmitter, position: Vec3) {
+    pub(super) fn move_transient_emitter(&self, emitter: TransientSpatialEmitter, position: Vec3) {
         if let Some(source) = self
             .transient_spatial_emitters
             .lock()
@@ -713,11 +714,11 @@ impl SpatialSoundManager {
     }
 
     #[cfg(test)]
-    pub(super) fn sprinkler_emitter_position(&self, emitter: TransientSpatialEmitter) -> Vec3 {
+    pub(super) fn transient_emitter_position(&self, emitter: TransientSpatialEmitter) -> Vec3 {
         self.transient_spatial_emitters.lock().unwrap()[&emitter.emitter].position
     }
 
-    pub(super) fn seek_sprinkler_emitter(
+    pub(super) fn seek_transient_emitter(
         &self,
         emitter: TransientSpatialEmitter,
         phase: f32,

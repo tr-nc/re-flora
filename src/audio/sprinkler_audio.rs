@@ -158,7 +158,7 @@ impl SprinklerAudio {
             }
             let voice = self.voices.iter_mut().find(|v| v.id == source.id).unwrap();
             self.manager
-                .move_sprinkler_emitter(voice.emitter.unwrap(), source.position + Vec3::Y * 0.04);
+                .move_transient_emitter(voice.emitter.unwrap(), source.position + Vec3::Y * 0.04);
             voice.initial_phase = snapshot.audio_loop_phase(source.animation_phase);
             // The recording already contains the desired texture and six bursts.
             // Continuous envelope is only a bounded stale/retirement gate, not a pulse shaper.
@@ -183,7 +183,7 @@ impl SprinklerAudio {
                     // One start/seek, never per-frame corrective seeking or per-burst restarts.
                     match self
                         .manager
-                        .seek_sprinkler_emitter(voice.emitter.unwrap(), voice.initial_phase)
+                        .seek_transient_emitter(voice.emitter.unwrap(), voice.initial_phase)
                     {
                         Ok(()) => voice.started = true,
                         Err(error) => {
@@ -334,7 +334,7 @@ mod tests {
             Some(emitter)
         );
         assert_eq!(
-            manager.sprinkler_emitter_position(emitter),
+            manager.transient_emitter_position(emitter),
             moved[0].position + Vec3::Y * 0.04
         );
         assert_eq!(

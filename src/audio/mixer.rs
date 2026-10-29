@@ -10,18 +10,20 @@ pub enum AudioCategory {
     Footsteps,
     Terrain,
     Sprinklers,
+    Bees,
     AppleImpacts,
     Interface,
 }
 
 impl AudioCategory {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Leaves,
         Self::TreeCicadas,
         Self::GroundCicadas,
         Self::Footsteps,
         Self::Terrain,
         Self::Sprinklers,
+        Self::Bees,
         Self::AppleImpacts,
         Self::Interface,
     ];
@@ -33,6 +35,7 @@ impl AudioCategory {
             Self::Footsteps => "footsteps",
             Self::Terrain => "terrain",
             Self::Sprinklers => "sprinklers",
+            Self::Bees => "bees",
             Self::AppleImpacts => "apple_impacts",
             Self::Interface => "interface",
         }
@@ -84,6 +87,7 @@ pub struct AudioMixSettings {
     pub footsteps: MixChannel,
     pub terrain: MixChannel,
     pub sprinklers: MixChannel,
+    pub bees: MixChannel,
     pub apple_impacts: MixChannel,
     pub interface: MixChannel,
 }
@@ -96,6 +100,7 @@ impl AudioMixSettings {
             AudioCategory::Footsteps => self.footsteps,
             AudioCategory::Terrain => self.terrain,
             AudioCategory::Sprinklers => self.sprinklers,
+            AudioCategory::Bees => self.bees,
             AudioCategory::AppleImpacts => self.apple_impacts,
             AudioCategory::Interface => self.interface,
         }
@@ -115,6 +120,7 @@ struct StoredAudioMixSettings {
     footsteps: MixChannel,
     terrain: MixChannel,
     sprinklers: MixChannel,
+    bees: MixChannel,
     apple_impacts: MixChannel,
     interface: MixChannel,
 }
@@ -130,6 +136,7 @@ impl From<StoredAudioMixSettings> for AudioMixSettings {
             footsteps: stored.footsteps,
             terrain: stored.terrain,
             sprinklers: stored.sprinklers,
+            bees: stored.bees,
             apple_impacts: stored.apple_impacts,
             interface: stored.interface,
         }
@@ -139,6 +146,25 @@ impl From<StoredAudioMixSettings> for AudioMixSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bee_channel_upgrades_old_saves_and_round_trips_independently() {
+        let mut mix: AudioMixSettings = toml::from_str("[sprinklers]\nscale=30.0\n").unwrap();
+        assert_eq!(mix.bees, MixChannel::default());
+        mix.bees = MixChannel {
+            enabled: false,
+            scale: 2.5,
+        };
+        let loaded: AudioMixSettings = toml::from_str(&toml::to_string(&mix).unwrap()).unwrap();
+        assert_eq!(loaded, mix);
+        assert!(loaded.channel(AudioCategory::Bees).params().muted);
+        assert!(!loaded.channel(AudioCategory::Sprinklers).params().muted);
+        assert_eq!(loaded.sprinklers.scale, 30.0);
+        assert_ne!(
+            AudioCategory::Bees.bus_name(),
+            AudioCategory::Sprinklers.bus_name()
+        );
+    }
 
     #[test]
     fn sprinkler_and_apple_mix_default_neutral_and_save_independently() {

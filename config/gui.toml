@@ -28,6 +28,10 @@ scale = 0.3
 enabled = true
 scale = 30.0
 
+[audio_mix.bees]
+enabled = true
+scale = 1.0
+
 [audio_mix.apple_impacts]
 enabled = true
 scale = 1.0

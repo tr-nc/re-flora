@@ -2,7 +2,8 @@
 
 User-supplied download, imported on 2026-10-29 for local sound review. The user
 identified it as the bee sound and requested cropping the first two seconds and
-making it loopable. This bundle is not connected to in-game bee playback.
+making it loopable. `bee-loop.wav` now supplies positional in-game flight audio;
+the original and exact crop remain editing references, not runtime inputs.
 
 ## Files
 
@@ -96,6 +97,29 @@ SHA-256:
 cd5a80d7bf0675f0fff3d14bbf8860ee39b923a3ee4a766afa4241d574bede6d  bee-first-2s.wav
 631f979fe4523e4cd72bbdb44720c2292411207919736ac17fe157d941b54843  bee-loop.wav
 ```
+
+## In-game playback
+
+- `src/audio/runtime_assets.rs` declares only `bee-loop.wav`; startup decodes it
+  once and shares the resident PCM among voices. No new file derivative is made.
+- `src/particles/bees.rs` publishes stable hive/resident IDs and current positions
+  only for outbound/return flights. Landed flower visitors and bees inside nests
+  are silent; deleting a nest removes its resident sources.
+- `src/audio/bee_audio.rs` chooses up to 16 nearby flights (within 2 world units),
+  with stable identity and distance hysteresis. One spatial loop follows each
+  selected bee. Identity-based starting phases de-correlate the shared recording;
+  movement never restarts or seeks it. Playback speed and pitch are unchanged.
+- Source trim is 0 dB. The existing sample envelope provides a 1 ms de-click and
+  200 ms stale-control gate, with its standard 0.72 continuous gain. Spatial
+  attenuation and the saved `audio_mix.bees` channel then apply. **Audio → Live
+  mixer → Bees** controls mute/scale, default enabled at 1×; Master/M/`--mute`
+  remain respected. No normalization was added to the WAV.
+- Pause/channel mute, landing, range exit and world clearing retire the loops.
+  Emitter creation participates in spatial publication before playback; failed
+  publication silences/retires voices. Retiring render ownership still counts
+  against the 16-voice cap.
+- See [integration validation](../../../docs/reports/bee-audio.md). Hidden muted
+  validation establishes lifecycle behavior, not listening/loudness approval.
 
 ## Rights
 

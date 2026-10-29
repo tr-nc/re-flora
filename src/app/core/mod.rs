@@ -3984,6 +3984,10 @@ impl App {
                         && self.terrain_persistence.allows_sprinkler_audio()
                         && !self.debug_settings.audio_mix.master.params().muted
                         && !self.debug_settings.audio_mix.apple_impacts.params().muted,
+                    flying_bees: &self.garden_bees.swarm.flying_sources(),
+                    bees_enabled: world_updates_running
+                        && !self.debug_settings.audio_mix.master.params().muted
+                        && !self.debug_settings.audio_mix.bees.params().muted,
                     sprinkler_snapshot: self.tracer.sprinkler_audio_snapshot(),
                     sprinklers: &self.sprinklers.audio_sources(),
                     world_running: world_updates_running

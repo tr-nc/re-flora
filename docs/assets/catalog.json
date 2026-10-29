@@ -3,6 +3,19 @@
   "reviewed_on": "2026-10-24",
   "groups": [
     {
+      "id": "bee-flight",
+      "name": "蜜蜂飞行循环与来源",
+      "patterns": ["assets/sfx/bee/*"],
+      "exclude": [],
+      "usage": "仅 bee-loop.wav 预加载并用于飞行蜜蜂的空间循环；原件和精确两秒裁切版为制作参考",
+      "decision": "用户授权本地游戏接入；商用及原件公开分发权限待确认",
+      "source": "ElevenLabs SFX v3；用户确认提示词、8 秒、Loop on、Prompt Influence 60%、改写 off；前两秒经 50 ms 交叉淡化成 1.95 秒循环",
+      "gap": "生成时套餐、商业及独立资源分发授权未提供；游戏内响度仍需试听",
+      "evidence": ["assets/sfx/bee/README.md", "src/audio/runtime_assets.rs", "src/audio/bee_audio.rs", "src/particles/bees.rs", "docs/reports/bee-audio.md"],
+      "purpose": "飞行时跟随每只蜜蜂的位置播放；落花、归巢、删除或暂停时停止；Audio mixer 独立保存 Bees 音量和静音",
+      "reviewed_on": "2026-10-29"
+    },
+    {
       "id": "recorded-tree-leaves",
       "name": "轻风与强风树叶录音、来源和运行时循环",
       "patterns": ["assets/sfx/leaves-breeze/*", "assets/sfx/leaves-strong-wind/*"],

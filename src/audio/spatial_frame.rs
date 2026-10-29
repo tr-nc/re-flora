@@ -6,6 +6,8 @@ pub(crate) struct SpatialFrameFacts<'a> {
     pub(crate) sprinkler_snapshot: Option<crate::sprinkler::SpraySnapshot>,
     pub(crate) sprinklers: &'a [super::SprinklerSource],
     pub(crate) world_running: bool,
+    pub(crate) flying_bees: &'a [crate::particles::bees::BeeFlight],
+    pub(crate) bees_enabled: bool,
     pub(crate) apple_impacts: &'a [super::AppleImpact],
     pub(crate) apple_impacts_enabled: bool,
     pub(crate) sim_time_seconds: f64,
@@ -28,6 +30,7 @@ pub(crate) struct SpatialFrame {
     local_player_footsteps: LocalPlayerFootstepAudio,
     sprinklers: super::sprinkler_audio::SprinklerAudio,
     sprinkler_reconcile_us: f64,
+    bees: super::bee_audio::BeeAudio,
     apple_impacts: super::apple_impacts::AppleImpactAudio,
 }
 
@@ -37,6 +40,7 @@ impl SpatialFrame {
             local_player_footsteps: LocalPlayerFootstepAudio::new(spatial_sound_manager.clone()),
             sprinklers: super::sprinkler_audio::SprinklerAudio::new(spatial_sound_manager.clone()),
             sprinkler_reconcile_us: 0.0,
+            bees: super::bee_audio::BeeAudio::new(spatial_sound_manager.clone()),
             apple_impacts: super::apple_impacts::AppleImpactAudio::new(
                 spatial_sound_manager.clone(),
             ),
@@ -51,7 +55,12 @@ impl SpatialFrame {
         self.sprinkler_reconcile_us
     }
 
+    pub(crate) fn bee_diagnostics(&self) -> (usize, u64) {
+        self.bees.diagnostics()
+    }
+
     pub(crate) fn clear_world_sources(&mut self) {
+        self.bees.clear();
         self.sprinklers.clear();
         self.apple_impacts.clear();
     }
@@ -84,6 +93,11 @@ impl SpatialFrame {
             facts.world_running,
         );
         let prepare_us = sprinkler_start.elapsed().as_secs_f64() * 1e6;
+        self.bees.prepare(
+            facts.flying_bees,
+            facts.listener.position,
+            facts.bees_enabled,
+        );
         match self
             .spatial_sound_manager
             .publish_spatial_frame(facts.sim_time_seconds)
@@ -93,10 +107,12 @@ impl SpatialFrame {
                 self.sprinklers.finish_publication(true);
                 self.apple_impacts.finish_publication(true);
                 self.sprinkler_reconcile_us = prepare_us + start.elapsed().as_secs_f64() * 1e6;
+                self.bees.finish_publication(true);
                 self.local_player_footsteps
                     .play_after_publication(prepared, publication);
             }
             Err(err) => {
+                self.bees.finish_publication(false);
                 self.sprinklers.finish_publication(false);
                 self.apple_impacts.finish_publication(false);
                 self.sprinkler_reconcile_us = prepare_us;
@@ -252,6 +268,8 @@ mod tests {
                 sprinkler_snapshot: None,
                 sprinklers: &[],
                 world_running: true,
+                flying_bees: &[],
+                bees_enabled: true,
                 apple_impacts: &[],
                 apple_impacts_enabled: true,
                 sim_time_seconds: 0.0,
@@ -314,6 +332,8 @@ mod tests {
             sprinkler_snapshot: None,
             sprinklers: &[],
             world_running: true,
+            flying_bees: &[],
+            bees_enabled: true,
             apple_impacts: &[],
             apple_impacts_enabled: true,
             sim_time_seconds: retirement_time,

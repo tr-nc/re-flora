@@ -19,6 +19,13 @@ impl HiveSite {
         self.position
     }
 }
+/// Stable resident identity and live simulation position, only while wings are flying.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct BeeFlight {
+    pub id: u64,
+    pub position: Vec3,
+}
+
 #[derive(Clone, Copy, Debug)]
 enum Trip {
     Home(f32),
@@ -83,6 +90,16 @@ impl Bees {
     }
     pub fn clear(&mut self) {
         self.residents.clear();
+    }
+    pub fn flying_sources(&self) -> Vec<BeeFlight> {
+        self.residents
+            .iter()
+            .filter(|bee| matches!(bee.trip, Trip::Out { .. } | Trip::Back { .. }))
+            .map(|bee| BeeFlight {
+                id: (u64::from(bee.hive) << 8) | bee.slot as u64,
+                position: bee.position,
+            })
+            .collect()
     }
     pub fn update(&mut self, dt: f32, sites: &[HiveSite], flowers: &[FlowerTarget], day: bool) {
         assert!(sites.len() <= MAX_HIVES);
@@ -299,6 +316,57 @@ mod tests {
             observed_at: 0.,
         }
     }
+    #[test]
+    fn flight_audio_tracks_residents_but_excludes_landed_home_and_removed_bees() {
+        let mut bees = Bees::default();
+        bees.update(0.05, &[site(1)], &[flower()], true);
+        assert!(bees.flying_sources().is_empty());
+        let mut seen = std::collections::BTreeMap::new();
+        let mut moved = false;
+        let mut visited = false;
+        let mut returned = false;
+        for _ in 0..600 {
+            let previous_visits = bees.visits;
+            let previous_returns = bees.returns;
+            bees.update(0.05, &[site(1)], &[flower()], true);
+            let sources = bees.flying_sources();
+            assert!(sources.iter().all(|source| source.position.is_finite()));
+            let ids: std::collections::BTreeSet<_> = sources.iter().map(|s| s.id).collect();
+            assert_eq!(ids.len(), sources.len());
+            for source in &sources {
+                assert_eq!(source.id >> 8, 1);
+                if let Some(previous) = seen.insert(source.id, source.position) {
+                    moved |= previous != source.position;
+                }
+            }
+            if bees.visits > previous_visits {
+                // One flower: the arriving resident is landed, not a wingbeat source.
+                let landed = bees
+                    .residents
+                    .iter()
+                    .find(|b| matches!(b.trip, Trip::Visit { .. }))
+                    .unwrap();
+                assert!(!ids.contains(&((u64::from(landed.hive) << 8) | landed.slot as u64)));
+                visited = true;
+            }
+            returned |= bees.returns > previous_returns;
+        }
+        assert!(moved && visited && returned);
+        // Night keeps return flights audible, then becomes silent at home.
+        for _ in 0..240 {
+            bees.update(0.05, &[site(1)], &[flower()], false);
+        }
+        assert!(bees.flying_sources().is_empty());
+        for _ in 0..25 {
+            bees.update(0.05, &[site(1)], &[flower()], true);
+        }
+        assert!(!bees.flying_sources().is_empty());
+        bees.update(0.0, &[], &[], true);
+        assert!(bees.flying_sources().is_empty());
+        bees.clear();
+        assert!(bees.flying_sources().is_empty());
+    }
+
     #[test]
     fn residents_visit_real_hosts_return_home_and_rest_at_night() {
         let mut bees = Bees::default();
