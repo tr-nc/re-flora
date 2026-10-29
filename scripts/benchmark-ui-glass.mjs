@@ -8,11 +8,11 @@ import {parseArgs} from 'node:util';
 import {createHash} from 'node:crypto';
 const help = `Usage: node scripts/benchmark-ui-glass.mjs --before PATH --after PATH [--seconds 8] [--repeats 3]
 Compare two already-built Release binaries at the native fullscreen resolution,
-with the same saved scene/quality and Debug Panel searching UI Glass. Runs original
-Gaussian and pixelated glass, hidden/muted with --perf; alternates variant order.
+with the same saved scene/quality and Debug Panel searching UI Glass. Runs
+pixelated glass, hidden/muted with --perf; alternates variant order.
 Requires a Vulkan display. Stop other game/GPU jobs before running; do not build
 concurrently. Uses isolated config copies, never writes your settings.
-Default: 8 seconds after loading per case, 3 paired repeats (12 runs).
+Default: 8 seconds after loading per case, 3 paired repeats (6 runs).
 Retains the last 30 CPU frame samples and up to 3 GPU scope samples per run;
 reports median frame, total GPU and egui GPU milliseconds. These short diagnostic
 samples are not a general performance-budget acceptance or a VSync-free benchmark.
@@ -42,12 +42,13 @@ const rows = [], binaries = {before: path.resolve(options.before), after: path.r
 const binaryHashes = Object.fromEntries(Object.entries(binaries).map(([k, v]) => [k, hash(v)]));
 const median = values => values.toSorted((a, b) => a - b)[Math.floor(values.length / 2)];
 try {
-    for (let repeat = 0; repeat < +options.repeats; repeat++) for (const pixelated of [false, true]) {
-        const pattern = /(id = "ui_glass_pixelated"[\s\S]*?\[section.param.data\]\s*value = )[^\n]+/;
-        assert.match(original, pattern);
-        fs.writeFileSync(path.join(runtime, 'config/gui.toml'), original.replace(pattern, (_, p) => p + pixelated));
+    // Old binaries still need their A/B flag; current binaries retire it on load.
+    const legacyToggle = '\n[[section.param]]\nid = "ui_glass_pixelated"\nkind = "bool"\nlabel = "Panels: pixelated glass (A/B)"\ntype = "Bool"\n[section.param.data]\nvalue = true\n';
+    fs.writeFileSync(path.join(runtime, 'config/gui.toml'), original + legacyToggle);
+    const pixelated = true;
+    for (let repeat = 0; repeat < +options.repeats; repeat++) {
         for (const variant of repeat % 2 ? ['after', 'before'] : ['before', 'after']) {
-            const name = `${repeat}-${pixelated ? 'pixelated' : 'gaussian'}-${variant}`;
+            const name = `${repeat}-pixelated-${variant}`;
             const env = {...process.env, RUST_LOG: 'info'};
             for (const key of Object.keys(env)) if (key.startsWith('RE_FLORA_') || key.startsWith('VK_LAYER')) delete env[key];
             delete env.VK_INSTANCE_LAYERS;

@@ -1219,63 +1219,82 @@ mod search_tests {
     }
 
     #[test]
-    fn pixel_glass_checkbox_is_live_saved_and_legacy_configs_stay_gaussian() {
-        let mut legacy = GuiConfigLoader::load();
-        legacy.section.retain(|s| s.name != "UI Glass");
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("gui.toml");
-        let text = toml::to_string_pretty(&legacy).unwrap();
-        std::fs::write(&path, &text).unwrap();
-        let mut settings = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
-        assert!(!settings.adjustables.ui_glass_pixelated.value);
-        assert_eq!(settings.adjustables.ui_glass_cell_size.value, 12);
-        settings.search.query = "panels pixelated glass".into();
-        let context = egui::Context::default();
-        let mut click_toggle = || {
-            let mut draw = |events| {
-                context.run_ui(
-                    egui::RawInput {
-                        events,
-                        ..Default::default()
-                    },
-                    |ui| {
-                        settings.draw(ui, |_, _| {});
-                    },
-                )
-            };
-            draw(vec![]);
-            let output = draw(vec![]);
-            let point = output
-                .shapes
-                .iter()
-                .find_map(|s| text_rect(&s.shape, "Panels: pixelated glass (A/B)"))
-                .expect("declared searchable checkbox")
-                .center();
-            for pressed in [true, false] {
-                draw(vec![
-                    egui::Event::PointerMoved(point),
-                    egui::Event::PointerButton {
-                        pos: point,
-                        button: egui::PointerButton::Primary,
-                        pressed,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ]);
+    fn pixel_glass_retires_legacy_toggle_and_keeps_cell_size_saved() {
+        for enabled in [None, Some(false), Some(true)] {
+            let mut legacy = GuiConfigLoader::load();
+            let glass = legacy
+                .section
+                .iter_mut()
+                .find(|s| s.name == "UI Glass")
+                .unwrap();
+            if let Some(value) = enabled {
+                let cell = glass
+                    .param
+                    .iter_mut()
+                    .find(|p| p.id == "ui_glass_cell_size")
+                    .unwrap();
+                cell.value = GuiParamValue::Uint {
+                    value: 21,
+                    min: Some(4),
+                    max: Some(48),
+                };
+                cell.enabled_if = Some(GuiParamEnabledIf {
+                    param: "ui_glass_pixelated".into(),
+                    equals: GuiParamConditionValue::Bool(true),
+                });
+                glass.param.push(toml::from_str(&format!(
+                    "id = \"ui_glass_pixelated\"\nkind = \"bool\"\nlabel = \"Panels: pixelated glass (A/B)\"\ntype = \"Bool\"\n[data]\nvalue = {value}"
+                )).unwrap());
+            } else {
+                legacy.section.retain(|s| s.name != "UI Glass");
             }
-        };
-        // Exercise both directions without restarting the UI context.
-        click_toggle();
-        click_toggle();
-        click_toggle();
-        assert!(settings.adjustables.ui_glass_pixelated.value);
-        settings.adjustables.ui_glass_cell_size.value = 28;
-        assert!(settings.is_dirty());
-        settings.save_to_path(&path).unwrap();
-        let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
-        assert!(loaded.adjustables.ui_glass_pixelated.value);
-        assert_eq!(loaded.adjustables.ui_glass_cell_size.value, 28);
-        assert!(!settings.is_dirty());
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("gui.toml");
+            let text = toml::to_string_pretty(&legacy).unwrap();
+            std::fs::write(&path, &text).unwrap();
+            let config = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+            let params: Vec<_> = config.section.iter().flat_map(|s| &s.param).collect();
+            assert!(!params.iter().any(|p| p.id == "ui_glass_pixelated"));
+            assert!(params
+                .iter()
+                .find(|p| p.id == "ui_glass_cell_size")
+                .unwrap()
+                .enabled_if
+                .is_none());
+            let mut settings = DebugSettings::from_config(config);
+            assert_eq!(
+                settings.adjustables.ui_glass_cell_size.value,
+                if enabled.is_some() { 21 } else { 12 }
+            );
+            settings.search.query = "panels glass".into();
+            let context = egui::Context::default();
+            for _ in 0..2 {
+                let output = context.run_ui(Default::default(), |ui| {
+                    settings.draw(ui, |_, _| {});
+                });
+                assert_eq!(settings.search_matches, 1);
+                assert!(output.shapes.iter().any(|s| text_rect(
+                    &s.shape,
+                    "Panels: glass cell size (points)"
+                )
+                .is_some()));
+                assert!(!output.shapes.iter().any(|s| text_rect(
+                    &s.shape,
+                    "Panels: pixelated glass (A/B)"
+                )
+                .is_some()));
+            }
+            settings.adjustables.ui_glass_cell_size.value = 28;
+            assert!(settings.is_dirty());
+            settings.save_to_path(&path).unwrap();
+            assert!(!std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("ui_glass_pixelated"));
+            let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            assert_eq!(loaded.adjustables.ui_glass_cell_size.value, 28);
+            assert!(!settings.is_dirty());
+        }
     }
 
     #[test]

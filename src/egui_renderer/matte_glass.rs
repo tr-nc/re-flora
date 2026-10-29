@@ -9,19 +9,15 @@ pub const TEXTURE_ID: TextureId = TextureId::User(0x7266_6d61_7474_6501);
 /// One logical pixel, like the approved browser recipe (scales with UI DPI).
 const PIXEL: f32 = 1.0;
 
-/// Saved UI controls enter rendering here; zero physical cell size is the
-/// unchanged Gaussian material. Each surface owns its pixel grid anchor.
+/// Saved cell size enters rendering here. Pixelated glass is unconditional;
+/// each surface owns its pixel grid anchor.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct MatteSettings {
-    pub pixelated: bool,
     pub cell_points: u32,
 }
 
 impl MatteSettings {
     pub(super) fn cell_pixels(self, pixels_per_point: f32) -> u32 {
-        if !self.pixelated {
-            return 0;
-        }
         let scale = if pixels_per_point.is_finite() && pixels_per_point > 0.0 {
             pixels_per_point
         } else {
@@ -217,13 +213,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pixel_grid_follows_ui_scale_and_unchecked_restores_gaussian() {
-        let mut settings = MatteSettings {
-            pixelated: false,
-            cell_points: 12,
-        };
-        assert_eq!(settings.cell_pixels(2.0), 0);
-        settings.pixelated = true;
+    fn pixel_grid_is_always_enabled_and_follows_ui_scale() {
+        assert!(MatteSettings::default().cell_pixels(1.0) > 0);
+        let mut settings = MatteSettings { cell_points: 12 };
         for (scale, pixels) in [(0.75, 9), (1.0, 12), (1.75, 21), (2.0, 24)] {
             assert_eq!(settings.cell_pixels(scale), pixels);
         }
@@ -232,18 +224,12 @@ mod tests {
         assert_eq!(settings.cell_pixels(2.0), 96);
         settings.cell_points = 0;
         assert_eq!(settings.cell_pixels(1.0), 4);
-        settings.pixelated = false;
-        assert_eq!(settings.cell_pixels(1.0), 0);
     }
 
     #[test]
     fn panel_grid_phase_tracks_translation_and_dpi_even_offscreen() {
         for scale in [0.75, 1.0, 1.75, 2.0] {
-            let cell = MatteSettings {
-                pixelated: true,
-                cell_points: 12,
-            }
-            .cell_pixels(scale);
+            let cell = MatteSettings { cell_points: 12 }.cell_pixels(scale);
             for origin in [-25.25, -1.5, 0.0, 17.25, 100.5] {
                 let anchor = egui::pos2(origin, origin + 3.0);
                 let phase = pixel_grid_origin(anchor, scale, cell);

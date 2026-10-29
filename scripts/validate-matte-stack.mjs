@@ -10,8 +10,8 @@ const help = `Usage: node scripts/validate-matte-stack.mjs [--pixelated]
 Requires cargo build --release, a Vulkan display and ImageMagick (magick).
 Captures three overlapping glass panels in hidden/muted Release mode, changes
 bottom color, reverses paint order, fades and clips the upper panel.
-Default: original Gaussian glass. --pixelated: saved pixel-glass setting enabled;
-also verifies cell uniformity and exact area averages of a patterned lower panel
+Pixelated glass is always enabled; --pixelated is accepted for older invocations.
+Also verifies cell uniformity and exact area averages of a patterned lower panel
 through independently anchored panels at sizes 12 and 21, including panel movement,
 clipping (which must not reset grid phase), and viewport resize.
 Uses an isolated config; never changes your saved settings.
@@ -21,7 +21,7 @@ if (args.length === 1 && args[0] === '--help') { console.log(help); process.exit
 if (args.length > 1 || (args.length && args[0] !== '--pixelated')) {
     console.error(`Unknown arguments: ${args.join(' ')}\n${help}`); process.exit(2);
 }
-const pixelated = args.includes('--pixelated');
+const pixelated = true;
 const root = path.resolve(import.meta.dirname, '..');
 const parent = path.join(root, 'target/matte-stack');
 fs.mkdirSync(parent, {recursive: true});
@@ -40,7 +40,7 @@ env.RE_FLORA_ROOT = runtime;
 const means = {};
 function settings(cellSize) {
     let text = original;
-    for (const [id, value] of Object.entries({ui_glass_pixelated: pixelated, ui_glass_cell_size: cellSize})) {
+    for (const [id, value] of Object.entries({ui_glass_cell_size: cellSize})) {
         const pattern = new RegExp(`(id = "${id}"[\\s\\S]*?\\[section.param.data\\]\\s*value = )[^\\n]+`);
         assert.match(text, pattern);
         text = text.replace(pattern, (_, prefix) => prefix + String(value));
@@ -124,14 +124,14 @@ try {
     assert.ok(Math.abs(clipped - response[1]) < 0.015,
         'outside the upper clip rectangle, the lower panel must remain unchanged');
     const grids = [];
-    if (pixelated) for (const size of [12, 21]) {
+    for (const size of [12, 21]) {
         settings(size);
         for (const mode of ['grid', 'grid-moved', 'grid-moved-clip']) {
             grids.push(gridCheck(capture(mode, `${mode}-${size}`, size === 21 && mode === 'grid' ? ['--resize-lifecycle-test'] : []), size, mode !== 'grid'));
         }
     }
     fs.writeFileSync(path.join(output, 'summary.json'), JSON.stringify({pixelated, means, response, reversed, faded, clipped, grids}, null, 2));
-    console.log(`PASS: ${pixelated ? 'pixelated' : 'Gaussian'} bottom-color response 0/1/2 layers = ${response.join(', ')}; grids = ${JSON.stringify(grids)}`);
+    console.log(`PASS: pixelated bottom-color response 0/1/2 layers = ${response.join(', ')}; grids = ${JSON.stringify(grids)}`);
     console.log(`Evidence: ${output}`);
 } finally {
     assert.equal(configHash(), before, 'saved config changed');

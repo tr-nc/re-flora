@@ -1490,12 +1490,6 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "UI Glass",
-        id: "ui_glass_pixelated",
-        kind: "bool",
-        label: "Panels: pixelated glass (A/B)",
-    },
-    GeneratedGuiParamDescriptor {
-        section: "UI Glass",
         id: "ui_glass_cell_size",
         kind: "uint",
         label: "Panels: glass cell size (points)",
@@ -1916,7 +1910,6 @@ pub struct GuiAdjustables {
     pub voxel_cherry_wood_color: crate::gui_adjustables::ColorParam,
     pub voxel_oak_wood_color: crate::gui_adjustables::ColorParam,
     pub voxel_rock_color: crate::gui_adjustables::ColorParam,
-    pub ui_glass_pixelated: crate::gui_adjustables::BoolParam,
     pub ui_glass_cell_size: crate::gui_adjustables::UintParam,
     pub tree_planting_instant_mature: crate::gui_adjustables::BoolParam,
     pub tree_planting_scale: crate::gui_adjustables::FloatParam,
@@ -2203,7 +2196,6 @@ impl GuiAdjustables {
         let mut voxel_cherry_wood_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_oak_wood_color_field: Option<crate::gui_adjustables::ColorParam> = None;
         let mut voxel_rock_color_field: Option<crate::gui_adjustables::ColorParam> = None;
-        let mut ui_glass_pixelated_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut ui_glass_cell_size_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut tree_planting_instant_mature_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut tree_planting_scale_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3853,11 +3845,6 @@ impl GuiAdjustables {
                             voxel_rock_color_field = Some(crate::gui_adjustables::ColorParam::new(crate::app::gui_config::parse_color(value)));
                         }
                     }
-                    "ui_glass_pixelated" => {
-                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
-                            ui_glass_pixelated_field = Some(crate::gui_adjustables::BoolParam::new(*value));
-                        }
-                    }
                     "ui_glass_cell_size" => {
                         if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
                             let min = min.unwrap_or(0);
@@ -4307,7 +4294,6 @@ impl GuiAdjustables {
             voxel_cherry_wood_color: voxel_cherry_wood_color_field.expect("Missing parameter: voxel_cherry_wood_color"),
             voxel_oak_wood_color: voxel_oak_wood_color_field.expect("Missing parameter: voxel_oak_wood_color"),
             voxel_rock_color: voxel_rock_color_field.expect("Missing parameter: voxel_rock_color"),
-            ui_glass_pixelated: ui_glass_pixelated_field.expect("Missing parameter: ui_glass_pixelated"),
             ui_glass_cell_size: ui_glass_cell_size_field.expect("Missing parameter: ui_glass_cell_size"),
             tree_planting_instant_mature: tree_planting_instant_mature_field.expect("Missing parameter: tree_planting_instant_mature"),
             tree_planting_scale: tree_planting_scale_field.expect("Missing parameter: tree_planting_scale"),
@@ -4632,7 +4618,6 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
         "butterfly_mesh_preview" => Some(&adjustables.butterfly_mesh_preview),
         "rooftop_voxel_scene" => Some(&adjustables.rooftop_voxel_scene),
-        "ui_glass_pixelated" => Some(&adjustables.ui_glass_pixelated),
         "tree_planting_instant_mature" => Some(&adjustables.tree_planting_instant_mature),
         "soil_deposition_fast_path" => Some(&adjustables.soil_deposition_fast_path),
         _ => None,
@@ -4953,7 +4938,6 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
         "butterfly_mesh_preview" => Some(&mut adjustables.butterfly_mesh_preview),
         "rooftop_voxel_scene" => Some(&mut adjustables.rooftop_voxel_scene),
-        "ui_glass_pixelated" => Some(&mut adjustables.ui_glass_pixelated),
         "tree_planting_instant_mature" => Some(&mut adjustables.tree_planting_instant_mature),
         "soil_deposition_fast_path" => Some(&mut adjustables.soil_deposition_fast_path),
         _ => None,

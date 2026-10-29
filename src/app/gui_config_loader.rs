@@ -95,6 +95,7 @@ impl GuiConfigLoader {
                     && param.id != "apple_color_stripes"
                     && param.id != "apple_sun_gloss"
                     && param.id != "sprinkler_wetting_patches"
+                    && param.id != "ui_glass_pixelated"
                     && !matches!(
                         param.id.as_str(),
                         "stone_direct_triangles"
@@ -149,7 +150,10 @@ impl GuiConfigLoader {
             // Permanent paths keep saved tuning but no obsolete A/B dependency.
             if matches!(
                 param.id.as_str(),
-                "walk_ground_detail_height" | "sprinkler_wet_patch_size" | "apple_environment_fill"
+                "walk_ground_detail_height"
+                    | "sprinkler_wet_patch_size"
+                    | "apple_environment_fill"
+                    | "ui_glass_cell_size"
             ) {
                 param.enabled_if = None;
             }

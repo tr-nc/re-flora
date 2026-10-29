@@ -3765,7 +3765,6 @@ impl App {
                     cmdbuf,
                     self.tracer.get_screen_output_tex(),
                     crate::egui_renderer::matte_glass::MatteSettings {
-                        pixelated: self.debug_settings.adjustables.ui_glass_pixelated.value,
                         cell_points: self.debug_settings.adjustables.ui_glass_cell_size.value,
                     },
                 );
