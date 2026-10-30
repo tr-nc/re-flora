@@ -117,10 +117,10 @@ impl SurfaceBuilder {
                     let id = UVec3::new(x, y, z);
                     let index = self.get_chunk_resource_index(id)?;
                     let live = &self.resources.instances.chunk_flora_instances[index].1;
-                    let mut staged = FloraInstanceResources::new(
+                    let mut staged = FloraInstanceResources::new_for_grass_edit(
                         device.clone(),
                         allocator.clone(),
-                        id,
+                        live,
                         self.voxel_dim_per_chunk,
                     );
                     let lengths: Vec<_> = (0..species::species_count())
@@ -143,8 +143,6 @@ impl SurfaceBuilder {
                         }
                         staged.set_species_len(s, count);
                     }
-                    staged
-                        .publish_grass_growth_potential(live.grass_growth_potential_cpu.clone())?;
                     chunks.push(ChunkEdit {
                         index,
                         source_instances: (*live.resource.instances_buf).clone(),

@@ -16,6 +16,44 @@ fn publish(app: &mut App, transaction: GrassEditTransaction) -> Result<()> {
     app.surface_builder.review_grass_publication()?;
     Ok(())
 }
+fn verify_growth_snapshot(app: &mut App, replay: &Replay, edit: TerrainBrushEdit) -> Result<()> {
+    const INFLUENCE_ID: u64 = 0x4752_5458_5052_4550;
+    let influence = crate::builder::GrassGrowthInfluence {
+        center_world_vox: UVec3::new(256, 127, 128),
+        radius_voxels: 96,
+        min_level: 0,
+    };
+    replay.reset(app)?;
+    app.apply_surface_flora_regeneration_at(edit, 7, true, 10000)?;
+    let unrestricted = roots(app)?;
+
+    replay.reset(app)?;
+    app.surface_builder
+        .upsert_external_grass_growth_influence(INFLUENCE_ID, influence, 10000)?;
+    app.apply_surface_flora_regeneration_at(edit, 7, true, 10000)?;
+    let expected = roots(app)?;
+    anyhow::ensure!(
+        expected != unrestricted,
+        "growth snapshot fixture did not change paint"
+    );
+    app.surface_builder
+        .remove_external_grass_growth_influences(&[INFLUENCE_ID], 10000)?;
+
+    replay.reset(app)?;
+    app.surface_builder
+        .upsert_external_grass_growth_influence(INFLUENCE_ID, influence, 10000)?;
+    app.queue_surface_grass_at(edit, 7, 10000)?;
+    app.flush_grass_edits()?;
+    anyhow::ensure!(
+        roots(app)? == expected,
+        "grass transaction did not preserve nondefault growth input"
+    );
+    app.surface_builder.review_grass_publication()?;
+    app.surface_builder
+        .remove_external_grass_growth_influences(&[INFLUENCE_ID], 10000)?;
+    Ok(())
+}
+
 fn verify_mode_switch(app: &mut App, replay: &Replay, edit: TerrainBrushEdit) -> Result<()> {
     let saved = app.debug_settings.adjustables.async_grass_edits.value;
     let second = TerrainBrushEdit {
@@ -391,8 +429,9 @@ pub(super) fn verify(app: &mut App, replay: &Replay) -> Result<()> {
         roots(app)?.len() > before.len(),
         "save omitted queued grass"
     );
+    verify_growth_snapshot(app, replay, edit)?;
     verify_mode_switch(app, replay, edit)?;
     replay.reset(app)?;
-    log::info!("[GRASS_TRANSACTION_REVIEW] cpu_draw_match=true potential_conflict=true atomic=true abandoned_recording=true host_conflict=true gpu_conflict=true terrain_conflict=true hydration=true authored=true capacity=true cancel=true backpressure=true tool_switch=true bounded_retry=true save=true mode_switch=true");
+    log::info!("[GRASS_TRANSACTION_REVIEW] cpu_draw_match=true potential_conflict=true atomic=true abandoned_recording=true host_conflict=true gpu_conflict=true terrain_conflict=true hydration=true authored=true capacity=true cancel=true backpressure=true tool_switch=true bounded_retry=true save=true mode_switch=true growth_snapshot=true");
     Ok(())
 }

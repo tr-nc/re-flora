@@ -191,6 +191,33 @@ impl FloraInstanceResources {
         chunk_id: UVec3,
         voxel_dim_per_chunk: UVec3,
     ) -> Self {
+        Self::new_with_potential(device, allocator, chunk_id, voxel_dim_per_chunk, None)
+    }
+
+    /// Private output starts with its actual input field, not a default upload
+    /// immediately overwritten by a second full-volume upload. Never aliases live memory.
+    pub(super) fn new_for_grass_edit(
+        device: Device,
+        allocator: Allocator,
+        source: &Self,
+        voxel_dim_per_chunk: UVec3,
+    ) -> Self {
+        Self::new_with_potential(
+            device,
+            allocator,
+            source.chunk_id,
+            voxel_dim_per_chunk,
+            Some(&source.grass_growth_potential_cpu),
+        )
+    }
+
+    fn new_with_potential(
+        device: Device,
+        allocator: Allocator,
+        chunk_id: UVec3,
+        voxel_dim_per_chunk: UVec3,
+        initial_potential: Option<&[u32]>,
+    ) -> Self {
         let species_count = species::species_count();
         let max_instances = u64::from(MAX_FLORA_INSTANCES_PER_SPECIES) * species_count as u64;
         let resource =
@@ -222,7 +249,13 @@ impl FloraInstanceResources {
             MemoryLocation::GpuToCpu,
             u64::from(MAX_FLORA_INSTANCES_PER_SPECIES) * 2 * std::mem::size_of::<Instance>() as u64,
         );
-        let grass_growth_potential_cpu = vec![u32::MAX; grass_growth_potential_word_count as usize];
+        let grass_growth_potential_cpu = match initial_potential {
+            Some(words) => {
+                assert_eq!(words.len(), grass_growth_potential_word_count as usize);
+                words.to_vec()
+            }
+            None => vec![u32::MAX; grass_growth_potential_word_count as usize],
+        };
         let grass_growth_potential_levels = Buffer::new_sized(
             device,
             allocator,

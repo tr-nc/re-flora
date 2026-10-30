@@ -1,0 +1,120 @@
+diff --git a/src/builder/surface/grass_transaction.rs b/src/builder/surface/grass_transaction.rs
+index dee389cd..83e3da79 100644
+--- a/src/builder/surface/grass_transaction.rs
++++ b/src/builder/surface/grass_transaction.rs
+@@ -90,6 +90,7 @@ impl SurfaceBuilder {
+             self.supports_grass_transaction(&request),
+             "unsupported grass transaction extent/selection"
+         );
++        let prep_start = Instant::now();
+         let device = self.vulkan_ctx.device().clone();
+         let allocator = self.resources.surface.get_image().get_allocator().clone();
+         let images = self
+@@ -106,6 +107,7 @@ impl SurfaceBuilder {
+                 (image(), image())
+             })
+             .clone();
++        log::debug!(target: "grass_edit_preparation", "[DEBUG-grass-prep] images_ms={:.6}", prep_start.elapsed().as_secs_f64() * 1000.);
+         let min = request.voxel_bound.min() / self.voxel_dim_per_chunk;
+         let max = request.voxel_bound.max() / self.voxel_dim_per_chunk;
+         let mut chunks = Vec::new();
+@@ -117,12 +119,15 @@ impl SurfaceBuilder {
+                     let id = UVec3::new(x, y, z);
+                     let index = self.get_chunk_resource_index(id)?;
+                     let live = &self.resources.instances.chunk_flora_instances[index].1;
++                    let resource_start = Instant::now();
+                     let mut staged = FloraInstanceResources::new(
+                         device.clone(),
+                         allocator.clone(),
+                         id,
+                         self.voxel_dim_per_chunk,
+                     );
++                    let resource_ms = resource_start.elapsed().as_secs_f64() * 1000.;
++                    let instance_start = Instant::now();
+                     let lengths: Vec<_> = (0..species::species_count())
+                         .map(|s| live.species_len(s))
+                         .collect();
+@@ -143,8 +148,12 @@ impl SurfaceBuilder {
+                         }
+                         staged.set_species_len(s, count);
+                     }
++                    let instance_ms = instance_start.elapsed().as_secs_f64() * 1000.;
++                    let potential_start = Instant::now();
+                     staged
+                         .publish_grass_growth_potential(live.grass_growth_potential_cpu.clone())?;
++                    let potential_ms = potential_start.elapsed().as_secs_f64() * 1000.;
++                    log::debug!(target: "grass_edit_preparation", "[DEBUG-grass-prep] resource_ms={resource_ms:.6} instance_ms={instance_ms:.6} potential_ms={potential_ms:.6}");
+                     chunks.push(ChunkEdit {
+                         index,
+                         source_instances: (*live.resource.instances_buf).clone(),
+@@ -164,6 +173,7 @@ impl SurfaceBuilder {
+                 }
+             }
+         }
++        let record_start = Instant::now();
+         for chunk in &mut chunks {
+             let edit = EditRequest {
+                 chunk_id: chunk.staged.chunk_id,
+@@ -181,6 +191,7 @@ impl SurfaceBuilder {
+             chunk.job =
+                 Some(self.record_occupancy_edit(&edit, &chunk.scratch, &chunk.staged, false)?);
+         }
++        log::debug!(target: "grass_edit_preparation", "[DEBUG-grass-prep] record_submit_ms={:.6} total_ms={:.6}", record_start.elapsed().as_secs_f64() * 1000., prep_start.elapsed().as_secs_f64() * 1000.);
+         Ok(GrassEditTransaction {
+             request,
+             terrain_revision,
+diff --git a/src/builder/surface/resources.rs b/src/builder/surface/resources.rs
+index c21a27bc..d3294447 100644
+--- a/src/builder/surface/resources.rs
++++ b/src/builder/surface/resources.rs
+@@ -191,6 +191,7 @@ impl FloraInstanceResources {
+         chunk_id: UVec3,
+         voxel_dim_per_chunk: UVec3,
+     ) -> Self {
++        let allocation_start = std::time::Instant::now();
+         let species_count = species::species_count();
+         let max_instances = u64::from(MAX_FLORA_INSTANCES_PER_SPECIES) * species_count as u64;
+         let resource =
+@@ -206,6 +207,8 @@ impl FloraInstanceResources {
+             MemoryLocation::CpuToGpu,
+             max_instances * 4,
+         );
++        let mut allocation_ms = allocation_start.elapsed().as_secs_f64() * 1000.;
++        let hydration_start = std::time::Instant::now();
+         plant_hydration
+             .fill_range_with_raw_u8(
+                 0,
+@@ -215,6 +218,8 @@ impl FloraInstanceResources {
+                 ]),
+             )
+             .expect("initialize plant hydration");
++        let hydration_ms = hydration_start.elapsed().as_secs_f64() * 1000.;
++        let allocation_start = std::time::Instant::now();
+         let grass_instances_readback = Buffer::new_sized(
+             device.clone(),
+             allocator.clone(),
+@@ -222,7 +227,11 @@ impl FloraInstanceResources {
+             MemoryLocation::GpuToCpu,
+             u64::from(MAX_FLORA_INSTANCES_PER_SPECIES) * 2 * std::mem::size_of::<Instance>() as u64,
+         );
++        allocation_ms += allocation_start.elapsed().as_secs_f64() * 1000.;
++        let cpu_start = std::time::Instant::now();
+         let grass_growth_potential_cpu = vec![u32::MAX; grass_growth_potential_word_count as usize];
++        let cpu_ms = cpu_start.elapsed().as_secs_f64() * 1000.;
++        let allocation_start = std::time::Instant::now();
+         let grass_growth_potential_levels = Buffer::new_sized(
+             device,
+             allocator,
+@@ -232,9 +241,12 @@ impl FloraInstanceResources {
+             MemoryLocation::CpuToGpu,
+             grass_growth_potential_word_count * std::mem::size_of::<u32>() as u64,
+         );
++        allocation_ms += allocation_start.elapsed().as_secs_f64() * 1000.;
++        let upload_start = std::time::Instant::now();
+         grass_growth_potential_levels
+             .fill_range_with_raw_u8(0, bytemuck::cast_slice(&grass_growth_potential_cpu))
+             .expect("initialize grass growth-potential field");
++        log::debug!(target: "grass_edit_preparation", "[DEBUG-grass-prep] allocation_ms={allocation_ms:.6} hydration_ms={hydration_ms:.6} potential_cpu_ms={cpu_ms:.6} potential_upload_ms={:.6}", upload_start.elapsed().as_secs_f64() * 1000.);
+         Self {
+             chunk_id,
+             grass_audio: Default::default(),
