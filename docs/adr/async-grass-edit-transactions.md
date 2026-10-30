@@ -38,6 +38,25 @@ unbounded request/resource backlog without changing stroke interpolation or drop
 work. The private 256³ R32UI surface/occupancy pair costs 128 MiB, plus bounded per-chunk buffers.
 This memory and snapshot-copy cost is intentional isolation, not a free performance win.
 
+## Retain synchronous completion as the foundation
+
+Keep the synchronous path even if the interactive default changes later. It is not a duplicate
+legacy implementation maintained only for A/B testing: GPU recording is shared, callers still
+need the return-means-complete contract, and asynchronous admission/conflict handling depends
+on synchronous fallback. Removing the checkbox would not remove these obligations.
+
+Its incremental maintenance cost is therefore low, not zero: preserve shared edit logic rather
+than forking the algorithm, and validate both completion semantics plus draining accepted work
+when switching modes. This is an architectural assessment, not a measured maintenance-cost
+estimate. The asynchronous isolation/publication layer must justify its additional complexity;
+the synchronous foundation does not need to win every interactive benchmark to remain useful.
+
+The [2026-10-30 RTX acceptance assessment](../reports/async-grass-switch-rtx.html#acceptance)
+supports retaining async as an opt-in experiment while keeping synchronous mode the default.
+It is not acceptance of universal performance improvement or a default-on rollout. The
+unexplained slow submission run and missing continuous-interaction frame/presentation evidence
+remain open; benchmark samples and follow-up conditions belong in that report.
+
 ## Deliberately separate decisions
 
 Removing a wait does not reduce GPU work or establish input-to-display improvement. Measure
