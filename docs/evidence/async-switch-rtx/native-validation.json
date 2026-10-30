@@ -1,0 +1,15 @@
+{
+  "transactions.log": {
+    "sha256": "05b9b8862eca84c804724e6ffd89534b28319e9ecc71af33eec4ceca2f7083de",
+    "markers": [
+      "[21:05:34.087 INFO re_flora::app::core::brush_edit_bench::transactions] [GRASS_TRANSACTION_REVIEW] cpu_draw_match=true potential_conflict=true atomic=true abandoned_recording=true host_conflict=true gpu_conflict=true terrain_conflict=true hydration=true authored=true capacity=true cancel=true backpressure=true tool_switch=true bounded_retry=true save=true mode_switch=true growth_snapshot=true",
+      "[21:05:35.234 INFO re_flora] Application exited successfully"
+    ]
+  },
+  "smoke.log": {
+    "sha256": "619ee86db413e83177d489fd369c752765d85f4f6fba53478a3c83f39810cfe6",
+    "markers": [
+      "[21:05:40.008 INFO re_flora] Application exited successfully"
+    ]
+  }
+}

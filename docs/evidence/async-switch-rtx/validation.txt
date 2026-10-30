@@ -1,0 +1,80 @@
+Async grass switch assessment — RTX 3060 Ti — 2026-10-30
+Historical measurement, not a maintained implementation specification.
+Measured source: d7716b06 (full revision and binary SHA-256 in data.json).
+The production source and saved GUI configuration were not modified.
+
+Build
+-----
+cargo build --release
+FAIL: src/bin/collision_bench_rapier.rs:821 uses fs::read_to_string without an
+import on Linux (E0433, followed by E0282). Full local log:
+/tmp/re-flora-async-ab-build.log
+
+cargo build --release --bin re-flora
+PASS. Current main application Release binary was built before all benchmark runs.
+Local log: /tmp/re-flora-async-ab-app-build.log
+No claim is made that the auxiliary collision benchmark builds.
+
+Performance evidence
+--------------------
+Main batch: 8 cases x ABBA (sync,async,async,sync), 24 measured events + 3 warmups
+per process. 32 processes, 768 measured events, 96 warmups.
+Follow-up: noop-dense-cross and add-dense-cross x ABBA, 48 measured events +
+3 warmups per process. 8 processes, 384 measured events, 24 warmups.
+
+All 40 runs exited successfully. For each case, root counts, changed voxels,
+root hash, and material-atlas hash matched across samples and modes, including
+warmups. No async retries. No ERROR, panic, or Vulkan VUID diagnostics in logs.
+GUI file SHA-256 remained unchanged. These checks do not establish full game
+or all-terrain-operation acceptance.
+
+Final extent audit: parse SCENE_PIXELS in chronological order and track the
+active size from the FIRST warmup BRUSH_EDIT_BENCH begin through exit.
+All 40 runs: 2880x1620, MAILBOX. Startup can briefly be 2400x1350 before the
+Wayland configure event. Initial window-creation dimensions alone are not the
+measured rendering size. Audited sizes and raw-log SHA-256 are in both data files.
+
+The unusually slow noop-dense-cross async run is retained in the main batch:
+24 measured edits at about 13.8–15.3 ms, primarily submit time, no retries or
+output changes. Follow-up did not reproduce this whole-process slow state.
+Its cause and introducing revision remain unconfirmed.
+
+Two environment diagnostics are NOT pooled with performance results:
+1. target/async-switch-ab/fixed/: one X11 fixed-size window trial. Automatic
+   present mode became FIFO rather than MAILBOX; comparison runner rejected it.
+2. target/async-switch-ab/controlled/: one normal Wayland sync trial. An initial
+   2400x1350 expectation was rejected because actual size was 2880x1620.
+   This prompted the full chronological extent audit above. Neither was a
+   production application failure. Their raw local logs/JSON remain available.
+
+Native validation (after performance runs, not concurrent)
+--------------------------------------------------------
+From the isolated checkout /home/terence/code/re-flora-async-switch-bench:
+RUST_LOG=info RE_FLORA_BRUSH_EDIT_BENCH=add-dense-cross \
+RE_FLORA_BRUSH_BENCH_ASYNC=1 RE_FLORA_GRASS_TRANSACTION_REVIEW=1 \
+RE_FLORA_BRUSH_BENCH_SAMPLES=3 \
+RE_FLORA_BRUSH_BENCH_REPORT=/home/terence/code/re-flora/target/async-switch-ab/transactions.json \
+/home/terence/code/re-flora/target/release/re-flora --hidden --mute --flat-terrain
+PASS. GRASS_TRANSACTION_REVIEW reports all checks true, including mode_switch,
+growth_snapshot, backpressure, bounded_retry, save, hydration, and atomic.
+Used --latest-log and --tail-latest-log 200 from the same isolated checkout.
+
+From the primary checkout:
+cargo run --release -- --hidden --mute --auto-exit 0.5
+cargo run --release -- --latest-log
+cargo run --release -- --tail-latest-log 200
+PASS. Smoke and native review exited successfully, with no ERROR/panic/VUID.
+Exact success markers and complete-log hashes: native-validation.json.
+
+No Rust/shader changes; cargo check/test were not rerun for this report-only
+change. No visible game was launched. Browser report layout and metric toggle
+were checked separately after all GPU benchmarks completed.
+
+Reproduction
+------------
+See run.mjs usage. Same binary, isolated clean checkout with matching assets and
+config; do not run GPU benchmarks concurrently. BENCH_EXPECT_EXTENT=2880x1620
+checks the measured period, not transient startup dimensions. Follow-up uses
+48 samples and optional case list noop-dense-cross,add-dense-cross. Output JSON
+retains all warmups; summarize.mjs excludes only the warmup flag, uses the mean
+of the two middle values for even-count medians, and nearest-rank p95.
