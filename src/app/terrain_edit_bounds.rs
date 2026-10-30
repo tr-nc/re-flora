@@ -89,13 +89,33 @@ mod tests {
         )));
         assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(0.0, 0.5, 0.0)));
         assert!(INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(
-            max_x - f32::EPSILON,
+            max_x.next_down(),
             0.5,
             center_z
         )));
 
         assert!(!INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(-0.01, 0.5, center_z)));
         assert!(!INITIAL_EDITABLE_TERRAIN_BOUNDS.contains_point_xz(Vec3::new(max_x, 0.5, center_z)));
+    }
+
+    #[test]
+    fn expanded_world_accepts_edits_in_both_new_axes_and_keeps_exclusive_edges() {
+        let bounds = INITIAL_EDITABLE_TERRAIN_BOUNDS;
+        for (x, z) in [(3.5, 1.0), (1.0, 3.5), (3.5, 3.5)] {
+            assert!(bounds.contains_brush_endpoint(TerrainBrushEdit {
+                start: Vec3::new(1.0, 0.5, 1.0),
+                end: Vec3::new(x, 0.5, z),
+                radius: 0.1,
+            }));
+        }
+        for (x, z) in [(4.0, 1.0), (1.0, 4.0), (4.0, 4.0)] {
+            assert!(!bounds.contains_point_xz(Vec3::new(x, 0.5, z)));
+        }
+        let voxels = bounds.voxel_bounds(glam::UVec3::splat(256));
+        assert_eq!(
+            voxels,
+            crate::geom::UAabb3::new(glam::UVec3::ZERO, glam::UVec3::new(1024, 512, 1024))
+        );
     }
 
     #[test]
