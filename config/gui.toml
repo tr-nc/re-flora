@@ -860,6 +860,15 @@ min = 0
 max = 1
 
 [[section.param]]
+id = "async_grass_edits"
+kind = "bool"
+label = "Grass brush: asynchronous edits (experimental)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "flora_growth_override_enabled"
 kind = "bool"
 label = "Override Flora Growth"

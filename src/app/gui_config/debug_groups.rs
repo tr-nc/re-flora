@@ -14,6 +14,13 @@ pub(super) struct ControlGroup {
 const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
+        title: "Brush Editing",
+        description: "Unchecked: synchronous grass editing. Checked: experimental deferred publication for unlimited Grass Mix only. Turning off completes accepted paint before returning to synchronous editing. Stroke spacing is unchanged.",
+        initially_open: false,
+        params: &["async_grass_edits"],
+    },
+    ControlGroup {
+        parent: None,
         title: "Walking Traversal",
         description: "Cross low, narrow ground detail above a nearby supported patch. Height is measured from real surrounding terrain, not accumulated from previous steps. Default 3 voxels; capped at the player's 4-voxel radius. Normal 12-voxel steps, body clearance, jumping and mower movement are unchanged. Changes apply immediately; saved with Save.",
         initially_open: false,

@@ -49,6 +49,16 @@ enum State {
 }
 
 impl App {
+    /// Called at the frame boundary, including when switching modes without another dab.
+    /// Accepted work is completed, never cancelled or silently replaced by a UI change.
+    pub(super) fn advance_grass_edits(&mut self) -> Result<()> {
+        if self.debug_settings.adjustables.async_grass_edits.value {
+            self.poll_grass_edits()
+        } else {
+            self.flush_grass_edits()
+        }
+    }
+
     pub(super) fn queue_grass_edit(&mut self, request: GrassPaintRequest) -> Result<()> {
         // Backpressure is lossless: never replace an accepted stroke endpoint.
         self.flush_grass_edits()?;

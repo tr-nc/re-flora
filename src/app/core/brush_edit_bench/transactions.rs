@@ -16,6 +16,73 @@ fn publish(app: &mut App, transaction: GrassEditTransaction) -> Result<()> {
     app.surface_builder.review_grass_publication()?;
     Ok(())
 }
+fn verify_mode_switch(app: &mut App, replay: &Replay, edit: TerrainBrushEdit) -> Result<()> {
+    let saved = app.debug_settings.adjustables.async_grass_edits.value;
+    let second = TerrainBrushEdit {
+        start: Vec3::new(128., 127.5, 112.) / 256.,
+        end: Vec3::new(128., 127.5, 112.) / 256.,
+        radius: 14. / 256.,
+    };
+    // The unchecked interactive path must be identical to the scripted sync API.
+    replay.reset(app)?;
+    app.apply_surface_flora_regeneration_at(edit, 7, true, 10000)?;
+    let first = roots(app)?;
+    app.apply_surface_flora_regeneration_at(second, 8, true, 10001)?;
+    let both = roots(app)?;
+    anyhow::ensure!(
+        both.len() > first.len(),
+        "mode switch fixture needs two distinct dabs"
+    );
+
+    replay.reset(app)?;
+    app.debug_settings.adjustables.async_grass_edits.value = false;
+    app.apply_interactive_flora_regeneration_at(edit, 7, true, 10000)?;
+    anyhow::ensure!(
+        app.grass_edits.is_idle() && roots(app)? == first,
+        "unchecked paint is not synchronous"
+    );
+
+    // Toggling on changes interactive admission, not the scripted API's contract.
+    replay.reset(app)?;
+    app.debug_settings.adjustables.async_grass_edits.value = true;
+    app.apply_surface_flora_regeneration_at(edit, 7, true, 10000)?;
+    anyhow::ensure!(
+        app.grass_edits.is_idle() && roots(app)? == first,
+        "scripted paint became asynchronous"
+    );
+
+    for (submitted, frame_boundary) in [(false, true), (true, true), (true, false)] {
+        replay.reset(app)?;
+        let before = roots(app)?;
+        app.debug_settings.adjustables.async_grass_edits.value = true;
+        app.apply_interactive_flora_regeneration_at(edit, 7, true, 10000)?;
+        anyhow::ensure!(
+            !app.grass_edits.is_idle() && roots(app)? == before,
+            "checked paint did not defer publication"
+        );
+        if submitted {
+            app.submit_queued_grass_edit()?;
+        }
+        app.debug_settings.adjustables.async_grass_edits.value = false;
+        if frame_boundary {
+            app.advance_grass_edits()?;
+            anyhow::ensure!(
+                app.grass_edits.is_idle() && roots(app)? == first,
+                "disabling dropped accepted paint"
+            );
+        }
+        // A new sync dab must also drain a pending transaction before editing.
+        app.apply_interactive_flora_regeneration_at(second, 8, true, 10001)?;
+        anyhow::ensure!(
+            app.grass_edits.is_idle() && roots(app)? == both,
+            "mode switch reordered or lost dabs"
+        );
+        app.surface_builder.review_grass_publication()?;
+    }
+    app.debug_settings.adjustables.async_grass_edits.value = saved;
+    Ok(())
+}
+
 fn reject(app: &mut App, transaction: GrassEditTransaction) -> Result<()> {
     let before = roots(app)?;
     transaction.wait()?;
@@ -324,7 +391,8 @@ pub(super) fn verify(app: &mut App, replay: &Replay) -> Result<()> {
         roots(app)?.len() > before.len(),
         "save omitted queued grass"
     );
+    verify_mode_switch(app, replay, edit)?;
     replay.reset(app)?;
-    log::info!("[GRASS_TRANSACTION_REVIEW] cpu_draw_match=true potential_conflict=true atomic=true abandoned_recording=true host_conflict=true gpu_conflict=true terrain_conflict=true hydration=true authored=true capacity=true cancel=true backpressure=true tool_switch=true bounded_retry=true save=true");
+    log::info!("[GRASS_TRANSACTION_REVIEW] cpu_draw_match=true potential_conflict=true atomic=true abandoned_recording=true host_conflict=true gpu_conflict=true terrain_conflict=true hydration=true authored=true capacity=true cancel=true backpressure=true tool_switch=true bounded_retry=true save=true mode_switch=true");
     Ok(())
 }

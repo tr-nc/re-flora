@@ -2252,8 +2252,8 @@ impl App {
                 }
 
                 let frame_start = Instant::now();
-                self.poll_grass_edits()
-                    .expect("publish asynchronous grass edit");
+                self.advance_grass_edits()
+                    .expect("advance grass edit or drain disabled experiment");
                 let frame_perf_enabled = self.perf_logging;
                 let frame_timing_enabled = frame_perf_enabled || self.frame_timing_panel_visible;
                 let mut cpu_timings = FrameCpuTimings::new(frame_timing_enabled);

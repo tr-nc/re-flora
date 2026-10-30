@@ -226,6 +226,10 @@ impl App {
             return Ok(false);
         };
         let result = (|| -> Result<bool> {
+            if replay.frame == 0 {
+                // Diagnostic override is in-memory only; never saves GUI preferences.
+                self.debug_settings.adjustables.async_grass_edits.value = replay.asynchronous;
+            }
             if replay.frame == 0 && std::env::var_os("RE_FLORA_GRASS_TRANSACTION_REVIEW").is_some()
             {
                 transactions::verify(self, &replay)?;
@@ -299,7 +303,12 @@ impl App {
                     match op {
                         "add" | "noop" => {
                             if replay.asynchronous {
-                                self.queue_surface_grass_at(replay.edit, 7, 10_000)?;
+                                self.apply_interactive_flora_regeneration_at(
+                                    replay.edit,
+                                    7,
+                                    true,
+                                    10_000,
+                                )?;
                                 replay.pending = Some(PendingSample {
                                     preflight_ms,
                                     enqueue_ms: started.elapsed().as_secs_f64() * 1000.,
@@ -309,7 +318,12 @@ impl App {
                                 // normally until the completion poll has published all chunks.
                                 return Ok(false);
                             }
-                            self.apply_surface_flora_regeneration_at(replay.edit, 7, true, 10_000)?
+                            self.apply_interactive_flora_regeneration_at(
+                                replay.edit,
+                                7,
+                                true,
+                                10_000,
+                            )?
                         }
                         "remove" => self.apply_surface_flora_removal(replay.edit)?,
                         "dig" => {

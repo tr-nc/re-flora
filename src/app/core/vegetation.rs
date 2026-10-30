@@ -3248,6 +3248,30 @@ impl App {
         )
     }
 
+    /// Interactive unlimited planting alone opts into deferred completion.
+    /// Off uses the original synchronous entry point, including its drain boundary.
+    pub(super) fn apply_interactive_flora_regeneration_at(
+        &mut self,
+        edit: TerrainBrushEdit,
+        paint_dab_serial: u32,
+        is_release_step: bool,
+        spawn_time_ms: u32,
+    ) -> Result<()> {
+        if self.debug_settings.adjustables.async_grass_edits.value
+            && self.infinite_materials_enabled()
+            && self.current_flora_paint_selection() == species::FloraPaintSelection::GrassMix
+        {
+            self.queue_surface_grass_at(edit, paint_dab_serial, spawn_time_ms)
+        } else {
+            self.apply_surface_flora_regeneration_at(
+                edit,
+                paint_dab_serial,
+                is_release_step,
+                spawn_time_ms,
+            )
+        }
+    }
+
     pub(super) fn queue_surface_grass_at(
         &mut self,
         edit: TerrainBrushEdit,

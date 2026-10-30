@@ -5,6 +5,9 @@ Status: feature-branch decision; does not authorize asynchronous terrain or paid
 The synchronous brush API retains its “return means complete” contract. Only interactive,
 unlimited Grass Mix input accepts a deferred request. Scripted fixtures, finite inventory,
 removal, trim and terrain operations must not silently inherit deferred semantics.
+The saved Debug → Brush Editing checkbox defaults to unchecked (synchronous). It gates only
+interactive admission; disabling drains accepted paint at the next frame boundary or before
+another synchronous edit. It must not discard accepted endpoints or change stroke cadence.
 
 ## Ownership constraints
 

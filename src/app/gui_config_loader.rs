@@ -281,6 +281,7 @@ impl GuiConfigLoader {
         for id in ["apple_size_scale", "apple_environment_fill"] {
             Self::add_missing_param(&mut config, "Debug", id);
         }
+        Self::add_missing_param(&mut config, "Debug", "async_grass_edits");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pixelization");
         Self::validate(&config, config_path);
@@ -3782,6 +3783,42 @@ max = 2
             assert_eq!(
                 toml::to_string(&loaded).unwrap(),
                 toml::to_string(&GuiConfigLoader::load_from_path(&path)).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn async_grass_edits_migrates_to_sync_without_overwriting_saved_choice() {
+        use crate::app::gui_config_model::GuiParamValue;
+        for saved in [None, Some(false), Some(true)] {
+            let mut config: GuiConfigFile =
+                toml::from_str(include_str!("../../config/gui.toml")).unwrap();
+            for section in &mut config.section {
+                if let Some(value) = saved {
+                    for param in &mut section.param {
+                        if param.id == "async_grass_edits" {
+                            param.value = GuiParamValue::Bool { value };
+                        }
+                    }
+                } else {
+                    section.param.retain(|p| p.id != "async_grass_edits");
+                }
+            }
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("gui.toml");
+            GuiConfigLoader::save_to_path(&config, &path).unwrap();
+            let bytes = std::fs::read(&path).unwrap();
+            let loaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            let gui = crate::app::GuiAdjustables::from_config(&loaded);
+            assert_eq!(gui.async_grass_edits.value, saved.unwrap_or(false));
+            GuiConfigLoader::save_to_path(&loaded, &path).unwrap();
+            let reloaded = GuiConfigLoader::load_from_path(&path);
+            assert_eq!(
+                crate::app::GuiAdjustables::from_config(&reloaded)
+                    .async_grass_edits
+                    .value,
+                saved.unwrap_or(false)
             );
         }
     }
