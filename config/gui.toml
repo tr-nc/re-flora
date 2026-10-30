@@ -1032,6 +1032,38 @@ min = 2.5
 max = 20
 
 [[section]]
+name = "Soft Ropes"
+
+[[section.param]]
+id = "rope_material"
+kind = "choice"
+label = "New strand material (Rope tool / Tab)"
+type = "Choice"
+[section.param.data]
+value = 0
+options = ["Hemp rope", "Garden hose", "Kite line"]
+
+[[section.param]]
+id = "rope_slack"
+kind = "float"
+label = "New strand slack"
+type = "Float"
+[section.param.data]
+value = 1.15
+min = 1.0
+max = 1.6
+
+[[section.param]]
+id = "rope_wind_response"
+kind = "float"
+label = "Strand wind response"
+type = "Float"
+[section.param.data]
+value = 1.0
+min = 0.0
+max = 3.0
+
+[[section]]
 name = "Wind"
 
 [[section.param]]

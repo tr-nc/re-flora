@@ -1,6 +1,7 @@
-//! XPBD strands. Positions use the owning CollisionWorld's units; masses are kilograms.
+//! Elastic strands: implicit projective stretch and XPBD centerline bending.
+//! Positions use the owning CollisionWorld's units; masses are kilograms.
 //! Bending stores centerline curvature, not material twist. No rigid-body feedback or self collision.
-use glam::Vec3;
+use glam::{DVec3, Vec3};
 
 #[derive(Clone, Copy, Debug)]
 pub struct RopeMaterial {
@@ -37,7 +38,9 @@ pub struct RopeDesc {
 }
 impl RopeDesc {
     /// Uses the same bounded validation as world publication, without changing live state.
-    pub fn validate(&self) -> Result<(), RopeError> { Rope::new(self.clone()).map(|_| ()) }
+    pub fn validate(&self) -> Result<(), RopeError> {
+        Rope::new(self.clone()).map(|_| ())
+    }
 }
 #[derive(Debug, thiserror::Error)]
 #[error("invalid rope: {0}")]
@@ -60,11 +63,11 @@ pub struct Rope {
     velocities: Vec<Vec3>,
     weights: Vec<f32>,
     rest: Vec<f32>,
-    stretch_lambda: Vec<f32>,
-    stretch_directions: Vec<Vec3>,
-    stretch_diagonal: Vec<f32>,
-    stretch_rhs: Vec<f32>,
-    stretch_off: Vec<f32>,
+    stretch_correction: Vec<DVec3>,
+    stretch_diagonal: Vec<f64>,
+    stretch_rhs: Vec<DVec3>,
+    stretch_off: Vec<f64>,
+    stretch_base: Vec<DVec3>,
     bend_lambda: Vec<Vec3>,
     material: RopeMaterial,
     pins: [Option<Vec3>; 2],
@@ -108,7 +111,9 @@ impl Rope {
                 1. / (m.linear_density * length * 0.5 + if i == n - 1 { desc.end_mass } else { 0. })
             })
             .collect();
-        if weights.iter().any(|w| !w.is_finite() || *w <= 0.) { return Err(RopeError("unrepresentable node mass")); }
+        if weights.iter().any(|w| !w.is_finite() || *w <= 0.) {
+            return Err(RopeError("unrepresentable node mass"));
+        }
         let pins = [
             desc.pin_start.then_some(desc.points[0]),
             desc.pin_end.then_some(desc.points[n - 1]),
@@ -118,11 +123,11 @@ impl Rope {
             positions: desc.points,
             velocities: vec![Vec3::ZERO; n],
             weights,
-            stretch_lambda: vec![0.; n - 1],
-            stretch_directions: vec![Vec3::X; n - 1],
-            stretch_diagonal: vec![0.; n - 1],
-            stretch_rhs: vec![0.; n - 1],
-            stretch_off: vec![0.; n - 1],
+            stretch_correction: vec![DVec3::ZERO; n],
+            stretch_diagonal: vec![0.; n],
+            stretch_rhs: vec![DVec3::ZERO; n],
+            stretch_off: vec![0.; n],
+            stretch_base: vec![DVec3::ZERO; n],
             bend_lambda: vec![Vec3::ZERO; n - 2],
             rest,
             material: m,
@@ -190,7 +195,7 @@ impl Rope {
     }
     pub(crate) fn predict(&mut self, h: f32, gravity: Vec3) {
         self.previous.clone_from(&self.positions);
-        self.stretch_lambda.fill(0.);
+        self.stretch_correction.fill(DVec3::ZERO);
         self.bend_lambda.fill(Vec3::ZERO);
         self.contacts.clear();
         let decay = (-self.material.damping * h).exp();
@@ -215,34 +220,73 @@ impl Rope {
     pub(crate) fn sweep_position(&mut self, i: usize, position: Vec3) {
         self.positions[i] = position;
     }
-    /// Solve the coupled XPBD length system, not one segment at a time. A heavy
-    /// endpoint on a fine line otherwise converges far too slowly even at small dt.
-    /// J M^-1 J^T + compliance/h² is tridiagonal for a chain: Thomas elimination
-    /// propagates tension across the entire strand in O(n), then Newton iterations
-    /// interleave with bending, grabbing and unilateral contacts.
-    fn solve_stretch(&mut self,h:f32) {
-        let n=self.rest.len();
+    /// Local/global minimization of elastic length energy. Unlike a tangent-only
+    /// coupled Newton projection, the global quadratic majorizer stays positive
+    /// definite as a loaded line folds or reverses direction. Its exact tridiagonal
+    /// solve carries tension through high endpoint/node mass ratios in O(n).
+    /// Retaining this constraint family's correction keeps bending/contact/grab
+    /// corrections in the proximal target instead of overwriting other constraints.
+    fn solve_stretch(&mut self, h: f32) {
+        let n = self.positions.len();
+        let h2 = f64::from(h).powi(2);
         for i in 0..n {
-            let delta=self.positions[i+1]-self.positions[i];let length=delta.length();
-            if length>1e-7 {self.stretch_directions[i]=delta/length;}
-            let alpha=self.rest[i]/self.material.stretch_rigidity/(h*h);
-            self.stretch_diagonal[i]=self.weight(i)+self.weight(i+1)+alpha;
-            self.stretch_rhs[i]=-(length-self.rest[i])-alpha*self.stretch_lambda[i];
-            self.stretch_off[i]=if i>0 {-self.weight(i)*self.stretch_directions[i-1].dot(self.stretch_directions[i])} else {0.};
+            let p = self.positions[i].as_dvec3();
+            self.stretch_base[i] = p - self.stretch_correction[i];
+            let inertia = 1. / f64::from(self.weights[i]) / h2;
+            self.stretch_diagonal[i] = if self.is_pinned(i) { 1. } else { inertia };
+            self.stretch_rhs[i] = if self.is_pinned(i) {
+                p
+            } else {
+                self.stretch_base[i] * inertia
+            };
+            self.stretch_off[i] = 0.;
+        }
+        for i in 0..n - 1 {
+            let delta = (self.positions[i + 1] - self.positions[i]).as_dvec3();
+            let direction = delta.try_normalize().unwrap_or(DVec3::X);
+            let rest = f64::from(self.rest[i]);
+            let stiffness = f64::from(self.material.stretch_rigidity) / rest;
+            let projected = direction * rest;
+            let a = self.is_pinned(i);
+            let b = self.is_pinned(i + 1);
+            if !a {
+                self.stretch_diagonal[i] += stiffness;
+                self.stretch_rhs[i] -= projected * stiffness;
+                if b {
+                    self.stretch_rhs[i] += self.positions[i + 1].as_dvec3() * stiffness;
+                }
+            }
+            if !b {
+                self.stretch_diagonal[i + 1] += stiffness;
+                self.stretch_rhs[i + 1] += projected * stiffness;
+                if a {
+                    self.stretch_rhs[i + 1] += self.positions[i].as_dvec3() * stiffness;
+                }
+            }
+            if !a && !b {
+                self.stretch_off[i + 1] = -stiffness;
+            }
         }
         for i in 1..n {
-            let factor=self.stretch_off[i]/self.stretch_diagonal[i-1].max(f32::EPSILON);
-            self.stretch_diagonal[i]-=factor*self.stretch_off[i];
-            self.stretch_rhs[i]-=factor*self.stretch_rhs[i-1];
+            let factor = self.stretch_off[i] / self.stretch_diagonal[i - 1];
+            self.stretch_diagonal[i] -= factor * self.stretch_off[i];
+            let previous = self.stretch_rhs[i - 1];
+            self.stretch_rhs[i] -= factor * previous;
         }
         for i in (0..n).rev() {
-            let next=if i+1<n {self.stretch_off[i+1]*self.stretch_rhs[i+1]} else {0.};
-            self.stretch_rhs[i]=(self.stretch_rhs[i]-next)/self.stretch_diagonal[i].max(f32::EPSILON);
+            let next = if i + 1 < n {
+                self.stretch_off[i + 1] * self.stretch_rhs[i + 1]
+            } else {
+                DVec3::ZERO
+            };
+            self.stretch_rhs[i] = (self.stretch_rhs[i] - next) / self.stretch_diagonal[i];
         }
         for i in 0..n {
-            let dl=self.stretch_rhs[i];self.stretch_lambda[i]+=dl;
-            let a=self.weight(i);let b=self.weight(i+1);let gradient=self.stretch_directions[i];
-            self.positions[i]-=a*gradient*dl;self.positions[i+1]+=b*gradient*dl;
+            if self.is_pinned(i) {
+                continue;
+            }
+            self.positions[i] = self.stretch_rhs[i].as_vec3();
+            self.stretch_correction[i] = self.positions[i].as_dvec3() - self.stretch_base[i];
         }
     }
     pub(crate) fn solve(&mut self, h: f32) {

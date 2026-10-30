@@ -24,6 +24,7 @@ mod gui_adjustables;
 mod particles;
 mod procedual_placer;
 mod resource;
+mod rope;
 mod run_log;
 mod scene_query;
 mod soil_bag;

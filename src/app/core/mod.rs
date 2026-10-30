@@ -75,6 +75,7 @@ mod player_tools;
 mod raster_tree_smoke;
 mod render_frame_input;
 mod screenshot;
+mod soft_ropes;
 mod stone_lantern;
 mod stone_placement;
 mod terrain_connectivity;
@@ -465,6 +466,7 @@ pub struct App {
     local_lights: LocalLightRegistry,
     night_garden: night_garden::NightGarden,
     garden_fence: garden_fence::GardenFence,
+    soft_ropes: soft_ropes::SoftRopes,
     garden_bees: garden_bees::GardenBees,
     raster_entity_emitters: crate::lighting::RasterEntityEmitterProvider,
     emissive_voxel_lighting: Option<emissive_voxel_lighting::EmissiveVoxelLightingRuntime>,
@@ -1575,6 +1577,7 @@ impl App {
             local_lights: LocalLightRegistry::default(),
             night_garden: night_garden::NightGarden::default(),
             garden_fence: garden_fence::GardenFence::default(),
+            soft_ropes: soft_ropes::SoftRopes::new(),
             garden_bees: Default::default(),
             raster_entity_emitters: crate::lighting::RasterEntityEmitterProvider::default(),
             emissive_voxel_lighting,
@@ -1921,6 +1924,7 @@ impl App {
         ) {
             self.cancel_pointer_pick();
             self.mower.cancel_drag();
+            self.cancel_rope_gesture();
             self.cancel_pavement_stroke();
             self.camera_control.reset_mode_transition_motion();
         }
@@ -2171,6 +2175,12 @@ impl App {
                     }
                     if event.physical_key == KeyCode::Tab
                         && !event.repeat
+                        && self.player_tools.selected_tool() == PlayerTool::Rope
+                    {
+                        self.cycle_rope_material();
+                    }
+                    if event.physical_key == KeyCode::Tab
+                        && !event.repeat
                         && self.player_tools.selected_tool().is_construction()
                     {
                         self.cycle_pavement_kind();
@@ -2193,6 +2203,9 @@ impl App {
                     && matches!(button, MouseButton::Right | MouseButton::Middle)
                 {
                     self.cancel_pavement_stroke();
+                }
+                if self.handle_rope_pointer(button, state) {
+                    return;
                 }
                 if self.handle_mower_pointer(button, state) {
                     return;
@@ -2377,6 +2390,7 @@ impl App {
                     frame_delta_time
                 };
                 if self.terrain_persistence.allows_world_updates() {
+                    self.prepare_soft_ropes().expect("prepare strand inputs");
                     if let Err(err) = cpu_timings.time(FrameCpuScope::FruitPhysics, || {
                         self.terrain_physics.advance_dynamic_bodies(
                             frame_delta_time,
@@ -2388,6 +2402,8 @@ impl App {
                         log::error!("Failed to advance dynamic bodies: {err:#}");
                     }
                 }
+                self.render_soft_ropes()
+                    .expect("stage strand render snapshot");
                 let fruit_refresh_tree_ids =
                     self.terrain_physics.take_attached_fruit_refresh_trees();
                 if let Err(err) = self.refresh_attached_tree_fruits(&fruit_refresh_tree_ids) {

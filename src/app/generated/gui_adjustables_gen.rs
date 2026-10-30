@@ -511,6 +511,24 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Inertia: Discrete Poses / Second",
     },
     GeneratedGuiParamDescriptor {
+        section: "Soft Ropes",
+        id: "rope_material",
+        kind: "choice",
+        label: "New strand material (Rope tool / Tab)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Soft Ropes",
+        id: "rope_slack",
+        kind: "float",
+        label: "New strand slack",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Soft Ropes",
+        id: "rope_wind_response",
+        kind: "float",
+        label: "Strand wind response",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Wind",
         id: "canopy_audio_sample_budget",
         kind: "uint",
@@ -1837,6 +1855,9 @@ pub struct GuiAdjustables {
     pub vegetation_response_damping: crate::gui_adjustables::FloatParam,
     pub vegetation_response_gain: crate::gui_adjustables::FloatParam,
     pub vegetation_response_pose_hz: crate::gui_adjustables::FloatParam,
+    pub rope_material: crate::gui_adjustables::ChoiceParam,
+    pub rope_slack: crate::gui_adjustables::FloatParam,
+    pub rope_wind_response: crate::gui_adjustables::FloatParam,
     pub canopy_audio_sample_budget: crate::gui_adjustables::UintParam,
     pub wind_audio_attack_decay: crate::gui_adjustables::FloatParam,
     pub wind_audio_release_decay: crate::gui_adjustables::FloatParam,
@@ -2138,6 +2159,9 @@ impl GuiAdjustables {
         let mut vegetation_response_damping_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut vegetation_response_gain_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut vegetation_response_pose_hz_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut rope_material_field: Option<crate::gui_adjustables::ChoiceParam> = None;
+        let mut rope_slack_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut rope_wind_response_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut canopy_audio_sample_budget_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut wind_audio_attack_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut wind_audio_release_decay_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2872,6 +2896,25 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0.0);
                             let max = max.unwrap_or(1.0);
                             vegetation_response_pose_hz_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "rope_material" => {
+                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
+                            rope_material_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
+                        }
+                    }
+                    "rope_slack" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            rope_slack_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
+                        }
+                    }
+                    "rope_wind_response" => {
+                        if let (GuiParamKind::Float, GuiParamValue::Float { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0.0);
+                            let max = max.unwrap_or(1.0);
+                            rope_wind_response_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
                     "canopy_audio_sample_budget" => {
@@ -4350,6 +4393,9 @@ impl GuiAdjustables {
             vegetation_response_damping: vegetation_response_damping_field.expect("Missing parameter: vegetation_response_damping"),
             vegetation_response_gain: vegetation_response_gain_field.expect("Missing parameter: vegetation_response_gain"),
             vegetation_response_pose_hz: vegetation_response_pose_hz_field.expect("Missing parameter: vegetation_response_pose_hz"),
+            rope_material: rope_material_field.expect("Missing parameter: rope_material"),
+            rope_slack: rope_slack_field.expect("Missing parameter: rope_slack"),
+            rope_wind_response: rope_wind_response_field.expect("Missing parameter: rope_wind_response"),
             canopy_audio_sample_budget: canopy_audio_sample_budget_field.expect("Missing parameter: canopy_audio_sample_budget"),
             wind_audio_attack_decay: wind_audio_attack_decay_field.expect("Missing parameter: wind_audio_attack_decay"),
             wind_audio_release_decay: wind_audio_release_decay_field.expect("Missing parameter: wind_audio_release_decay"),
@@ -4613,6 +4659,8 @@ pub fn get_float_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str
         "vegetation_response_damping" => Some(&adjustables.vegetation_response_damping),
         "vegetation_response_gain" => Some(&adjustables.vegetation_response_gain),
         "vegetation_response_pose_hz" => Some(&adjustables.vegetation_response_pose_hz),
+        "rope_slack" => Some(&adjustables.rope_slack),
+        "rope_wind_response" => Some(&adjustables.rope_wind_response),
         "wind_audio_attack_decay" => Some(&adjustables.wind_audio_attack_decay),
         "wind_audio_release_decay" => Some(&adjustables.wind_audio_release_decay),
         "tree_wind_response_min_strength" => Some(&adjustables.tree_wind_response_min_strength),
@@ -4827,6 +4875,7 @@ pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
         "scene_supersampling_quality" => Some(&adjustables.scene_supersampling_quality),
         "scene_pixel_resolve_mode" => Some(&adjustables.scene_pixel_resolve_mode),
         "sprinkler_placement_type" => Some(&adjustables.sprinkler_placement_type),
+        "rope_material" => Some(&adjustables.rope_material),
         _ => None,
     }
 }
@@ -4948,6 +4997,8 @@ pub fn get_float_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, 
         "vegetation_response_damping" => Some(&mut adjustables.vegetation_response_damping),
         "vegetation_response_gain" => Some(&mut adjustables.vegetation_response_gain),
         "vegetation_response_pose_hz" => Some(&mut adjustables.vegetation_response_pose_hz),
+        "rope_slack" => Some(&mut adjustables.rope_slack),
+        "rope_wind_response" => Some(&mut adjustables.rope_wind_response),
         "wind_audio_attack_decay" => Some(&mut adjustables.wind_audio_attack_decay),
         "wind_audio_release_decay" => Some(&mut adjustables.wind_audio_release_decay),
         "tree_wind_response_min_strength" => Some(&mut adjustables.tree_wind_response_min_strength),
@@ -5162,6 +5213,7 @@ pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
         "scene_supersampling_quality" => Some(&mut adjustables.scene_supersampling_quality),
         "scene_pixel_resolve_mode" => Some(&mut adjustables.scene_pixel_resolve_mode),
         "sprinkler_placement_type" => Some(&mut adjustables.sprinkler_placement_type),
+        "rope_material" => Some(&mut adjustables.rope_material),
         _ => None,
     }
 }

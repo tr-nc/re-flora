@@ -20,6 +20,8 @@ pub(super) struct GardenSnapshot {
     #[serde(default)]
     fences: garden_fence::FenceSnapshot,
     #[serde(default)]
+    soft_ropes: Vec<crate::rope::SavedRope>,
+    #[serde(default)]
     carried_soil: crate::soil_movement::CarriedSoil,
     #[serde(default)]
     economy: garden_economy::GardenEconomy,
@@ -43,6 +45,10 @@ impl GardenSnapshot {
         self.flora.validate(CHUNK_DIM, VOXEL_DIM_PER_CHUNK)?;
         self.trees.validate()?;
         self.fences.validate(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)?;
+        anyhow::ensure!(self.soft_ropes.len() <= 64, "too many saved ropes");
+        for rope in &self.soft_ropes {
+            rope.validate()?;
+        }
         self.carried_soil.validate()?;
         self.economy.validate()?;
         self.hives.validate(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)?;
@@ -407,6 +413,7 @@ impl App {
                 .value,
             growth_override: self.debug_settings.adjustables.flora_growth_override.value,
             fences: self.garden_fence.saved.clone(),
+            soft_ropes: self.capture_soft_ropes(),
             carried_soil: self.soil_shovel.carry.clone(),
             economy: self.garden_economy.clone(),
             hives: self.garden_bees.saved.clone(),
@@ -565,6 +572,7 @@ impl App {
         let (flora_count, authored_count) = garden.flora.counts();
         log::info!("[GARDEN_PERSISTENCE] restored flora={} authored={} trees={} tree_age={:.3} retired_tree_migration={migrated_trees}; current species retain saved wood",
             flora_count, authored_count, garden.trees.count(), self.debug_settings.adjustables.tree_age.value);
+        self.restore_soft_ropes(garden.soft_ropes)?;
         self.garden_fence.restore(garden.fences);
         self.garden_bees.restore(garden.hives);
         self.soil_shovel.cancel_gesture();
@@ -574,6 +582,7 @@ impl App {
 
     fn quiesce_terrain_for_snapshot(&mut self) -> Result<()> {
         self.flush_grass_edits()?;
+        self.cancel_rope_gesture();
         self.cancel_pointer_pick();
         self.water.quiesce_for_snapshot()?;
         self.vulkan_ctx.device().wait_idle();
@@ -719,6 +728,26 @@ mod tests {
         assert_eq!(garden.flora.counts(), (0, 0));
         assert_eq!(garden.trees.count(), 0);
         assert_eq!(garden.economy, garden_economy::GardenEconomy::default());
+        assert!(
+            garden.soft_ropes.is_empty(),
+            "old snapshots must not invent strands"
+        );
+        let mut world = re_flora_physics::CollisionWorld::new();
+        let material = crate::rope::Material::Hemp;
+        let id = world
+            .spawn_rope(crate::rope::initial_desc(material, Vec3::Y, Vec3::ONE, 1.15).unwrap())
+            .unwrap();
+        let saved = crate::rope::SavedRope::capture(material, world.rope(id).unwrap());
+        let mut with_rope: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        with_rope["soft_ropes"] = serde_json::to_value([&saved]).unwrap();
+        let decoded = GardenSnapshot::decode(&serde_json::to_vec(&with_rope).unwrap()).unwrap();
+        assert_eq!(decoded.soft_ropes[0].rest_lengths, saved.rest_lengths);
+        assert_eq!(decoded.soft_ropes[0].points, saved.points);
+        with_rope["soft_ropes"][0]["rest_lengths"] = serde_json::json!([]);
+        assert!(
+            GardenSnapshot::decode(&serde_json::to_vec(&with_rope).unwrap()).is_err(),
+            "malformed rope metadata must fail garden preflight"
+        );
         let mut invalid: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         invalid["economy"] = serde_json::json!({"coins":100,"apples":1,"stock":{},"harvested":[{"tree":99,"fruit":7}]});
         assert!(GardenSnapshot::decode(&serde_json::to_vec(&invalid).unwrap()).is_err());

@@ -251,7 +251,7 @@ pub(super) struct PreparedTreeCollisionSurface {
 }
 
 pub(super) struct TerrainPhysics {
-    collision_world: CollisionWorld,
+    pub(super) collision_world: CollisionWorld,
     tree_surface_revision: Option<u32>,
     tree_surface_topology: Option<Arc<[[u32; 3]]>>,
     tree_surface_positions: Vec<Vec3>,
@@ -595,7 +595,7 @@ impl TerrainPhysics {
             .flat_map(BTreeMap::values)
             .any(|fruit| fruit.body.is_some());
         let setup_us = started.map_or(0., |s| s.elapsed().as_secs_f64() * 1e6);
-        if !has_fruit_bodies {
+        if !has_fruit_bodies && self.collision_world.rope_count() == 0 {
             let result = self.sync_dynamic_fruit_rendering(tracer);
             if let Some(frame) = perf_frame {
                 log::info!("[PERF][FRUIT_UPDATE] frame={frame} bodies=0 steps=0 setup_us={setup_us:.2} step_us=0 maintenance_us=0 render_us={:.2}", started.unwrap().elapsed().as_secs_f64()*1e6 - setup_us);

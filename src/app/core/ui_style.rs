@@ -732,7 +732,7 @@ fn draw_tool_text(
     } else if slot.index == PLOW_SLOT_INDEX {
         response.on_hover_text("Drag to cut a shallow furrow and push the same soil into side banks. Blocked moves leave all soil untouched. Existing cohesive soil does not collapse.")
     } else if slot.index == ROPE_SLOT_INDEX {
-        response.on_hover_text("Click one pole, then another to connect them. Keep clicking poles to continue a chain. Click the last pole again to end the chain. Ropes remain ordinary editable terrain if a pole is removed.")
+        response.on_hover_text("Tab: hemp rope / garden hose / kite line (also in Debug > Soft Ropes). Click two fixed surfaces to place a rope or hose; kite needs one anchor. LMB on a strand: drag. Shift-click an endpoint: release anchor. RMB: cancel placement or remove a strand. New ropes save with Terrain & Plants; old voxel ropes remain editable terrain.")
     } else if slot.index == THIN_POLE_SLOT_INDEX || slot.index == THICK_POLE_SLOT_INDEX {
         response.on_hover_text("Click ground to place a real wooden pole. Height, taper and slight irregularity vary with each placement.")
     } else if slot.index == SOIL_DEPOSITION_SLOT_INDEX && slot.label == "Soil" {

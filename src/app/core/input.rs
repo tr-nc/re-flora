@@ -820,6 +820,7 @@ impl App {
         }
         self.cancel_pointer_pick();
         if update.active_tool_changed() {
+            self.cancel_rope_gesture();
             self.cancel_pavement_stroke();
             self.wind_prototype.cancel();
             self.stop_terrain_edit_loop_sound();

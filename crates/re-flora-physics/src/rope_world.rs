@@ -56,11 +56,21 @@ impl CollisionWorld {
     pub fn rope_path_is_clear(&mut self, desc: &RopeDesc) -> Result<bool, RopeError> {
         desc.validate()?;
         self.sync_capsule_character_broad_phase();
-        let queries=self.capsule_character_broad_phase.as_query_pipeline(self.physics.narrow_phase.query_dispatcher(),&self.physics.bodies,&self.physics.colliders,QueryFilter::default().exclude_sensors());
-        for (i,points) in desc.points.windows(2).enumerate() {
-            for contact in segment_contacts(&queries,points[0],points[1],desc.material.radius,i)? {
-                let depth=(contact.point-points[0].lerp(points[1],contact.t)).dot(contact.normal);
-                if depth>desc.material.radius*0.07 { return Ok(false); }
+        let queries = self.capsule_character_broad_phase.as_query_pipeline(
+            self.physics.narrow_phase.query_dispatcher(),
+            &self.physics.bodies,
+            &self.physics.colliders,
+            QueryFilter::default().exclude_sensors(),
+        );
+        for (i, points) in desc.points.windows(2).enumerate() {
+            for contact in
+                segment_contacts(&queries, points[0], points[1], desc.material.radius, i)?
+            {
+                let depth =
+                    (contact.point - points[0].lerp(points[1], contact.t)).dot(contact.normal);
+                if depth > desc.material.radius * 0.07 {
+                    return Ok(false);
+                }
             }
         }
         Ok(true)
@@ -121,9 +131,9 @@ impl CollisionWorld {
                 for i in 0..rope.positions().len() - 1 {
                     let a = rope.positions()[i];
                     let b = rope.positions()[i + 1];
-                    match segment_contacts(&queries,a,b,radius,i) {
-                        Ok(contacts)=>rope.contacts.extend(contacts),
-                        Err(_)=>self.rope_contact_failures+=1,
+                    match segment_contacts(&queries, a, b, radius, i) {
+                        Ok(contacts) => rope.contacts.extend(contacts),
+                        Err(_) => self.rope_contact_failures += 1,
                     }
                 }
                 rope.solve(h);
@@ -132,22 +142,43 @@ impl CollisionWorld {
     }
 }
 
-fn segment_contacts(queries:&QueryPipeline<'_>,a:Vec3,b:Vec3,radius:f32,segment:usize)->Result<Vec<Contact>,RopeError> {
-    let center=(a+b)*0.5;
-    let shape=Capsule::new(to_rapier_vec(a-center),to_rapier_vec(b-center),radius);
-    let pose=Pose::from_translation(to_rapier_vec(center));
-    let aabb=shape.compute_aabb(&pose).loosened(radius*0.1);
-    let mut contacts=Vec::new();
-    for (_,collider) in queries.intersect_aabb_conservative(aabb) {
-        let mut manifolds:Vec<ContactManifold<(),()>>=Vec::new();
-        let relative=pose.inverse()*collider.position();
-        contact_prediction::ContactPrediction.contact_manifolds(&relative,&shape,collider.shape(),radius*0.1,&mut manifolds,&mut None).map_err(|_|RopeError("unsupported static contact pair"))?;
+fn segment_contacts(
+    queries: &QueryPipeline<'_>,
+    a: Vec3,
+    b: Vec3,
+    radius: f32,
+    segment: usize,
+) -> Result<Vec<Contact>, RopeError> {
+    let center = (a + b) * 0.5;
+    let shape = Capsule::new(to_rapier_vec(a - center), to_rapier_vec(b - center), radius);
+    let pose = Pose::from_translation(to_rapier_vec(center));
+    let aabb = shape.compute_aabb(&pose).loosened(radius * 0.1);
+    let mut contacts = Vec::new();
+    for (_, collider) in queries.intersect_aabb_conservative(aabb) {
+        let mut manifolds: Vec<ContactManifold<(), ()>> = Vec::new();
+        let relative = pose.inverse() * collider.position();
+        contact_prediction::ContactPrediction
+            .contact_manifolds(
+                &relative,
+                &shape,
+                collider.shape(),
+                radius * 0.1,
+                &mut manifolds,
+                &mut None,
+            )
+            .map_err(|_| RopeError("unsupported static contact pair"))?;
         for manifold in manifolds {
-            let normal=-from_rapier_vec(manifold.local_n1);
+            let normal = -from_rapier_vec(manifold.local_n1);
             for p in manifold.points {
-                let world=center+from_rapier_vec(p.local_p1);
-                let t=((world-a).dot(b-a)/(b-a).length_squared().max(1e-12)).clamp(0.,1.);
-                contacts.push(Contact{segment,t,normal,point:a.lerp(b,t)+normal*(radius*0.02-p.dist)});
+                let world = center + from_rapier_vec(p.local_p1);
+                let t =
+                    ((world - a).dot(b - a) / (b - a).length_squared().max(1e-12)).clamp(0., 1.);
+                contacts.push(Contact {
+                    segment,
+                    t,
+                    normal,
+                    point: a.lerp(b, t) + normal * (radius * 0.02 - p.dist),
+                });
             }
         }
     }
@@ -201,13 +232,30 @@ mod tests {
     }
     #[test]
     fn endpoint_tension_converges_across_node_counts_and_mass_ratios() {
-        for segments in [16,64,128] {for mass in [0.015,0.15] {
-            let mut world=CollisionWorld::new();world.set_gravity(Vec3::NEG_Y*9.8).unwrap();
-            let mut d=desc(false);d.points=(0..=segments).map(|i|Vec3::new(0.,2.-i as f32/segments as f32*2.,0.)).collect();d.material.radius=0.0015;d.material.linear_density=0.004;d.material.stretch_rigidity=800.;d.material.bend_rigidity=0.;d.end_mass=mass;
-            let id=world.spawn_rope(d).unwrap();run(&mut world,120,1./60.);
-            let r=world.rope(id).unwrap();assert!(r.max_strain()<0.01,"segments={segments} mass={mass} strain={}",r.max_strain());
-            assert_eq!(r.positions()[0],Vec3::Y*2.);
-        }}
+        for segments in [16, 64, 128] {
+            for mass in [0.015, 0.15] {
+                let mut world = CollisionWorld::new();
+                world.set_gravity(Vec3::NEG_Y * 9.8).unwrap();
+                let mut d = desc(false);
+                d.points = (0..=segments)
+                    .map(|i| Vec3::new(0., 2. - i as f32 / segments as f32 * 2., 0.))
+                    .collect();
+                d.material.radius = 0.0015;
+                d.material.linear_density = 0.004;
+                d.material.stretch_rigidity = 800.;
+                d.material.bend_rigidity = 0.;
+                d.end_mass = mass;
+                let id = world.spawn_rope(d).unwrap();
+                run(&mut world, 120, 1. / 60.);
+                let r = world.rope(id).unwrap();
+                assert!(
+                    r.max_strain() < 0.01,
+                    "segments={segments} mass={mass} strain={}",
+                    r.max_strain()
+                );
+                assert_eq!(r.positions()[0], Vec3::Y * 2.);
+            }
+        }
     }
     #[test]
     fn display_frame_grouping_is_not_a_second_rope_clock() {
@@ -267,15 +315,31 @@ mod tests {
     }
     #[test]
     fn replacement_is_atomic_and_placement_rejects_initial_solid_intersections() {
-        let mut world=CollisionWorld::new();let id=world.spawn_rope(desc(true)).unwrap();
-        let mut bad=desc(true);bad.rest_lengths=Some(vec![1.]);
-        assert!(world.replace_ropes(vec![desc(true),bad]).is_err());assert!(world.rope(id).is_some());assert_eq!(world.rope_count(),1);
-        let brick=StaticVoxelBrickId(IVec3::ZERO);
-        world.upsert_static_voxel_brick(brick,1,BrickOccupancy::from_filled_voxels((0..16).flat_map(|x|(0..16).flat_map(move |y|(0..16).map(move |z|UVec3::new(x,y,z))))));
-        let mut d=desc(true);for p in &mut d.points {p.z=8.;}
+        let mut world = CollisionWorld::new();
+        let id = world.spawn_rope(desc(true)).unwrap();
+        let mut bad = desc(true);
+        bad.rest_lengths = Some(vec![1.]);
+        assert!(world.replace_ropes(vec![desc(true), bad]).is_err());
+        assert!(world.rope(id).is_some());
+        assert_eq!(world.rope_count(), 1);
+        let brick = StaticVoxelBrickId(IVec3::ZERO);
+        world.upsert_static_voxel_brick(
+            brick,
+            1,
+            BrickOccupancy::from_filled_voxels((0..16).flat_map(|x| {
+                (0..16).flat_map(move |y| (0..16).map(move |z| UVec3::new(x, y, z)))
+            })),
+        );
+        let mut d = desc(true);
+        for p in &mut d.points {
+            p.z = 8.;
+        }
         assert!(!world.rope_path_is_clear(&d).unwrap());
-        world.remove_static_voxel_brick(brick,2);assert!(world.rope_path_is_clear(&d).unwrap());
-        let ids=world.replace_ropes(vec![d]).unwrap();assert_ne!(ids[0],id);assert!(world.rope(id).is_none());
+        world.remove_static_voxel_brick(brick, 2);
+        assert!(world.rope_path_is_clear(&d).unwrap());
+        let ids = world.replace_ropes(vec![d]).unwrap();
+        assert_ne!(ids[0], id);
+        assert!(world.rope(id).is_none());
     }
     #[test]
     fn voxel_contacts_follow_removal_revisions() {

@@ -185,7 +185,11 @@ impl App {
             }
             PlayerToolPointerAction::FenceAction => {
                 self.stop_terrain_edit_loop_sound();
-                self.try_garden_fence_action();
+                if self.player_tools.selected_tool() == super::player_tools::PlayerTool::Rope {
+                    self.try_soft_rope_placement();
+                } else {
+                    self.try_garden_fence_action();
+                }
             }
             PlayerToolPointerAction::LanternPlacement => {
                 self.stop_terrain_edit_loop_sound();

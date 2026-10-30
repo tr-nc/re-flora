@@ -21,8 +21,10 @@ pub use butterfly_palette::*;
 mod leaf_particle_pose;
 
 mod mower_resources;
+mod rope_mesh;
 mod static_scene;
 use mower_resources::MowerRendererResources;
+pub(crate) use rope_mesh::RopeRenderStrand;
 pub use static_scene::StaticSceneMesh;
 use static_scene::StaticSceneResources;
 mod sprinkler_air;
@@ -1732,6 +1734,7 @@ pub struct Tracer {
     resources: TracerResources,
     particle_resources: ParticleRendererResources,
     static_scene: Option<StaticSceneResources>,
+    rope_resources: rope_mesh::RopeResources,
     sprinkler_resources: SprinklerRendererResources,
     mower_resources: MowerRendererResources,
     geometry_preview_resources: GeometryPreviewRendererResources,
@@ -2103,6 +2106,8 @@ impl Tracer {
 
         let mower_resources =
             MowerRendererResources::new(vulkan_ctx.device().clone(), allocator.clone());
+        let rope_resources =
+            rope_mesh::RopeResources::new(vulkan_ctx.device().clone(), allocator.clone());
         let model_mesh_frame = ModelMeshFrame::new(&vulkan_ctx, allocator.clone());
         let raster_trees = RasterTreeGeometry::new(vulkan_ctx.device().clone(), allocator.clone());
         let tree_pose_solver = crate::tree_gen::gpu_pose::GpuTreePoseSolver::new(
@@ -2118,6 +2123,7 @@ impl Tracer {
             resources,
             particle_resources,
             static_scene: None,
+            rope_resources,
             sprinkler_resources,
             mower_resources,
             geometry_preview_resources,
@@ -3560,6 +3566,7 @@ impl Tracer {
     ) -> Result<()> {
         self.mower_resources
             .prepare_frame(gpu_profiler_frame_slot)?;
+        self.rope_resources.prepare_frame(gpu_profiler_frame_slot)?;
         let mist_extent = self
             .resources
             .extent_dependent_resources
@@ -4071,6 +4078,11 @@ impl Tracer {
         if let Some(scene) = &self.static_scene {
             record_mesh(&scene.indices, &scene.vertices, scene.index_count);
         }
+        if let Some((vertices, indices)) = self.rope_resources.buffers() {
+            cmdbuf.use_buffer(vertices, BufferUse::HostWrite);
+            cmdbuf.use_buffer(indices, BufferUse::HostWrite);
+            record_mesh(indices, vertices, self.rope_resources.index_count);
+        }
         record_mesh(
             &self.mower_resources.indices,
             &self.mower_resources.vertices,
@@ -4233,7 +4245,8 @@ impl Tracer {
         // already-combined scene and depth-test against ray-traced terrain. Keep it out of the
         // raster graphics pass to avoid transparent-layer accumulation and coplanar edge shimmer.
         let enable_glass = false;
-        let has_graphics_pass = render_flags.enable_flora
+        let has_graphics_pass = self.rope_resources.index_count > 0
+            || render_flags.enable_flora
             || render_flags.enable_particles
             || self.model_mesh_frame.particle_count() > 0
             || self.sprinkler_resources.instance_count > 0
@@ -4636,7 +4649,8 @@ impl Tracer {
         render_flags: &crate::RenderFlags,
         update_shadow_map: bool,
     ) {
-        let has_graphics_pass = render_flags.enable_flora
+        let has_graphics_pass = self.rope_resources.index_count > 0
+            || render_flags.enable_flora
             || render_flags.enable_particles
             || self.model_mesh_frame.particle_count() > 0
             || self.sprinkler_resources.instance_count > 0
@@ -5339,7 +5353,7 @@ impl Tracer {
                 .sprinkler_ppl
                 .prepare_descriptor_resources(cmdbuf);
         }
-        if self.static_scene.is_some() {
+        if self.static_scene.is_some() || self.rope_resources.index_count > 0 {
             self.pipeline_topology
                 .graphics()
                 .static_scene_ppl
@@ -5785,6 +5799,14 @@ impl Tracer {
             cmdbuf.bind_index_buffer_u32(&resources.indices);
             cmdbuf.bind_vertex_buffers(0, &[&resources.vertices, resources.instances()]);
             pipeline.record_indexed(cmdbuf, resources.index_count, 1, 0, 0, 0, None);
+        }
+        if let Some((vertices, indices)) = self.rope_resources.buffers() {
+            let pipeline = &self.pipeline_topology.graphics().static_scene_ppl;
+            pipeline.record_bind(cmdbuf);
+            pipeline.record_viewport_scissor(cmdbuf, viewport, scissor);
+            cmdbuf.bind_index_buffer_u32(indices);
+            cmdbuf.bind_vertex_buffers(0, &[vertices]);
+            pipeline.record_indexed(cmdbuf, self.rope_resources.index_count, 1, 0, 0, 0, None);
         }
         if let Some(scene) = &self.static_scene {
             let pipeline = &self.pipeline_topology.graphics().static_scene_ppl;
@@ -7349,6 +7371,14 @@ impl Tracer {
 
     pub fn take_footstep_events(&mut self) -> Vec<crate::gameplay::camera::FootstepEvent> {
         self.camera.take_footstep_events()
+    }
+
+    pub(crate) fn stage_rope_mesh(
+        &mut self,
+        strands: &[RopeRenderStrand],
+        pending_anchor: Option<Vec3>,
+    ) -> Result<()> {
+        self.rope_resources.stage(strands, pending_anchor)
     }
 
     /// Scene replacement is an infrequent setup operation, never an in-flight buffer mutation.
