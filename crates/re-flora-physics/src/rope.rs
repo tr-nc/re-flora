@@ -25,13 +25,19 @@ impl RopeMaterial {
 }
 #[derive(Clone, Debug)]
 pub struct RopeDesc {
-    /// Equal arc-length samples of the initial centerline. Also defines rest segment lengths.
+    /// Centerline samples. Defines rest lengths unless explicit material lengths are supplied.
     pub points: Vec<Vec3>,
+    /// Preserve material lengths when restoring a deformed snapshot.
+    pub rest_lengths: Option<Vec<f32>>,
     pub material: RopeMaterial,
     pub pin_start: bool,
     pub pin_end: bool,
     /// Extra mass at the last point (e.g. a simplified kite). Not a separate rigid body.
     pub end_mass: f32,
+}
+impl RopeDesc {
+    /// Uses the same bounded validation as world publication, without changing live state.
+    pub fn validate(&self) -> Result<(), RopeError> { Rope::new(self.clone()).map(|_| ()) }
 }
 #[derive(Debug, thiserror::Error)]
 #[error("invalid rope: {0}")]
@@ -55,6 +61,10 @@ pub struct Rope {
     weights: Vec<f32>,
     rest: Vec<f32>,
     stretch_lambda: Vec<f32>,
+    stretch_directions: Vec<Vec3>,
+    stretch_diagonal: Vec<f32>,
+    stretch_rhs: Vec<f32>,
+    stretch_off: Vec<f32>,
     bend_lambda: Vec<Vec3>,
     material: RopeMaterial,
     pins: [Option<Vec3>; 2],
@@ -78,22 +88,27 @@ impl Rope {
         {
             return Err(RopeError("invalid material or endpoint mass"));
         }
-        let rest: Vec<_> = desc
-            .points
-            .windows(2)
-            .map(|p| p[0].distance(p[1]))
-            .collect();
+        let rest = desc.rest_lengths.unwrap_or_else(|| {
+            desc.points
+                .windows(2)
+                .map(|p| p[0].distance(p[1]))
+                .collect()
+        });
+        if rest.len() + 1 != desc.points.len() {
+            return Err(RopeError("rest length count mismatch"));
+        }
         if rest.iter().any(|l| !l.is_finite() || *l <= m.radius * 0.1) {
             return Err(RopeError("degenerate centerline"));
         }
         let n = desc.points.len();
-        let weights = (0..n)
+        let weights: Vec<f32> = (0..n)
             .map(|i| {
                 let length =
                     (if i > 0 { rest[i - 1] } else { 0. }) + rest.get(i).copied().unwrap_or(0.);
                 1. / (m.linear_density * length * 0.5 + if i == n - 1 { desc.end_mass } else { 0. })
             })
             .collect();
+        if weights.iter().any(|w| !w.is_finite() || *w <= 0.) { return Err(RopeError("unrepresentable node mass")); }
         let pins = [
             desc.pin_start.then_some(desc.points[0]),
             desc.pin_end.then_some(desc.points[n - 1]),
@@ -104,6 +119,10 @@ impl Rope {
             velocities: vec![Vec3::ZERO; n],
             weights,
             stretch_lambda: vec![0.; n - 1],
+            stretch_directions: vec![Vec3::X; n - 1],
+            stretch_diagonal: vec![0.; n - 1],
+            stretch_rhs: vec![0.; n - 1],
+            stretch_off: vec![0.; n - 1],
             bend_lambda: vec![Vec3::ZERO; n - 2],
             rest,
             material: m,
@@ -116,6 +135,9 @@ impl Rope {
     }
     pub fn positions(&self) -> &[Vec3] {
         &self.positions
+    }
+    pub fn rest_lengths(&self) -> &[f32] {
+        &self.rest
     }
     pub fn radius(&self) -> f32 {
         self.material.radius
@@ -193,6 +215,36 @@ impl Rope {
     pub(crate) fn sweep_position(&mut self, i: usize, position: Vec3) {
         self.positions[i] = position;
     }
+    /// Solve the coupled XPBD length system, not one segment at a time. A heavy
+    /// endpoint on a fine line otherwise converges far too slowly even at small dt.
+    /// J M^-1 J^T + compliance/h² is tridiagonal for a chain: Thomas elimination
+    /// propagates tension across the entire strand in O(n), then Newton iterations
+    /// interleave with bending, grabbing and unilateral contacts.
+    fn solve_stretch(&mut self,h:f32) {
+        let n=self.rest.len();
+        for i in 0..n {
+            let delta=self.positions[i+1]-self.positions[i];let length=delta.length();
+            if length>1e-7 {self.stretch_directions[i]=delta/length;}
+            let alpha=self.rest[i]/self.material.stretch_rigidity/(h*h);
+            self.stretch_diagonal[i]=self.weight(i)+self.weight(i+1)+alpha;
+            self.stretch_rhs[i]=-(length-self.rest[i])-alpha*self.stretch_lambda[i];
+            self.stretch_off[i]=if i>0 {-self.weight(i)*self.stretch_directions[i-1].dot(self.stretch_directions[i])} else {0.};
+        }
+        for i in 1..n {
+            let factor=self.stretch_off[i]/self.stretch_diagonal[i-1].max(f32::EPSILON);
+            self.stretch_diagonal[i]-=factor*self.stretch_off[i];
+            self.stretch_rhs[i]-=factor*self.stretch_rhs[i-1];
+        }
+        for i in (0..n).rev() {
+            let next=if i+1<n {self.stretch_off[i+1]*self.stretch_rhs[i+1]} else {0.};
+            self.stretch_rhs[i]=(self.stretch_rhs[i]-next)/self.stretch_diagonal[i].max(f32::EPSILON);
+        }
+        for i in 0..n {
+            let dl=self.stretch_rhs[i];self.stretch_lambda[i]+=dl;
+            let a=self.weight(i);let b=self.weight(i+1);let gradient=self.stretch_directions[i];
+            self.positions[i]-=a*gradient*dl;self.positions[i+1]+=b*gradient*dl;
+        }
+    }
     pub(crate) fn solve(&mut self, h: f32) {
         let n = self.positions.len();
         let mut grab_lambda = Vec3::ZERO;
@@ -203,23 +255,8 @@ impl Rope {
                     + (p - self.previous[i]).clamp_length_max(self.material.radius * 0.5),
             )
         });
-        for iteration in 0..8 {
-            for j in 0..n - 1 {
-                let i = if iteration % 2 == 0 { j } else { n - 2 - j };
-                let d = self.positions[i + 1] - self.positions[i];
-                let length = d.length();
-                if length < 1e-7 {
-                    continue;
-                }
-                let a = self.weight(i);
-                let b = self.weight(i + 1);
-                let alpha = self.rest[i] / self.material.stretch_rigidity / (h * h);
-                let dl =
-                    (-(length - self.rest[i]) - alpha * self.stretch_lambda[i]) / (a + b + alpha);
-                self.stretch_lambda[i] += dl;
-                self.positions[i] -= a * d / length * dl;
-                self.positions[i + 1] += b * d / length * dl;
-            }
+        for _ in 0..8 {
+            self.solve_stretch(h);
             if self.material.bend_rigidity > 0. {
                 for i in 1..n - 1 {
                     // Curvature energy EI/(2 L³) |x0-2x1+x2|²; isotropic, no twist state.
