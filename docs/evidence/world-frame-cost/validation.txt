@@ -1,0 +1,64 @@
+World-size frame-cost investigation — 2026-10-30
+
+Scope
+- Production baseline: 73dde10c (2 x 2 x 2 chunks).
+- Production candidate: 8d98fc5a (4 x 2 x 4 chunks).
+- No production Rust/shader/config changes in this investigation.
+- No optimization candidate was implemented or accepted.
+- RTX 3060 Ti 8 GiB, i5-12600KF, NVIDIA 580.159.04, Linux.
+- Same copied config and player-default camera preset; hidden native Vulkan window,
+  muted audio (processing remains active), --perf, AUTO selected MAILBOX.
+- 2880x1620 screen, 576x324 scene, pixel stride 5; no measurement-window resize.
+
+Execution
+- Built baseline in a detached worktree at 73dde10c; copied its Release executable.
+- Retained the preexisting 32-chunk Release executable as the candidate.
+- Restored/rebuilt the main-worktree Release before timing. No concurrent builds.
+- First probe pair discovered default GPU profiler overflow: 64 scopes, 2 dropped
+  in stable larger-world frames. Excluded this initial pair from formal statistics.
+- 18 formal sequential runs, 24,274 CPU frame samples; exact commands/options,
+  binary hashes, config hash, sample counts and per-frame archive hashes: data.json.
+- normal: before,after,after,before; 28 seconds, warmup 8 seconds, --allow-dropped.
+  --guard returned 2: the reported regression is reproduced, not fixed.
+- detailed: before,after; 28 seconds, warmup 8 seconds; capacity 1024, no overflow.
+- no-flora: after,before; 22 seconds, warmup 6 seconds; --no-flora, detailed.
+- no-shadows: before,after; 22 seconds, warmup 6 seconds; --no-shadows, detailed.
+- late: after,before; 60 seconds, warmup 35 seconds; detailed.
+- sparse: before,after; 25 seconds, warmup 8 seconds; existing 30-frame log cadence.
+- hydration: before,after; 28 seconds, warmup 8 seconds; detailed and hydration DEBUG.
+- hydration-io: after,before; 22 seconds, warmup 6 seconds; detailed, hydration DEBUG,
+  existing atlas readback timing logs. No pavement review/fixture was enabled.
+- All formal runs: exit 0; shutdown failures=0; no ERROR, VUID, SYNC-HAZARD or panic.
+- User config SHA-256 unchanged across every run and checked again after completion.
+
+Statistics
+- Durations are microseconds in raw samples/data.json, milliseconds in the HTML.
+- Same-named GPU scopes within one frame are summed (not overwritten).
+- Repeated GPU frame IDs are deduplicated. Conditional absent scopes count as zero
+  for amortized means; full leaf rankings use complete-capacity captures only.
+- Parent GPU scopes excluded from the leaf ranking: frame.render, tracer.render,
+  graphics.pass, tracer.shadow_prepass. CPU waits and GPU scopes are not added.
+- FPS derives from frame-count/time differences, not inverse GPU time.
+- Main aggregate uses pooled per-frame samples; displayed FPS is mean run throughput.
+- Raw samples (*.samples.json.gz), native log excerpts and telemetry are committed.
+- Remaining CPU unclassified residual is explicitly reported, not guessed.
+
+Artifact validation
+- node --check: run.mjs, analyze.mjs, report.mjs — passed.
+- Recomputed data.json from run logs and raw frame samples with analyze.mjs.
+- Checked all archived raw-sample SHA-256 hashes and CPU sample counts — passed.
+- Checked all local HTML links exist — passed.
+- Rendered HTML with agent-browser at 1440x1000 and 390x844.
+- Inspected desktop overview and GPU chart/table; inspected mobile overview and
+  periodic-stall chart. No document-wide horizontal overflow at either size.
+- Both details sections open correctly on mobile; tables scroll within containers.
+- No external fonts/images required; no missing images.
+- git diff --check — passed.
+
+Build and cleanup
+- Final cargo build --release: blocked by preexisting unrelated benchmark errors:
+  src/bin/collision_bench_rapier.rs:821 unresolved fs; derivative E0282 at line 822.
+- Final cargo build --release --bin re-flora: passed; current 32-chunk game binary ready.
+- Baseline worktree removed after confirming it was clean.
+- Per-run runtime copies removed; no persistent diagnostic flags/settings added.
+- No pushes or official packaging performed.
