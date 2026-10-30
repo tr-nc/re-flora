@@ -118,9 +118,12 @@ pixelated A/B mode was declaratively saved; no per-setting save hooks were used.
 
 Glass is explicit on the toolbar, wallet, garden shop, planting catalog, material
 backpack, Debug Panel, soil inspector, FPS/VRAM telemetry, Frame Timing, the texture
-lifecycle diagnostic window, and construction/carry/tree-kick hints. Controls use
-complementary pale inset fills and dark text. Selection/hover/pressed fills were
-updated together to avoid dark text on the old dark backgrounds. Existing panel
+lifecycle diagnostic window, and construction/carry/tree-kick hints. Inset controls
+reuse the parent panel's filtered cells: same-tint translucent fills increase
+opacity without another backdrop sample or a new grid. Ordinary, hovered, open,
+and selected states must retain backdrop transmission, including collapsible
+headers and text fields. Dark control text stays readable after compositing;
+semantic material swatches and data colors are not recolored. Existing panel
 outline preferences, input, and save behavior remain intact; whole-cell padding
 changes outer frame size without scaling its contents.
 

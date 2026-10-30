@@ -8,10 +8,17 @@ pub(crate) const CUSTOM_GUI_FONT_PATH: Option<&str> =
     Some("assets/font/PixelifySans-VariableFont_wght.ttf");
 pub(crate) const CUSTOM_GUI_FONT_NAME: &str = "re-flora_gui_font";
 
-// Controls use quiet inset colors; only explicit outer surfaces sample the scene.
+// Inset controls retain the parent surface's filtered cells. Only tint density
+// changes: never resample the backdrop or cover it with an opaque control fill.
 pub(crate) const PANEL_BG: Color32 = Color32::from_rgb(217, 228, 194);
-pub(crate) const PANEL_LIGHT: Color32 = Color32::from_rgba_premultiplied(166, 171, 152, 180);
-pub(crate) const PANEL_DARK: Color32 = Color32::from_rgba_premultiplied(163, 174, 147, 210);
+pub(crate) const PANEL_LIGHT: Color32 = panel_tint(120);
+pub(crate) const PANEL_DARK: Color32 = panel_tint(128);
+const PANEL_HOVERED: Color32 = panel_tint(144);
+const PANEL_SELECTED: Color32 = panel_tint(160);
+
+const fn panel_tint(alpha: u8) -> Color32 {
+    Color32::from_rgba_unmultiplied_const(PANEL_BG.r(), PANEL_BG.g(), PANEL_BG.b(), alpha)
+}
 pub(crate) const TEXT_COLOR: Color32 = Color32::from_rgb(38, 59, 46);
 pub(crate) const GOLD_ACCENT: Color32 = Color32::from_rgb(99, 76, 32);
 pub(crate) const FLOWER_ACCENT: Color32 = Color32::from_rgb(129, 98, 131);
@@ -323,11 +330,7 @@ fn draw_plant_panel_entry(
         egui::Align2::CENTER_CENTER,
         entry.label,
         egui::TextStyle::Body.resolve(ui.style()),
-        if entry.selected {
-            GOLD_ACCENT
-        } else {
-            TEXT_COLOR
-        },
+        TEXT_COLOR,
     );
 
     clicked
@@ -933,11 +936,7 @@ fn draw_voxel_palette_entry(
         egui::Align2::LEFT_TOP,
         entry.label,
         egui::TextStyle::Body.resolve(ui.style()),
-        if entry.selected {
-            GOLD_ACCENT
-        } else {
-            TEXT_COLOR
-        },
+        TEXT_COLOR,
     );
 
     painter.text(
@@ -997,8 +996,8 @@ pub(crate) fn apply_gui_style(style: &mut egui::Style) {
     style.interaction.selectable_labels = false;
     style.interaction.multi_widget_text_select = false;
 
-    style.visuals.selection.bg_fill = FLOWER_ACCENT.linear_multiply(0.4);
-    style.visuals.selection.stroke = egui::Stroke::new(1.0, GOLD_ACCENT);
+    style.visuals.selection.bg_fill = PANEL_SELECTED;
+    style.visuals.selection.stroke = egui::Stroke::new(1.0, TEXT_COLOR);
 
     style.visuals.window_fill = PANEL_BG;
     style.visuals.panel_fill = PANEL_BG;
@@ -1073,7 +1072,7 @@ pub(crate) fn apply_gui_style(style: &mut egui::Style) {
         panel_entry_fill(false, true),
         panel_entry_fill(false, true),
         FLOWER_ACCENT,
-        GOLD_ACCENT,
+        TEXT_COLOR,
         // Button frame margins are integer-rounded by egui. A fractional stroke
         // changes the rounded padding sum on hover and shifts the entire row.
         1.0,
@@ -1088,14 +1087,14 @@ pub(crate) fn apply_gui_style(style: &mut egui::Style) {
     );
 
     style.visuals.widgets.open =
-        widget_visuals(PANEL_LIGHT, PANEL_LIGHT, GOLD_ACCENT, TEXT_COLOR, 1.5);
+        widget_visuals(PANEL_DARK, PANEL_DARK, GOLD_ACCENT, TEXT_COLOR, 1.5);
 }
 
 fn panel_entry_fill(selected: bool, hovered: bool) -> Color32 {
     if selected {
-        Color32::from_rgb(197, 214, 165)
+        PANEL_SELECTED
     } else if hovered {
-        Color32::from_rgb(226, 238, 198)
+        PANEL_HOVERED
     } else {
         PANEL_LIGHT
     }
@@ -1120,6 +1119,9 @@ fn widget_visuals(
 
 #[cfg(test)]
 mod text_toolbar_tests;
+
+#[cfg(test)]
+mod inset_tests;
 
 #[cfg(test)]
 mod hover_layout_tests {

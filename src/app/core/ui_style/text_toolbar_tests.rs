@@ -164,36 +164,6 @@ fn panel_outlines_toggle_only_frames_and_preserve_layout_and_controls() {
 }
 
 #[test]
-fn matte_theme_keeps_selected_and_hovered_labels_readable() {
-    fn luminance(color: Color32) -> f32 {
-        let linear = |channel: u8| {
-            let value = channel as f32 / 255.0;
-            if value <= 0.04045 {
-                value / 12.92
-            } else {
-                ((value + 0.055) / 1.055).powf(2.4)
-            }
-        };
-        0.2126 * linear(color.r()) + 0.7152 * linear(color.g()) + 0.0722 * linear(color.b())
-    }
-    let mut style = egui::Style::default();
-    apply_gui_style(&mut style);
-    for background in [
-        panel_entry_fill(true, false),
-        panel_entry_fill(false, true),
-        style.visuals.widgets.active.bg_fill,
-    ] {
-        for foreground in [TEXT_COLOR, GOLD_ACCENT] {
-            let contrast = (luminance(background) + 0.05) / (luminance(foreground) + 0.05);
-            assert!(
-                contrast >= 4.5,
-                "selected/hovered control contrast: {contrast}"
-            );
-        }
-    }
-}
-
-#[test]
 fn toolbar_numbers_and_numeric_shortcuts_follow_visible_order() {
     use winit::keyboard::KeyCode;
     let slots = slots();
