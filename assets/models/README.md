@@ -89,6 +89,36 @@ adjustment. See [height research and validation](../../docs/research/sunflower-p
   globes on long scapes. This is correctness/appearance evidence, not a
   performance benchmark or final visual approval.
 
+## Wild blackberry source bundle
+
+- [`blackberry-structure.mjs`](blackberry-structure.mjs) and
+  [`blackberry-source.mjs`](blackberry-source.mjs) are the original code-authored
+  morphology/mesh shared with the [HTML study](../../experiments/blackberry-prototype/README.md).
+  Default seed 27 and fruit stage are published; the browser's alternate seeds,
+  flowers and controls are not additional native assets. No external mesh,
+  photograph, image/audio-generation service or texture was imported. Botanical
+  references and photograph rights remain in the [research note](../../docs/research/wild-blackberry.md).
+- `flowers.json` contains its indexed runtime derivative under stable ID
+  `blackberry`, kind `shrub`: a root-local plant, **not** a flower head attached to
+  a stem. Historical bank field names `flowers`/`heads` are retained for compatibility.
+  Its procedurally filled 32×32 RGB8 atlas stores the 16 source color swatches;
+  geometry is unchanged apart from a uniform `24 / 1.7 / 10` authoring scale
+  (24-voxel player body versus the HTML's 1.7 m reference). Nine-decimal rounding
+  and vertex deduplication are performed by the publisher, not hand edits.
+- Reproduce with `node scripts/publish-flower-models.mjs`, then `cargo check`.
+  [`blackberry-publication.mjs`](../../scripts/blackberry-publication.mjs) uses the
+  existing vendored Three.js 0.183.0 geometry primitives (MIT; its license stays
+  in the [vendor bundle](../../experiments/butterfly-method-comparison/vendor/three-0.183.0/LICENSE)).
+  The build fingerprint covers both recipes, the publisher and the vendor code.
+  Packaged games need neither Node nor the browser. Existing repository asset
+  licensing applies; online reference-photo rights are not asserted.
+- Native acceptance fixture (unsaved, uses production planting):
+  `RUST_LOG=re_flora=info RE_FLORA_FLOWER_MODEL_REVIEW=blackberry cargo run --release -- --hidden --mute --screenshot player-default target/blackberry-native.png --screenshot-delay 3 --auto-exit 6`.
+  `blackberry-cycle` additionally exercises removal and replanting. A snapshot
+  of this candidate is not large-population performance approval. The fruit is
+  decorative, not a harvestable crop; the rooted plant has no dedicated collision
+  or DDGI-occluder geometry.
+
 ## Carrot root crop
 
 - Original source: [`carrot-source.mjs`](carrot-source.mjs), authored in this
@@ -160,7 +190,7 @@ proposal, not the current placement behavior.
 
 ## Publish the flower bank
 
-The seven radial flowers are data presets in `flower-source.mjs` (Corn Poppy and Bellflower remain retired). The same native bank additionally contains Allium's spherical umbel and one explicitly typed carrot root crop; their separate morphology/provenance is described above.
+The seven radial flowers are data presets in `flower-source.mjs` (Corn Poppy and Bellflower remain retired). The same native bank additionally contains Allium's spherical umbel, carrot root crop and rooted blackberry shrub; their separate morphology/provenance is described above. The stem/head rules below apply to stemmed entries, not the rooted shrub.
 Both the native publisher and web studio call the one `parametric-flower.mjs` generator; it also
 publishes the head's `socket_normal` for the analytic stem's closed attachment-plane cut. Source
 hits and world-direction texel display points must remain on the inward side, rather than relying

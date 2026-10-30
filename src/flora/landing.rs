@@ -4,6 +4,10 @@ use super::models::{Flower, Part};
 use glam::Vec3;
 
 pub(crate) fn flower_landing(flower: &Flower, head: &Part) -> Option<(Vec3, Vec3)> {
+    // The first shrub ships in fruit, not as a pollinator flower.
+    if flower.assembly == super::models::Assembly::Rooted {
+        return None;
+    }
     let up = flower.socket_normal;
     let origin = head.anchor + up * (head.radius * 3. + 1.);
     flower.triangles[head.triangles.start as usize..head.triangles.end as usize]
@@ -41,7 +45,10 @@ mod tests {
 
     #[test]
     fn every_authored_flower_has_a_real_upward_contact_at_all_head_scales() {
-        for authored in flowers() {
+        for authored in flowers()
+            .iter()
+            .filter(|f| f.assembly == super::super::models::Assembly::Stemmed)
+        {
             for scale in [0.25, 1., 4.] {
                 let flower = authored.transformed(Shape {
                     head_scale: scale,

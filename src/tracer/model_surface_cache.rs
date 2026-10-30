@@ -374,7 +374,8 @@ fn bake(source: &Source, options: Options, cancel: &AtomicBool) -> Result<Baked>
         .flower_parts
         .chunks(4)
         .flat_map(|p| p[1..].iter())
-        .filter(|p| p.range[1] > 0)
+        // Root-fixed shrubs deform per vertex and retain native branch/leaf gaps.
+        .filter(|p| p.range[1] > 0 && !p.is_rooted())
         .map(|p| p.range[2])
         .collect();
     let selected = |id: usize, r: &[u32; 4]| {
@@ -567,8 +568,15 @@ mod tests {
             .filter(|p| p.range[1] > 0)
         {
             let entry = data.entries[part.range[2] as usize];
-            assert_eq!(entry.layout[3], 1);
-            assert!(entry.layout[0] as usize + 8 * 8 * 8 <= data.samples.len());
+            if part.is_rooted() {
+                assert_eq!(
+                    entry.layout[3], 0,
+                    "deforming shrubs must remain native surfaces"
+                );
+            } else {
+                assert_eq!(entry.layout[3], 1);
+                assert!(entry.layout[0] as usize + 8 * 8 * 8 <= data.samples.len());
+            }
         }
         for id in source.soil_bag_sources {
             let entry = data.entries[id as usize];

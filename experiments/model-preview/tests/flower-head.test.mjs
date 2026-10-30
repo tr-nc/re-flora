@@ -25,8 +25,9 @@ test('all preview models contain exactly one complete attachment-local head, no 
 });
 test('native publication contains one head per catalog flower, without assembly, leaves or stems',async()=>{
   const published=JSON.parse(await publishedFlowers());
-  assert.equal(published.flowers.length,nativeCatalog.length);
-  for(const flower of published.flowers){
+  const stemmed=published.flowers.filter(f=>f.kind!=='shrub');
+  assert.equal(stemmed.length,nativeCatalog.length);
+  for(const flower of stemmed){
     assert.equal(flower.column,undefined);assert.equal(flower.root,undefined);
     assert.equal(flower.palette.length,4);assert.ok(flower.cache_family);
     assert.deepEqual(flower.heads[0].anchor,[0,0,0]);

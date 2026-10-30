@@ -2286,7 +2286,7 @@ mod tests {
 
     #[test]
     fn special_plants_allow_sixty_percent_grass_growth_and_fade_outward() {
-        let dim = UVec3::splat(32);
+        let dim = UVec3::splat(64);
         let center = IVec3::splat(16);
         for index in species::authored_plant_species_indices() {
             let desc = &species::species()[index as usize];
@@ -2300,11 +2300,12 @@ mod tests {
                 desc.grass_growth_influence_min_level,
             );
             let level = |x| grass_growth_potential_level(&words, dim, UVec3::new(x, 16, 16));
+            let radius = desc.grass_growth_influence_radius_voxels;
             assert_eq!(level(16), 9);
-            assert_eq!(level(20), 12);
-            assert_eq!(level(24), 15);
-            assert_eq!(level(25), 15);
-            for x in 16..24 {
+            assert_eq!(level(16 + radius / 2), 12);
+            assert_eq!(level(16 + radius), 15);
+            assert_eq!(level(17 + radius), 15);
+            for x in 16..16 + radius {
                 assert!(level(x) <= level(x + 1));
             }
         }

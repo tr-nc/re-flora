@@ -7,9 +7,10 @@ import path from 'node:path';
 import {flowerCatalog,flowerGeometry} from '../assets/models/flower-source.mjs';
 import {completeFlowerHead} from '../assets/models/flower-head.mjs';
 import {maskValue,resolvePalette} from '../assets/models/palette-mask.mjs';
+import {publishedBlackberry} from './blackberry-publication.mjs';
 
 export async function publishedFlowers(){
-  const sources=await Promise.all(['../assets/models/flower-source.mjs','../assets/models/flower-head.mjs','../assets/models/parametric-flower.mjs','../assets/models/carrot-source.mjs','../assets/models/umbel-flower.mjs','../assets/models/palette-mask.mjs','./publish-flower-models.mjs'].map(file=>readFile(new URL(file,import.meta.url))));
+  const sources=await Promise.all(['../assets/models/flower-source.mjs','../assets/models/flower-head.mjs','../assets/models/parametric-flower.mjs','../assets/models/carrot-source.mjs','../assets/models/umbel-flower.mjs','../assets/models/palette-mask.mjs','../assets/models/blackberry-structure.mjs','../assets/models/blackberry-source.mjs','./blackberry-publication.mjs','../experiments/butterfly-method-comparison/vendor/three-0.183.0/build/three.module.js','../experiments/butterfly-method-comparison/vendor/three-0.183.0/build/three.core.js','./publish-flower-models.mjs'].map(file=>readFile(new URL(file,import.meta.url))));
   const flowers=flowerCatalog.map(spec=>{
     const recipe=completeFlowerHead(flowerGeometry(spec.id));
     const colors=['paletteA','paletteB','paletteC','paletteD'].map(key=>spec.defaults[key]);
@@ -21,6 +22,7 @@ export async function publishedFlowers(){
     return {id:spec.id,kind:spec.kind??'flower',display_name:spec.displayName,stem_layers:spec.stemLayers,cache_family:spec.cacheFamily,palette,
       color_texture:{width:mask.width,height:mask.height,rgb},socket_normal:recipe.socketNormal,heads:recipe.heads,parts:recipe.parts};
   });
+  flowers.push(publishedBlackberry());
   // Canonical authoring precision avoids cross-platform libm last-bit noise
   // while retaining much more precision than the runtime f32 representation.
   return JSON.stringify({source_crc32:crc32(Buffer.concat(sources)),flowers},(_key,value)=>typeof value==='number'?Number(value.toFixed(9)):value)+'\n';
@@ -31,6 +33,6 @@ if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.ur
     if(process.argv[2]!=='--help')process.exitCode=2;
   }else{
     await writeFile(new URL('../assets/models/flowers.json',import.meta.url),await publishedFlowers());
-    console.log(`Published assets/models/flowers.json (${flowerCatalog.length} complete flower-head meshes).`);
+    console.log(`Published assets/models/flowers.json (${flowerCatalog.length} flower/root-crop models and one rooted shrub).`);
   }
 }

@@ -31,8 +31,8 @@ impl FlowerModelReview {
             }
             Err(_) => return Ok(None),
         };
-        ensure!(["a", "b", "ab", "controls", "stems", "stem-continuous", "stem-surface", "stem-combined", "stem-model", "stem-model-far", "water-dry", "water-wet", "water-cycle"].contains(&mode.as_str()),
-            "RE_FLORA_FLOWER_MODEL_REVIEW must be a, b, ab, controls, stems (four shading/model-pixelization combinations with live wind and camera sweep), stem-continuous/surface/combined/model/model-far (fixed camera), or water-dry/water-wet/water-cycle");
+        ensure!(["a", "b", "ab", "controls", "stems", "stem-continuous", "stem-surface", "stem-combined", "stem-model", "stem-model-far", "water-dry", "water-wet", "water-cycle", "blackberry", "blackberry-cycle"].contains(&mode.as_str()),
+            "RE_FLORA_FLOWER_MODEL_REVIEW must be a, b, ab, controls, stems (four shading/model-pixelization combinations with live wind and camera sweep), stem-continuous/surface/combined/model/model-far (fixed camera), water-dry/water-wet/water-cycle, or blackberry/blackberry-cycle (rooted shrub and removal/replant review)");
         Ok(Some(Self {
             mode,
             frame: 0,
@@ -48,6 +48,7 @@ impl App {
         };
         let frame = review.frame;
         review.frame += 1;
+        let blackberry = review.mode.starts_with("blackberry");
         let controls = review.mode == "controls";
         let stems = review.mode.starts_with("stem");
         let stem_mode = review.mode.clone();
@@ -55,7 +56,7 @@ impl App {
             (frame / 24).min(15)
         } else if controls {
             (frame / 24).min(26)
-        } else if review.mode == "ab" {
+        } else if review.mode == "ab" || review.mode == "blackberry-cycle" {
             (frame / 24).min(8)
         } else {
             0
@@ -138,7 +139,11 @@ impl App {
             self.select_item_panel_slot(super::ui_style::GROW_SLOT_INDEX);
             let mut batch = AuthoredFloraPlacementBatch::new();
             let mut center = Vec3::ZERO;
-            for model in 0..crate::flora::models::MODEL_COUNT {
+            let models: Vec<_> = (0..crate::flora::models::MODEL_COUNT)
+                .filter(|&i| !blackberry || crate::flora::models::SHRUB_MODELS[i])
+                .collect();
+            let planted = models.len();
+            for model in models {
                 let species = crate::flora::MODEL_FLOWER_FIRST_SPECIES + model as u32;
                 let x = 166 + (model as u32 % 4) * 34;
                 let z = 342 + (model as u32 / 4) * 34;
@@ -164,7 +169,7 @@ impl App {
                 );
             }
             self.finish_authored_flora_placement(batch)?;
-            center /= crate::flora::models::MODEL_COUNT as f32;
+            center /= planted as f32;
             if stem_mode.starts_with("water-") {
                 crate::app::world_ops::mesh_regenerate_flora_for_brush_edit(
                     &mut self.surface_builder,
@@ -199,7 +204,7 @@ impl App {
             );
             self.flower_model_review.as_mut().unwrap().target = Some(target);
             self.set_manual_time_of_day(0.45);
-            log::info!("[FLOWER_REVIEW] planted={} placement=production saved=false target={target:?} camera={camera:?}", crate::flora::models::MODEL_COUNT);
+            log::info!("[FLOWER_REVIEW] planted={planted} placement=production saved=false target={target:?} camera={camera:?}");
         }
         if (!controls && phase == 3 && frame == 72) || (controls && phase == 17 && frame == 408) {
             if let Some(resize) = &mut self.resize_lifecycle_test {
@@ -246,8 +251,15 @@ impl App {
         // Keep this explicit review's camera authoritative throughout capture.
         if let Some(target) = self.flower_model_review.as_ref().unwrap().target {
             self.camera_control.apply_snapshot_mode(true);
-            self.tracer
-                .set_camera_pose_looking_at(target + Vec3::new(0., 0.24, 0.57), target);
+            self.tracer.set_camera_pose_looking_at(
+                target
+                    + if blackberry {
+                        Vec3::new(0.14, 0.11, 0.25)
+                    } else {
+                        Vec3::new(0., 0.24, 0.57)
+                    },
+                target,
+            );
             self.reset_camera_movement_input();
         }
         if stem_mode.starts_with("water-")

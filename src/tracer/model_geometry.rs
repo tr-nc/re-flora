@@ -83,6 +83,9 @@ pub(super) struct FlowerPart {
     landing_normal: [f32; 4],
 }
 impl FlowerPart {
+    pub fn is_rooted(&self) -> bool {
+        self.socket[3] > 0.5
+    }
     pub fn maximum_stem_length(&self) -> f32 {
         self.stem[3] * self.distribution[1]
     }
@@ -190,7 +193,11 @@ pub(super) fn source(shape: Shape) -> Source {
                 flower.column.tip().length()
                     + (part.center - flower.column.tip()).length()
                     + part.radius * std::f32::consts::SQRT_2
-                    + flower.column.tip().y * models::MAX_BEND_FRACTION,
+                    + (if flower.assembly == models::Assembly::Rooted {
+                        flower.height
+                    } else {
+                        flower.column.tip().y
+                    }) * models::MAX_BEND_FRACTION,
             );
         }
         flower_spawn_height = flower_spawn_height.max(flower.whole.center.y + flower.whole.radius);
@@ -210,14 +217,25 @@ pub(super) fn source(shape: Shape) -> Source {
                     ],
                     center_radius: part.center.extend(part.radius).to_array(),
                     distribution: flower.distribution,
-                    socket: flower.socket_normal.extend(0.).to_array(),
+                    socket: flower
+                        .socket_normal
+                        .extend(if flower.assembly == models::Assembly::Rooted {
+                            1.
+                        } else {
+                            0.
+                        })
+                        .to_array(),
                     landing: crate::flora::landing::flower_landing(&flower, part)
                         .map_or([0.; 4], |(point, _)| point.extend(1.).to_array()),
                     landing_normal: crate::flora::landing::flower_landing(&flower, part)
                         .map_or([0.; 4], |(_, normal)| normal.extend(0.).to_array()),
                     stem: [
                         flower.column.tip().x,
-                        flower.column.tip().y,
+                        if flower.assembly == models::Assembly::Rooted {
+                            flower.height
+                        } else {
+                            flower.column.tip().y
+                        },
                         models::MAX_BEND_FRACTION,
                         flower.column.count() as f32,
                     ],

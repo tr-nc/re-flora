@@ -28,8 +28,10 @@ impl FlowerModelResources {
         let (band_vertices, band_indices) =
             super::stem_band_mesh::topology(super::stem_band_mesh::MAX_GRASS_BANDS);
         log::info!(
-            "[FLOWER_MODELS] assets={} source=head_models assembly=native heads=1 calyx=head leaves=0 stem=prepared_mesh_bands colors=flat wind=live",
-            models::flowers().len()
+            "[FLOWER_MODELS] assets={} stemmed={} rooted={} source=shared_authored_models assembly=native wind=live",
+            models::flowers().len(),
+            models::flowers().iter().filter(|m| m.assembly == models::Assembly::Stemmed).count(),
+            models::flowers().iter().filter(|m| m.assembly == models::Assembly::Rooted).count()
         );
         Self {
             // Descriptor initializer; draws bind the current shared part metadata.

@@ -495,7 +495,7 @@ mod tests {
         let mut old = expected.clone();
         old.chunks[0]
             .species
-            .retain(|species| !matches!(species.key.as_str(), "carrot" | "allium"));
+            .retain(|species| !matches!(species.key.as_str(), "carrot" | "allium" | "blackberry"));
         assert_eq!(old.migrate_species_schema(), 0);
         old.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
         assert_eq!(old, expected);
@@ -512,12 +512,35 @@ mod tests {
         carrot.instances.push([0xff01_0203, 42]);
         carrot.authored.push([12, 55]);
         let mut old = expected.clone();
-        assert_eq!(old.chunks[0].species.pop().unwrap().key, "allium");
+        old.chunks[0]
+            .species
+            .retain(|species| !matches!(species.key.as_str(), "allium" | "blackberry"));
         let encoded = serde_json::to_vec(&old).unwrap();
         let mut decoded: FloraSnapshot = serde_json::from_slice(&encoded).unwrap();
         assert_eq!(decoded.migrate_species_schema(), 0);
         decoded.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
         assert_eq!(decoded, expected);
+    }
+
+    #[test]
+    fn blackberry_survives_snapshot_roundtrip_and_older_gardens_gain_an_empty_slot() {
+        let mut current = fixture();
+        let shrub = current.chunks[0]
+            .species
+            .iter_mut()
+            .find(|s| s.key == "blackberry")
+            .unwrap();
+        shrub.instances.push([0xff01_0203, 42]);
+        shrub.authored.push([12, 55]);
+        let mut restored: FloraSnapshot =
+            serde_json::from_slice(&serde_json::to_vec(&current).unwrap()).unwrap();
+        assert_eq!(restored.migrate_species_schema(), 0);
+        restored.validate(UVec3::ONE, UVec3::splat(8)).unwrap();
+        assert_eq!(restored, current);
+        let mut old = fixture();
+        old.chunks[0].species.retain(|s| s.key != "blackberry");
+        old.migrate_species_schema();
+        assert_eq!(old, fixture());
     }
 
     #[test]

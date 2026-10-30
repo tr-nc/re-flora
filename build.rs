@@ -1561,6 +1561,11 @@ fn validate_shared_flower_assets() {
         "assets/models/carrot-source.mjs",
         "assets/models/umbel-flower.mjs",
         "assets/models/palette-mask.mjs",
+        "assets/models/blackberry-structure.mjs",
+        "assets/models/blackberry-source.mjs",
+        "scripts/blackberry-publication.mjs",
+        "experiments/butterfly-method-comparison/vendor/three-0.183.0/build/three.module.js",
+        "experiments/butterfly-method-comparison/vendor/three-0.183.0/build/three.core.js",
         "scripts/publish-flower-models.mjs",
     ] {
         println!("cargo:rerun-if-changed={source}");
@@ -1591,7 +1596,13 @@ fn validate_shared_flower_assets() {
             .expect("flower display name");
         let layers = flower["stem_layers"].as_u64().expect("flower stem layers");
         assert!(
-            seen.insert(id) && !name.is_empty() && (1..=512).contains(&layers),
+            seen.insert(id)
+                && !name.is_empty()
+                && if flower["kind"] == "shrub" {
+                    layers == 0
+                } else {
+                    (1..=512).contains(&layers)
+                },
             "invalid or duplicate flower entry: {id}"
         );
         code.push_str(&format!("    ({id:?}, {name:?}, {layers}),\n"));
@@ -1601,10 +1612,14 @@ fn validate_shared_flower_assets() {
     for flower in flowers {
         let kind = flower["kind"].as_str().unwrap_or("flower");
         assert!(
-            matches!(kind, "flower" | "root_crop"),
+            matches!(kind, "flower" | "root_crop" | "shrub"),
             "unknown plant morphology"
         );
         code.push_str(&format!("    {},\n", kind == "root_crop"));
+    }
+    code.push_str("];\npub const SHRUB_MODELS: [bool; MODEL_COUNT] = [\n");
+    for flower in flowers {
+        code.push_str(&format!("    {},\n", flower["kind"] == "shrub"));
     }
     code.push_str("];\n");
     fs::write(

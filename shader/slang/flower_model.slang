@@ -19,7 +19,7 @@ public struct FlowerModelPart {
     public float4 center_radius;
     public float4 stem; // tip x/y, max bend fraction, maximum layer count
     public float4 distribution; // base layers, edge, mean, standard deviation
-    public float4 socket; // outward head normal; live plane offset computed at stem tip
+    public float4 socket; // xyz outward normal; w=1 for root-fixed authored assembly
     public float4 landing; // ray-tested authored head surface xyz, valid w
     public float4 landing_normal;
 };
@@ -77,11 +77,12 @@ public FlowerPlantPose flowerPlantPose(uint plant) {
     uint3 root=base+uint3(0,1,0);
     uint seed=instanceSeed(root);
     FlowerModelPart whole=flowerPart(0u);
-    uint layers=flowerLayerCount(seed^wellonsHash(flower_pc.species));
-    float height=layers*whole.distribution.y;
+    bool rooted=whole.socket.w>0.5;
+    uint layers=rooted?0u:flowerLayerCount(seed^wellonsHash(flower_pc.species));
+    float height=rooted?whole.stem.y:layers*whole.distribution.y;
     // Bound rest bend consistently with the authored assembly dimensions.
-    float bend=min(whole.stem.x,whole.distribution.y*float(layers-1u)*0.25);
-    float3 attachmentDelta=float3(bend-whole.stem.x,height-whole.stem.y,0);
+    float bend=rooted?0.0:min(whole.stem.x,whole.distribution.y*float(layers-1u)*0.25);
+    float3 attachmentDelta=rooted?float3(0):float3(bend-whole.stem.x,height-whole.stem.y,0);
     float moisture=plantHydrationGrowthFactor(flora_growth_info,flower_pc.species,plant);
     float waterDeficit=plantHydrationDeficit(flower_pc.species,plant,gui_input.plant_wilt_start_hydration);
     float potential=gui_input.flora_growth_override_enabled!=0u?saturate(gui_input.flora_growth_override):moisture;
@@ -110,7 +111,9 @@ public FlowerPlantPose flowerPlantPose(uint plant) {
     float limit=height*frame.scale*whole.stem.z;
     displacement*=min(1.0,limit/max(length(displacement),1e-7));
     float3 attachmentOffset=(frame.axisX*attachmentDelta.x+frame.axisY*attachmentDelta.y)*frame.scale;
-    frame.center+=displacement+attachmentOffset;
+    // Rooted surfaces receive a height-weighted deformation in the vertex adapter.
+    // Never translate their root with the terminal flower-head pose.
+    if(!rooted)frame.center+=displacement+attachmentOffset;
     FlowerPlantPose pose;pose.frame=frame;pose.tip_offset=displacement;
     pose.attachment_offset=attachmentOffset;pose.height=height;pose.bend=bend;
     return pose;

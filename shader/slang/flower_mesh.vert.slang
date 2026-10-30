@@ -1,4 +1,5 @@
 import flower_model;
+import rooted_plant_motion;
 import flora_types;
 import flower_palette;
 import model_mesh;
@@ -21,10 +22,12 @@ float3 flowerNightEmission(float3 linearColor,float2 uv) {
 ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint head:SV_VulkanInstanceID) {
     uint count=flowerPartCount();
     FlowerModelPart part=flowerPart(1u+head%count);
-    ModelPixelFrame physical=flowerPlantFrame(head/count);
+    FlowerPlantPose pose=flowerPlantPose(head/count);
+    ModelPixelFrame physical=pose.frame;
+    bool rooted=part.socket.w>0.5;
     if(physical.scale<=1e-7)return emptyModelMeshVertex();
     CachedModelVertex cached;
-    if(cachedModelVertex(vertex,part.range.z,3u,physical,part.center_radius.xyz,cached)) {
+    if(!rooted && cachedModelVertex(vertex,part.range.z,3u,physical,part.center_radius.xyz,cached)) {
         if(!cached.visible)return emptyModelMeshVertex();
         float3 normal=cached.normal;
         if(dot(normal,cached.position-camera_info.pos.xyz)>0)normal=-normal;
@@ -34,11 +37,16 @@ ModelMeshOutput main(uint vertex:SV_VulkanVertexID,uint head:SV_VulkanInstanceID
     }
     if(vertex>=part.range.y*3u)return emptyModelMeshVertex();
     // One historical head-center pivot for its complete authored rigid range.
-    ModelPixelFrame frame=modelMeshViewFrame(physical,part.center_radius.xyz);
+    ModelPixelFrame frame=rooted?physical:modelMeshViewFrame(physical,part.center_radius.xyz);
     ButterflyMeshTriangle t=model_mesh_triangles[part.range.x+vertex/3u];
     uint corner=vertex%3u;
-    float3 position=modelPixelWorld(frame,meshPoint(t,corner));
+    float3 local=meshPoint(t,corner);
+    float3 position=modelPixelWorld(frame,local);
     float3 normal=flowerNormal(frame,meshNormal(t,corner));
+    if(rooted) {
+        position+=rootedPlantOffset(local.y,pose.height,pose.tip_offset);
+        normal=rootedPlantNormal(normal,frame.axisY,local.y,pose.height,frame.scale,pose.tip_offset);
+    }
     if(dot(normal,position-camera_info.pos.xyz)>0)normal=-normal;
     float2 uv=corner==0u?t.uv01.xy:corner==1u?t.uv01.zw:t.uv2.xy;
     float3 color=flowerPaletteColor(flower_pc.species-MODEL_FLOWER_FIRST_SPECIES,encodeFlowerUV(uv));

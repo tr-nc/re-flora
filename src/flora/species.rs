@@ -86,8 +86,13 @@ impl FloraSpeciesDesc {
             .is_some_and(|i| super::models::ROOT_CROP_MODELS[i])
     }
 
+    pub fn is_shrub(&self) -> bool {
+        self.model_flower
+            .is_some_and(|i| super::models::SHRUB_MODELS[i])
+    }
+
     pub fn provides_nectar(&self) -> bool {
-        self.model_flower.is_some() && !self.is_root_crop()
+        self.model_flower.is_some() && !self.is_root_crop() && !self.is_shrub()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -131,9 +136,17 @@ const fn model_flower(
         stem_band_count: 0,
         default_bottom_color: [99, 141, 83],
         default_tip_color: [214, 149, 197],
-        paint_brush: MODEL_FLOWER_PAINT_BRUSH_SETTINGS,
+        paint_brush: if super::models::SHRUB_MODELS[index] {
+            FloraPaintBrushSettings::new(50, 350, 40, 1)
+        } else {
+            MODEL_FLOWER_PAINT_BRUSH_SETTINGS
+        },
         placement_mode: FloraPlacementMode::Authored,
-        grass_growth_influence_radius_voxels: 8,
+        grass_growth_influence_radius_voxels: if super::models::SHRUB_MODELS[index] {
+            20
+        } else {
+            8
+        },
         // Keep at least 60% growth at the root; fade to unrestricted at the radius.
         grass_growth_influence_min_level: 9,
         moisture_growth_factors: DEFAULT_MOISTURE_GROWTH_FACTORS,
@@ -313,6 +326,21 @@ mod tests {
         }
         assert_eq!(species_count(), super::super::models::MODEL_COUNT + 2);
         assert_eq!(PLAYER_FLORA_PAINT_SELECTIONS.len(), species_count() - 1);
+    }
+
+    #[test]
+    fn blackberry_is_a_plantable_shrub_without_fictitious_nectar_or_crop_yield() {
+        let index = species()
+            .iter()
+            .position(|s| s.key == "blackberry")
+            .unwrap();
+        let shrub = &species()[index];
+        assert_eq!(species()[index - 1].key, "allium");
+        assert!(shrub.is_shrub());
+        assert!(!shrub.is_root_crop() && !shrub.provides_nectar());
+        assert_eq!(shrub.placement_mode, FloraPlacementMode::Authored);
+        assert!(shrub.paint_brush.soft_spacing_voxels >= 40);
+        assert!(PLAYER_FLORA_PAINT_SELECTIONS.contains(&FloraPaintSelection::Species(index as u32)));
     }
 
     #[test]

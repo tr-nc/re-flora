@@ -3404,7 +3404,11 @@ impl App {
                 .adjustables
                 .special_flora_min_spacing_voxels
                 .value
-                .max(1.0),
+                .max(if species::species()[species_index as usize].is_shrub() {
+                    paint_brush.soft_spacing_voxels as f32
+                } else {
+                    1.0
+                }),
             cluster_bias: self
                 .debug_settings
                 .adjustables

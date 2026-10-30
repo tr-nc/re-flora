@@ -1,6 +1,6 @@
 # 野生黑莓：形态调研与原型取舍
 
-调研日期：2026-10-30。目标是 re-flora 的野生、舒展、略凌乱的中层灌木；本轮只做 HTML 形态原型，不改游戏。视觉交付入口：`experiments/blackberry-prototype/index.html`（通过仓库现有预览服务器访问 `/blackberry-prototype/`）。
+调研日期：2026-10-30。目标是 re-flora 的野生、舒展、略凌乱的中层灌木；本文记录最初 HTML 形态研究的依据与取舍。随后经用户确认接入原生果期版本，本文不作为当前实现清单。视觉交付入口：`experiments/blackberry-prototype/index.html`（通过仓库现有预览服务器访问 `/blackberry-prototype/`）。
 
 ## 依据与边界
 

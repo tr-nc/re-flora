@@ -167,26 +167,31 @@ impl PreparedModelMeshes {
 
 pub(super) struct PreparedFlowerModels {
     heads: PreparedModelMeshes,
-    stems: PreparedDrawDescriptors,
-    stem_pipeline: GraphicsPipeline,
+    stems: Option<PreparedFlowerStems>,
+}
+struct PreparedFlowerStems {
+    descriptors: PreparedDrawDescriptors,
+    pipeline: GraphicsPipeline,
     count: u32,
     bands: Arc<Buffer>,
 }
 impl PreparedFlowerModels {
     pub fn record(&self, cmdbuf: &CommandBuffer, resources: &TracerResources) {
-        cmdbuf.bind_index_buffer_u32(&resources.flower_models.stem_band_indices);
-        cmdbuf.bind_vertex_buffers(0, &[&resources.flower_models.stem_band_vertices]);
-        let _keep_bands_alive = &self.bands;
-        self.stem_pipeline.record_indexed_with_prepared_descriptors(
-            cmdbuf,
-            &self.stems,
-            36,
-            self.count,
-            0,
-            0,
-            0,
-            None,
-        );
+        if let Some(stems) = &self.stems {
+            cmdbuf.bind_index_buffer_u32(&resources.flower_models.stem_band_indices);
+            cmdbuf.bind_vertex_buffers(0, &[&resources.flower_models.stem_band_vertices]);
+            let _keep_bands_alive = &stems.bands;
+            stems.pipeline.record_indexed_with_prepared_descriptors(
+                cmdbuf,
+                &stems.descriptors,
+                36,
+                stems.count,
+                0,
+                0,
+                0,
+                None,
+            );
+        }
         self.heads.record(cmdbuf, 0);
     }
 }
@@ -601,7 +606,10 @@ impl ModelMeshFrame {
             preparation,
         } = pass;
         let pass = MeshPass { display };
-        self.review_draw(8, "flower_heads", count);
+        if !models::SHRUB_MODELS[(push.species - crate::flora::MODEL_FLOWER_FIRST_SPECIES) as usize]
+        {
+            self.review_draw(8, "flower_heads", count);
+        }
         let g = self.active.as_ref().unwrap();
         let mut resources = g.bindings().to_vec();
         resources.extend_from_slice(pose);
@@ -612,6 +620,24 @@ impl ModelMeshFrame {
         ));
         let parts = &g.source.flower_parts
             [(push.species - crate::flora::MODEL_FLOWER_FIRST_SPECIES) as usize * 4..][..4];
+        if parts[0].is_rooted() {
+            // A whole rooted plant has authored branches, not an analytic flower stem.
+            let vertices = parts[1].range[1] * 3;
+            return Ok(PreparedFlowerModels {
+                stems: None,
+                heads: self.prepare(
+                    cmd,
+                    pass,
+                    count,
+                    vertices,
+                    resources,
+                    Some(PushConstantInfo {
+                        shader_stage: vk::ShaderStageFlags::VERTEX,
+                        push_constants: bytemuck::bytes_of(&push).to_vec(),
+                    }),
+                )?,
+            });
+        }
         // A rest-length material band can contain several curve subdivisions.
         // Allocate for full growth; wind and spawn translation do not add bands.
         let maximum_height = parts[0].maximum_stem_length() * push.world_scale;
@@ -665,13 +691,15 @@ impl ModelMeshFrame {
             push_constants: bytemuck::bytes_of(&push).to_vec(),
         };
         Ok(PreparedFlowerModels {
-            stems: stem_pipeline.prepare_draw_descriptors(
-                cmd,
-                &[("flower_stem_bands", DescriptorResource::Buffer(&bands))],
-            )?,
-            stem_pipeline: stem_pipeline.clone(),
-            count: band_count,
-            bands,
+            stems: Some(PreparedFlowerStems {
+                descriptors: stem_pipeline.prepare_draw_descriptors(
+                    cmd,
+                    &[("flower_stem_bands", DescriptorResource::Buffer(&bands))],
+                )?,
+                pipeline: stem_pipeline.clone(),
+                count: band_count,
+                bands,
+            }),
             heads: self.prepare(
                 cmd,
                 pass,

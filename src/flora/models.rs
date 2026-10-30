@@ -1,4 +1,5 @@
-//! Original flower geometry published from the same recipe as the HTML preview.
+//! Authored plant surfaces published from the same recipes as the HTML previews.
+//! Historical flower/head field names remain the surface-bank ABI, not a morphology rule.
 //! This module owns authored geometry, not planting, wind, lighting or GPU lifetime.
 use anyhow::{ensure, Result};
 use glam::{Vec2, Vec3};
@@ -139,8 +140,17 @@ pub struct Part {
     pub center: Vec3,
     pub radius: f32,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Assembly {
+    Stemmed,
+    Rooted,
+}
+
 #[derive(Clone)]
 pub struct Flower {
+    pub assembly: Assembly,
+    /// Authored maximum Y, used for root-fixed deformation and its culling bound.
+    pub height: f32,
     #[cfg(test)]
     pub id: String,
     pub cache_family: String,
@@ -162,7 +172,7 @@ impl Flower {
     pub fn transformed(&self, shape: Shape) -> Self {
         let shape = shape.normalized();
         let mut result = self.clone();
-        if shape == Shape::default() {
+        if self.assembly == Assembly::Rooted || shape == Shape::default() {
             return result;
         }
         result.column = self.column.with_shape(shape);
@@ -286,7 +296,24 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                 "invalid flower stem socket normal"
             );
             // Game-owned assembly: authored assets contain only attachment-local heads.
-            let column = Column::for_layers(source.stem_layers)?;
+            let assembly = if SHRUB_MODELS[model] {
+                Assembly::Rooted
+            } else {
+                Assembly::Stemmed
+            };
+            let column = if assembly == Assembly::Rooted {
+                ensure!(
+                    source.stem_layers == 0,
+                    "rooted plant must not acquire a flower stem"
+                );
+                Column {
+                    edge: 0.,
+                    layers: 0,
+                    bend: 0.,
+                }
+            } else {
+                Column::for_layers(source.stem_layers)?
+            };
             let tip = column.tip();
             let mut triangles = Vec::new();
             let mut ranges = vec![0..0; source.heads.len()];
@@ -367,7 +394,16 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
-            let center = Vec3::new(0., tip.y * 0.5, 0.);
+            let height = triangles
+                .iter()
+                .flat_map(|t| t.positions)
+                .map(|p| p.y)
+                .fold(0f32, f32::max);
+            let center = if assembly == Assembly::Rooted {
+                heads[0].center
+            } else {
+                Vec3::new(0., tip.y * 0.5, 0.)
+            };
             let radius = triangles
                 .iter()
                 .flat_map(|t| t.positions)
@@ -375,6 +411,8 @@ fn load(json: &str) -> Result<Vec<Flower>> {
                 .fold(0f32, f32::max)
                 * 1.06;
             Ok(Flower {
+                assembly,
+                height,
                 #[cfg(test)]
                 id: source.id,
                 cache_family: source.cache_family,
@@ -399,6 +437,44 @@ fn load(json: &str) -> Result<Vec<Flower>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn blackberry_is_root_local_and_independent_of_flower_assembly_controls() {
+        let shrub = flowers().iter().find(|f| f.id == "blackberry").unwrap();
+        assert_eq!(shrub.assembly, Assembly::Rooted);
+        assert_eq!(shrub.column.count(), 0);
+        assert_eq!(shrub.column.tip(), Vec3::ZERO);
+        assert_eq!(shrub.heads[0].anchor, Vec3::ZERO);
+        assert!(shrub.height * WORLD_SCALE * 256. > 16.);
+        assert!(shrub.height * WORLD_SCALE * 256. < 32.);
+        let vertices = || shrub.triangles.iter().flat_map(|t| t.positions);
+        assert!(
+            vertices().filter(|p| p.y.abs() < 0.03).count() > 20,
+            "multiple grounded canes"
+        );
+        assert!(vertices().any(|p| p.x < -1.) && vertices().any(|p| p.x > 1.));
+        assert!(vertices()
+            .all(|p| p.is_finite() && p.distance(shrub.whole.center) < shrub.whole.radius));
+        for shape in [
+            Shape::default(),
+            Shape::MAX,
+            Shape {
+                head_scale: 0.25,
+                height_scale: 0.25,
+                ..Shape::default()
+            },
+        ] {
+            let changed = shrub.transformed(shape);
+            assert_eq!(changed.whole.center, shrub.whole.center);
+            assert_eq!(changed.whole.radius, shrub.whole.radius);
+            assert!(changed
+                .triangles
+                .iter()
+                .zip(&shrub.triangles)
+                .all(|(a, b)| a.positions == b.positions && a.uvs == b.uvs));
+        }
+        assert!(crate::flora::landing::flower_landing(shrub, &shrub.heads[0]).is_none());
+    }
+
     #[test]
     fn invalid_atlas_or_uv_data_is_rejected_before_gpu_upload() {
         let original = include_str!("../../assets/models/flowers.json");
@@ -478,7 +554,11 @@ mod tests {
     fn authored_attachments_and_independent_transforms_cover_all_flowers() {
         let published: Published =
             serde_json::from_str(include_str!("../../assets/models/flowers.json")).unwrap();
-        for (flower, authored) in flowers().iter().zip(&published.flowers) {
+        for (flower, authored) in flowers()
+            .iter()
+            .zip(&published.flowers)
+            .filter(|(f, _)| f.assembly == Assembly::Stemmed)
+        {
             for (head, published) in flower.heads.iter().zip(&authored.heads) {
                 assert_eq!(
                     head.anchor,
@@ -556,6 +636,9 @@ mod tests {
     fn shared_flowers_keep_the_approved_shapes_and_complete_head_ranges() {
         let models = flowers();
         for (index, model) in models.iter().enumerate() {
+            if model.assembly == Assembly::Rooted {
+                continue;
+            }
             let minimum_y = if ROOT_CROP_MODELS[index] { -0.9 } else { -0.02 };
             let count = model.triangles.len();
             assert!(count > 100 && count < 4000, "{}", model.id);

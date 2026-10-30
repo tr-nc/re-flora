@@ -53,7 +53,10 @@ mod tests {
 
     #[test]
     fn dimensions_and_height_distribution_remain_independent() {
-        for flower in flowers() {
+        for flower in flowers()
+            .iter()
+            .filter(|f| f.assembly == super::super::Assembly::Stemmed)
+        {
             let base = flower.column;
             for mean in [0.25, 0.46, 1., 4.] {
                 for variance in [0., 0.01, 0.09, 1.] {
@@ -98,7 +101,10 @@ mod tests {
 
     #[test]
     fn surface_bank_contains_only_heads_at_every_saved_height() {
-        for flower in flowers() {
+        for flower in flowers()
+            .iter()
+            .filter(|f| f.assembly == super::super::Assembly::Stemmed)
+        {
             for height_scale in [0.25, 0.46, 1., 2., 4.] {
                 let transformed = flower.transformed(Shape {
                     height_scale,

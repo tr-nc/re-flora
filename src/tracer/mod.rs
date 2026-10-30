@@ -5105,7 +5105,7 @@ impl Tracer {
                 .enumerate()
             {
                 let (below, above) = self.model_mesh_frame.flower_culling_padding(
-                    crate::flora::models::WORLD_SCALE * settings.size_scale,
+                    crate::flora::models::WORLD_SCALE * settings.size_scale.max(1.),
                     self.flower_spawn_overshoot_voxels,
                 );
                 let bounds = crate::geom::Aabb3::new(bounds.min() - below, bounds.max() + above);
@@ -5141,7 +5141,12 @@ impl Tracer {
                             .flower_offset(chunk_index, species_index),
                         time,
                         resolution: settings.resolution,
-                        world_scale: crate::flora::models::WORLD_SCALE * settings.size_scale,
+                        world_scale: crate::flora::models::WORLD_SCALE
+                            * if desc.is_shrub() {
+                                1.
+                            } else {
+                                settings.size_scale
+                            },
                         tile_first: 0,
                         prepare_object: 0,
                         padding: 0,
@@ -5192,7 +5197,11 @@ impl Tracer {
                         .expect("paired flower model pixels"),
                     );
                     if std::env::var_os("RE_FLORA_FLOWER_MODEL_REVIEW").is_some() {
-                        log::info!("[FLOWER_DRAW] species={} plants={} heads_only={} resolution={} parts_per_plant={}",desc.key,count,true,settings.resolution,crate::flora::models::flowers()[model].heads.len());
+                        if desc.is_shrub() {
+                            log::info!("[SHRUB_DRAW] species={} plants={} triangles_per_plant={} assembly=rooted surface=native root_fixed=true", desc.key, count, crate::flora::models::flowers()[model].triangles.len());
+                        } else {
+                            log::info!("[FLOWER_DRAW] species={} plants={} heads_only={} resolution={} parts_per_plant={}",desc.key,count,true,settings.resolution,crate::flora::models::flowers()[model].heads.len());
+                        }
                     }
                 }
             }

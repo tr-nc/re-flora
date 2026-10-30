@@ -389,6 +389,29 @@ mod tests {
     }
 
     #[test]
+    fn blackberry_can_be_bought_and_replanted_but_does_not_sell_decorative_fruit() {
+        let index = species::species()
+            .iter()
+            .position(|s| s.key == "blackberry")
+            .unwrap() as u32;
+        let selection = FloraPaintSelection::Species(index);
+        assert_eq!(
+            product("seeds/blackberry").unwrap().goods,
+            PlantGoods::Seeds(selection)
+        );
+        assert_eq!(
+            product("seedling/blackberry").unwrap().goods,
+            PlantGoods::Seedling(selection)
+        );
+        let mut bag = GardenEconomy::default();
+        bag.buy("seeds/blackberry").unwrap();
+        assert!(bag.collect_plant(index, 255, || true).unwrap());
+        assert_eq!(bag.count("seedling/blackberry"), 1);
+        assert!(!bag.crops.contains_key("blackberry"));
+        assert!(GardenEconomy::crop_price("blackberry").is_none());
+    }
+
+    #[test]
     fn allium_uses_flower_seed_and_reusable_seedling_ownership() {
         let allium = species::species()
             .iter()
