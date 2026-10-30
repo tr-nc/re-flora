@@ -10,6 +10,9 @@ use rapier3d::prelude::{
 };
 use std::collections::{HashMap, HashSet};
 
+pub mod rope;
+mod rope_world;
+
 mod character_step;
 mod character_support;
 mod deforming_geometry;
@@ -386,6 +389,9 @@ struct VoxelChange {
 
 pub struct CollisionWorld {
     physics: PhysicsWorld,
+    ropes: std::collections::BTreeMap<rope::RopeId, rope::Rope>,
+    next_rope_id: u64,
+    rope_contact_failures: usize,
     capsule_character_broad_phase: BroadPhaseBvh,
     capsule_character_modified_colliders: HashSet<ColliderHandle>,
     capsule_character_removed_colliders: HashSet<ColliderHandle>,
@@ -419,6 +425,9 @@ impl CollisionWorld {
         physics.integration_parameters.dt = DEFAULT_FIXED_STEP_SECONDS;
         Self {
             physics,
+            ropes: Default::default(),
+            next_rope_id: 1,
+            rope_contact_failures: 0,
             capsule_character_broad_phase: BroadPhaseBvh::new(),
             capsule_character_modified_colliders: HashSet::new(),
             capsule_character_removed_colliders: HashSet::new(),
@@ -652,6 +661,7 @@ impl CollisionWorld {
             // after a dynamic simulation step.
             self.sync_capsule_character_broad_phase();
             self.physics.step();
+            self.step_ropes();
             self.collect_first_ground_contacts();
             self.fixed_step_accumulator =
                 (self.fixed_step_accumulator - self.fixed_step_seconds).max(0.0);
