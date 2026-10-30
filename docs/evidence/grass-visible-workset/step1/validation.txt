@@ -1,0 +1,20 @@
+Short-grass index prefix optimization, Linux RTX 3060 Ti / i5-12600KF.
+Source baseline: 11218edb (same runtime as 8d98fc5a).
+Only draw index count changes; species band count comes from the shared frame batch.
+Both LODs use the same resident band-major prefix. Growth/mowing trim still happens in shader.
+
+cargo fmt --check: pass
+cargo check: blocked by pre-existing collision_bench_rapier.rs unresolved fs / type inference errors.
+cargo check --bin re-flora: pass
+cargo test --bin re-flora: 1802 passed, 15 ignored
+cargo build --release: same unrelated benchmark failure
+cargo build --release --bin re-flora: pass
+cargo run --release -- --hidden --mute --auto-exit 0.5 (isolated RE_FLORA_ROOT): first frame ready, successful exit, no ERROR/VUID/panic.
+
+Native fixtures: docs/evidence/grass-visible-workset/capture.mjs target/grass-workset/step1-native target/grass-workset/before target/grass-workset/step1
+8 hidden muted runs: baseline/candidate x near/far/low/inside; real painting, both grass species, fixed simulation time, native depth, wind, growth/spawn path. Clean completion and no rendering errors. Inspected near and low image pairs; no visible loss of geometry. Images are not byte-identical except inside: timing-dependent shading remains; this is not a pixel-perfect equivalence claim. Executable topology test proves exact authored triangle prefix for each grass species.
+
+Performance reproduction: node docs/evidence/world-frame-cost/run.mjs --before target/grass-workset/before --after target/grass-workset/step1 --out target/grass-workset/step1-perf --detailed
+ABBA, 28s after loading, discard first 8s, unchanged 32-chunk world and personal config; query capacity 1024, dropped=0. Full options, binary/config hashes, frame samples in summary.json and *.samples.json.gz.
+Mean of run means: flora draw 4.7589 -> 3.6511 ms; lighting 3.2768 -> 3.2605 ms; GPU total 14.7171 -> 13.5884 ms. Mean run FPS 49.7314 -> 52.4905 (+5.55%). This one machine/view is not a universal speedup promise. Periodic hydration stalls remain.
+Original config/gui.toml SHA256 unchanged. Native logs/captures and binaries retained under target/grass-workset (untracked).

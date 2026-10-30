@@ -5571,7 +5571,7 @@ impl Tracer {
                     pipeline.record_indexed_with_prepared_descriptors(
                         cmdbuf,
                         descriptors,
-                        stem_band_mesh::MAX_GRASS_BANDS * 36,
+                        stem_band_mesh::grass_index_count(batch.mesh_voxel_count()),
                         batch.instance_count(),
                         0,
                         0,

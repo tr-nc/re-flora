@@ -1,0 +1,2192 @@
+{
+  "options": {
+    "before": "target/grass-workset/before",
+    "after": "target/grass-workset/step1",
+    "out": "target/grass-workset/step1-perf",
+    "detailed": true,
+    "order": "before,after,after,before",
+    "seconds": "28",
+    "warmup": "8",
+    "flags": "",
+    "log-filter": "info"
+  },
+  "configHash": "2cead7ccdd097416d94cd79e264bf1f7937e6c1c6431762f5f4324ac31df565f",
+  "binaries": {
+    "before": "/home/terence/code/re-flora/target/grass-workset/before",
+    "after": "/home/terence/code/re-flora/target/grass-workset/step1"
+  },
+  "binaryHashes": {
+    "before": "5069e037e5aa5bd37c561538d7a40bedddc681cb9d5bee0b4e241a091e122350",
+    "after": "9b394040bc40b1b31a090f70a9b1020eeb88a3ef74753bf2b030dd743626ec87"
+  },
+  "runs": [
+    {
+      "name": "0-before",
+      "variant": "before",
+      "args": [
+        "--hidden",
+        "--mute",
+        "--perf",
+        "--camera-snapshot",
+        "player-default",
+        "--auto-exit",
+        "28"
+      ],
+      "screen": "screen=2880x1620 scene=576x324 ratio=25:1 pixel_stride=5 pixels=576x324 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native",
+      "readyLine": "[02:49:15.601 INFO re_flora::util::startup_progress] [STARTUP] status=ready stage=first_frame stage_ms=754.3 total_ms=36187.1",
+      "resolutions": [],
+      "maxDropped": 0,
+      "frameRate": 49.615544472154,
+      "cpu": {
+        "frame.cpu_total": {
+          "n": 956,
+          "mean": 20079.089958158995,
+          "median": 18482,
+          "p95": 35121,
+          "min": 17067,
+          "max": 38286
+        },
+        "frame.egui": {
+          "n": 956,
+          "mean": 393.44037656903765,
+          "median": 297,
+          "p95": 374,
+          "min": 249,
+          "max": 17223
+        },
+        "render.path": {
+          "n": 956,
+          "mean": 15306.317991631799,
+          "median": 16419,
+          "p95": 17966,
+          "min": 3394,
+          "max": 19565
+        },
+        "emissive_voxel.scan": {
+          "n": 956,
+          "mean": 7.801255230125523,
+          "median": 8,
+          "p95": 9,
+          "min": 6,
+          "max": 13
+        },
+        "render.acquire": {
+          "n": 956,
+          "mean": 11563.52719665272,
+          "median": 12815,
+          "p95": 14019,
+          "min": 27,
+          "max": 15452
+        },
+        "render.record": {
+          "n": 956,
+          "mean": 3317.007322175732,
+          "median": 3251,
+          "p95": 3724,
+          "min": 2866,
+          "max": 5716
+        },
+        "render.shadow_prepass_record": {
+          "n": 956,
+          "mean": 695.7887029288703,
+          "median": 644,
+          "p95": 806,
+          "min": 542,
+          "max": 2242
+        },
+        "render.trace_record": {
+          "n": 956,
+          "mean": 2087.7719665271966,
+          "median": 2069,
+          "p95": 2261,
+          "min": 1852,
+          "max": 3323
+        },
+        "render.submit_present": {
+          "n": 956,
+          "mean": 272.744769874477,
+          "median": 269,
+          "p95": 298,
+          "min": 241,
+          "max": 1716
+        },
+        "frame.tracked_cpu": {
+          "n": 956,
+          "mean": 547.9069037656903,
+          "median": 146,
+          "p95": 1523,
+          "min": 106,
+          "max": 2770
+        },
+        "frame.untracked_cpu": {
+          "n": 956,
+          "mean": 3831.444560669456,
+          "median": 1460,
+          "p95": 30290,
+          "min": 217,
+          "max": 33392
+        },
+        "app.scene_services": {
+          "n": 956,
+          "mean": 409.0271966527197,
+          "median": 1,
+          "p95": 1393,
+          "min": 0,
+          "max": 1488
+        },
+        "app.fruit_physics": {
+          "n": 956,
+          "mean": 7.614016736401673,
+          "median": 7,
+          "p95": 13,
+          "min": 5,
+          "max": 22
+        },
+        "app.tree_pose_submit": {
+          "n": 956,
+          "mean": 71.6663179916318,
+          "median": 67,
+          "p95": 86,
+          "min": 58,
+          "max": 1523
+        },
+        "app.canopy_audio": {
+          "n": 956,
+          "mean": 5.119246861924686,
+          "median": 5,
+          "p95": 7,
+          "min": 3,
+          "max": 31
+        },
+        "app.acoustic_quality": {
+          "n": 956,
+          "mean": 0.07322175732217573,
+          "median": 0,
+          "p95": 1,
+          "min": 0,
+          "max": 1
+        },
+        "app.terrain_hover": {
+          "n": 956,
+          "mean": 0.0899581589958159,
+          "median": 0,
+          "p95": 1,
+          "min": 0,
+          "max": 2
+        },
+        "app.ecology": {
+          "n": 956,
+          "mean": 2.1715481171548117,
+          "median": 2,
+          "p95": 5,
+          "min": 1,
+          "max": 24
+        }
+      },
+      "gpu": {
+        "frame.render": {
+          "n": 956,
+          "mean": 14712.468619246862,
+          "median": 14554,
+          "p95": 15601,
+          "min": 14070,
+          "max": 16123
+        },
+        "moisture_spread.pass": {
+          "n": 956,
+          "mean": 278.4529288702929,
+          "median": 279,
+          "p95": 282,
+          "min": 274,
+          "max": 305
+        },
+        "tree_surface_update.pass": {
+          "n": 956,
+          "mean": 54.05648535564853,
+          "median": 54,
+          "p95": 55,
+          "min": 53,
+          "max": 79
+        },
+        "tracer.shadow_prepass": {
+          "n": 956,
+          "mean": 2058.2562761506274,
+          "median": 2032,
+          "p95": 2271,
+          "min": 1611,
+          "max": 3150
+        },
+        "models.geometry.prepare": {
+          "n": 956,
+          "mean": 0.6213389121338913,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 3
+        },
+        "clear.targets": {
+          "n": 956,
+          "mean": 18.807531380753137,
+          "median": 19,
+          "p95": 20,
+          "min": 17,
+          "max": 36
+        },
+        "ddgi.probe_trace": {
+          "n": 956,
+          "mean": 626.8870292887029,
+          "median": 614,
+          "p95": 836,
+          "min": 266,
+          "max": 1348
+        },
+        "ddgi.irradiance_filter": {
+          "n": 956,
+          "mean": 20.614016736401673,
+          "median": 19,
+          "p95": 20,
+          "min": 9,
+          "max": 609
+        },
+        "ddgi.visibility_filter": {
+          "n": 956,
+          "mean": 71.2907949790795,
+          "median": 70,
+          "p95": 76,
+          "min": 23,
+          "max": 669
+        },
+        "ddgi.atlas_gutters": {
+          "n": 956,
+          "mean": 13.27928870292887,
+          "median": 13,
+          "p95": 14,
+          "min": 8,
+          "max": 32
+        },
+        "vegetation_response.pass": {
+          "n": 956,
+          "mean": 283.86715481171547,
+          "median": 280,
+          "p95": 286,
+          "min": 277,
+          "max": 878
+        },
+        "wind_volume.pass": {
+          "n": 956,
+          "mean": 2.4926778242677825,
+          "median": 1,
+          "p95": 6,
+          "min": 0,
+          "max": 10
+        },
+        "leaf_shadow_opacity.pass": {
+          "n": 956,
+          "mean": 20.46234309623431,
+          "median": 20,
+          "p95": 22,
+          "min": 19,
+          "max": 37
+        },
+        "leaf_shadow_temporal.pass": {
+          "n": 956,
+          "mean": 91.7960251046025,
+          "median": 92,
+          "p95": 93,
+          "min": 90,
+          "max": 117
+        },
+        "leaf_shadow_mask.pass": {
+          "n": 956,
+          "mean": 62.89853556485355,
+          "median": 62,
+          "p95": 66,
+          "min": 59,
+          "max": 110
+        },
+        "raster_tree_shadow.pass": {
+          "n": 956,
+          "mean": 5.057531380753138,
+          "median": 5,
+          "p95": 6,
+          "min": 4,
+          "max": 15
+        },
+        "world_model_shadow.pass": {
+          "n": 956,
+          "mean": 0.6286610878661087,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 4
+        },
+        "shadow_depth_copy.pass": {
+          "n": 956,
+          "mean": 17.89644351464435,
+          "median": 18,
+          "p95": 19,
+          "min": 17,
+          "max": 30
+        },
+        "tracer_shadow.pass": {
+          "n": 956,
+          "mean": 348.06589958159,
+          "median": 344,
+          "p95": 348,
+          "min": 338,
+          "max": 1016
+        },
+        "vsm_filtering.pass": {
+          "n": 956,
+          "mean": 352.61087866108784,
+          "median": 347,
+          "p95": 352,
+          "min": 339,
+          "max": 944
+        },
+        "moisture_dry.pass": {
+          "n": 956,
+          "mean": 5.2112970711297075,
+          "median": 1,
+          "p95": 11,
+          "min": 0,
+          "max": 12
+        },
+        "tracer.render": {
+          "n": 956,
+          "mean": 11792.72280334728,
+          "median": 11632,
+          "p95": 12637,
+          "min": 11527,
+          "max": 13138
+        },
+        "raster_tree_lighting.pass": {
+          "n": 956,
+          "mean": 76.04916317991632,
+          "median": 75,
+          "p95": 76,
+          "min": 74,
+          "max": 398
+        },
+        "tracer.pass": {
+          "n": 956,
+          "mean": 205.86506276150627,
+          "median": 206,
+          "p95": 208,
+          "min": 203,
+          "max": 221
+        },
+        "models.flowers.contacts": {
+          "n": 956,
+          "mean": 69.1663179916318,
+          "median": 69,
+          "p95": 70,
+          "min": 68,
+          "max": 97
+        },
+        "graphics.pass": {
+          "n": 956,
+          "mean": 11108.530334728033,
+          "median": 10953,
+          "p95": 11962,
+          "min": 10845,
+          "max": 12462
+        },
+        "graphics.flora_lighting_cache": {
+          "n": 956,
+          "mean": 3279.303347280335,
+          "median": 3227,
+          "p95": 3844,
+          "min": 3211,
+          "max": 4308
+        },
+        "graphics.leaf_lighting_cache": {
+          "n": 956,
+          "mean": 67.6234309623431,
+          "median": 67,
+          "p95": 67,
+          "min": 65,
+          "max": 390
+        },
+        "models.flowers.prepare": {
+          "n": 956,
+          "mean": 1617.2573221757323,
+          "median": 1580,
+          "p95": 1631,
+          "min": 1562,
+          "max": 2610
+        },
+        "models.apple_tree.prepare": {
+          "n": 956,
+          "mean": 3.2531380753138075,
+          "median": 3,
+          "p95": 4,
+          "min": 2,
+          "max": 28
+        },
+        "graphics.renderpass.begin": {
+          "n": 956,
+          "mean": 9.264644351464435,
+          "median": 9,
+          "p95": 10,
+          "min": 8,
+          "max": 35
+        },
+        "models.flowers.display": {
+          "n": 956,
+          "mean": 1245.887029288703,
+          "median": 1226,
+          "p95": 1239,
+          "min": 1095,
+          "max": 2272
+        },
+        "graphics.flora": {
+          "n": 956,
+          "mean": 4761.321129707113,
+          "median": 4711,
+          "p95": 5294,
+          "min": 4647,
+          "max": 5674
+        },
+        "graphics.leaves": {
+          "n": 956,
+          "mean": 35.19456066945607,
+          "median": 24,
+          "p95": 25,
+          "min": 2,
+          "max": 629
+        },
+        "graphics.apples": {
+          "n": 956,
+          "mean": 46.90271966527197,
+          "median": 45,
+          "p95": 67,
+          "min": 7,
+          "max": 73
+        },
+        "graphics.particles": {
+          "n": 956,
+          "mean": 0.6307531380753139,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 4
+        },
+        "graphics.renderpass.end": {
+          "n": 956,
+          "mean": 0.6359832635983264,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 3
+        },
+        "god_ray.pass": {
+          "n": 956,
+          "mean": 53.06276150627615,
+          "median": 49,
+          "p95": 50,
+          "min": 48,
+          "max": 644
+        },
+        "god_ray_temporal.pass": {
+          "n": 956,
+          "mean": 14.898535564853557,
+          "median": 15,
+          "p95": 15,
+          "min": 14,
+          "max": 47
+        },
+        "lens_flare_sun_visible.pass": {
+          "n": 956,
+          "mean": 3.325313807531381,
+          "median": 3,
+          "p95": 4,
+          "min": 3,
+          "max": 10
+        },
+        "lens_flare.pass": {
+          "n": 956,
+          "mean": 4.2322175732217575,
+          "median": 4,
+          "p95": 5,
+          "min": 4,
+          "max": 15
+        },
+        "lens_flare_temporal.pass": {
+          "n": 956,
+          "mean": 4.789748953974895,
+          "median": 5,
+          "p95": 5,
+          "min": 4,
+          "max": 29
+        },
+        "composition.pass": {
+          "n": 956,
+          "mean": 21.42887029288703,
+          "median": 22,
+          "p95": 22,
+          "min": 20,
+          "max": 57
+        },
+        "post_processing.pass": {
+          "n": 956,
+          "mean": 214.35774058577405,
+          "median": 213,
+          "p95": 214,
+          "min": 212,
+          "max": 799
+        },
+        "egui.render": {
+          "n": 956,
+          "mean": 508.88284518828453,
+          "median": 505,
+          "p95": 511,
+          "min": 473,
+          "max": 855
+        },
+        "ddgi.atlas_reduce": {
+          "n": 956,
+          "mean": 4.2322175732217575,
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 182
+        },
+        "models.particles.prepare": {
+          "n": 956,
+          "mean": 0.5753138075313807,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 1
+        }
+      }
+    },
+    {
+      "name": "1-after",
+      "variant": "after",
+      "args": [
+        "--hidden",
+        "--mute",
+        "--perf",
+        "--camera-snapshot",
+        "player-default",
+        "--auto-exit",
+        "28"
+      ],
+      "screen": "screen=2880x1620 scene=576x324 ratio=25:1 pixel_stride=5 pixels=576x324 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native",
+      "readyLine": "[02:50:19.619 INFO re_flora::util::startup_progress] [STARTUP] status=ready stage=first_frame stage_ms=777.6 total_ms=36524.6",
+      "resolutions": [],
+      "maxDropped": 0,
+      "frameRate": 52.38764776337162,
+      "cpu": {
+        "frame.cpu_total": {
+          "n": 1007,
+          "mean": 19024.736842105263,
+          "median": 17527,
+          "p95": 34202,
+          "min": 15575,
+          "max": 38044
+        },
+        "frame.egui": {
+          "n": 1007,
+          "mean": 398.71797418073487,
+          "median": 300,
+          "p95": 377,
+          "min": 251,
+          "max": 13999
+        },
+        "render.path": {
+          "n": 1007,
+          "mean": 14500.011916583913,
+          "median": 15384,
+          "p95": 16970,
+          "min": 3460,
+          "max": 18859
+        },
+        "emissive_voxel.scan": {
+          "n": 1007,
+          "mean": 8.152929493545184,
+          "median": 8,
+          "p95": 11,
+          "min": 6,
+          "max": 23
+        },
+        "render.acquire": {
+          "n": 1007,
+          "mean": 10581.928500496524,
+          "median": 11705,
+          "p95": 13034,
+          "min": 28,
+          "max": 14294
+        },
+        "render.record": {
+          "n": 1007,
+          "mean": 3466.3326713008937,
+          "median": 3337,
+          "p95": 4338,
+          "min": 2924,
+          "max": 7009
+        },
+        "render.shadow_prepass_record": {
+          "n": 1007,
+          "mean": 730.7060575968222,
+          "median": 666,
+          "p95": 1009,
+          "min": 536,
+          "max": 2612
+        },
+        "render.trace_record": {
+          "n": 1007,
+          "mean": 2176.0009930486594,
+          "median": 2141,
+          "p95": 2492,
+          "min": 1897,
+          "max": 4302
+        },
+        "render.submit_present": {
+          "n": 1007,
+          "mean": 292.23237338629593,
+          "median": 276,
+          "p95": 333,
+          "min": 241,
+          "max": 1817
+        },
+        "frame.tracked_cpu": {
+          "n": 1007,
+          "mean": 543.2025819265144,
+          "median": 144,
+          "p95": 1557,
+          "min": 105,
+          "max": 2654
+        },
+        "frame.untracked_cpu": {
+          "n": 1007,
+          "mean": 3582.7785501489575,
+          "median": 1474,
+          "p95": 28975,
+          "min": 210,
+          "max": 32851
+        },
+        "app.scene_services": {
+          "n": 1007,
+          "mean": 400.6246276067527,
+          "median": 0,
+          "p95": 1396,
+          "min": 0,
+          "max": 1905
+        },
+        "app.fruit_physics": {
+          "n": 1007,
+          "mean": 8.009930486593843,
+          "median": 7,
+          "p95": 13,
+          "min": 5,
+          "max": 324
+        },
+        "app.tree_pose_submit": {
+          "n": 1007,
+          "mean": 72.90665342601787,
+          "median": 67,
+          "p95": 93,
+          "min": 56,
+          "max": 1544
+        },
+        "app.canopy_audio": {
+          "n": 1007,
+          "mean": 5.1459781529294935,
+          "median": 5,
+          "p95": 7,
+          "min": 3,
+          "max": 19
+        },
+        "app.acoustic_quality": {
+          "n": 1007,
+          "mean": 0.08242303872889771,
+          "median": 0,
+          "p95": 1,
+          "min": 0,
+          "max": 1
+        },
+        "app.terrain_hover": {
+          "n": 1007,
+          "mean": 0.08738828202581926,
+          "median": 0,
+          "p95": 1,
+          "min": 0,
+          "max": 4
+        },
+        "app.ecology": {
+          "n": 1007,
+          "mean": 2.1161866931479643,
+          "median": 2,
+          "p95": 3,
+          "min": 1,
+          "max": 29
+        }
+      },
+      "gpu": {
+        "frame.render": {
+          "n": 1007,
+          "mean": 13585.33763654419,
+          "median": 13446,
+          "p95": 14513,
+          "min": 12983,
+          "max": 15075
+        },
+        "moisture_spread.pass": {
+          "n": 1007,
+          "mean": 278.571002979146,
+          "median": 279,
+          "p95": 282,
+          "min": 274,
+          "max": 304
+        },
+        "tree_surface_update.pass": {
+          "n": 1007,
+          "mean": 54.232373386295926,
+          "median": 54,
+          "p95": 57,
+          "min": 53,
+          "max": 88
+        },
+        "tracer.shadow_prepass": {
+          "n": 1007,
+          "mean": 2057.5531281032772,
+          "median": 2030,
+          "p95": 2275,
+          "min": 1620,
+          "max": 3203
+        },
+        "models.geometry.prepare": {
+          "n": 1007,
+          "mean": 0.6295928500496525,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 15
+        },
+        "clear.targets": {
+          "n": 1007,
+          "mean": 18.87785501489573,
+          "median": 19,
+          "p95": 20,
+          "min": 17,
+          "max": 42
+        },
+        "ddgi.probe_trace": {
+          "n": 1007,
+          "mean": 625.3813306852036,
+          "median": 615,
+          "p95": 833,
+          "min": 265,
+          "max": 1444
+        },
+        "ddgi.irradiance_filter": {
+          "n": 1007,
+          "mean": 19.719960278053623,
+          "median": 19,
+          "p95": 21,
+          "min": 9,
+          "max": 616
+        },
+        "ddgi.visibility_filter": {
+          "n": 1007,
+          "mean": 71.89374379344588,
+          "median": 70,
+          "p95": 76,
+          "min": 23,
+          "max": 666
+        },
+        "ddgi.atlas_gutters": {
+          "n": 1007,
+          "mean": 13.643495531281033,
+          "median": 13,
+          "p95": 14,
+          "min": 7,
+          "max": 340
+        },
+        "vegetation_response.pass": {
+          "n": 1007,
+          "mean": 282.8927507447865,
+          "median": 280,
+          "p95": 287,
+          "min": 277,
+          "max": 891
+        },
+        "wind_volume.pass": {
+          "n": 1007,
+          "mean": 2.3634558093346576,
+          "median": 1,
+          "p95": 6,
+          "min": 0,
+          "max": 10
+        },
+        "leaf_shadow_opacity.pass": {
+          "n": 1007,
+          "mean": 20.61072492552135,
+          "median": 20,
+          "p95": 22,
+          "min": 19,
+          "max": 46
+        },
+        "leaf_shadow_temporal.pass": {
+          "n": 1007,
+          "mean": 92.28699106256207,
+          "median": 92,
+          "p95": 93,
+          "min": 91,
+          "max": 116
+        },
+        "leaf_shadow_mask.pass": {
+          "n": 1007,
+          "mean": 63.32174776564052,
+          "median": 63,
+          "p95": 67,
+          "min": 59,
+          "max": 110
+        },
+        "raster_tree_shadow.pass": {
+          "n": 1007,
+          "mean": 4.934458788480636,
+          "median": 5,
+          "p95": 5,
+          "min": 4,
+          "max": 10
+        },
+        "world_model_shadow.pass": {
+          "n": 1007,
+          "mean": 0.6365441906653426,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 5
+        },
+        "shadow_depth_copy.pass": {
+          "n": 1007,
+          "mean": 18.019860973187686,
+          "median": 18,
+          "p95": 19,
+          "min": 17,
+          "max": 38
+        },
+        "tracer_shadow.pass": {
+          "n": 1007,
+          "mean": 347.9116186693148,
+          "median": 344,
+          "p95": 348,
+          "min": 336,
+          "max": 955
+        },
+        "vsm_filtering.pass": {
+          "n": 1007,
+          "mean": 353.5898709036743,
+          "median": 346,
+          "p95": 352,
+          "min": 340,
+          "max": 943
+        },
+        "moisture_dry.pass": {
+          "n": 1007,
+          "mean": 5.212512413108242,
+          "median": 1,
+          "p95": 11,
+          "min": 0,
+          "max": 27
+        },
+        "tracer.render": {
+          "n": 1007,
+          "mean": 10665.62760675273,
+          "median": 10529,
+          "p95": 11536,
+          "min": 10438,
+          "max": 12089
+        },
+        "raster_tree_lighting.pass": {
+          "n": 1007,
+          "mean": 76.29195630585899,
+          "median": 76,
+          "p95": 76,
+          "min": 74,
+          "max": 413
+        },
+        "tracer.pass": {
+          "n": 1007,
+          "mean": 205.96425024826218,
+          "median": 206,
+          "p95": 208,
+          "min": 202,
+          "max": 224
+        },
+        "models.flowers.contacts": {
+          "n": 1007,
+          "mean": 69.22244289970209,
+          "median": 69,
+          "p95": 70,
+          "min": 67,
+          "max": 94
+        },
+        "graphics.pass": {
+          "n": 1007,
+          "mean": 9977.100297914598,
+          "median": 9849,
+          "p95": 10854,
+          "min": 9761,
+          "max": 11411
+        },
+        "graphics.flora_lighting_cache": {
+          "n": 1007,
+          "mean": 3266.2135054617675,
+          "median": 3224,
+          "p95": 3589,
+          "min": 3211,
+          "max": 4333
+        },
+        "graphics.leaf_lighting_cache": {
+          "n": 1007,
+          "mean": 66.99106256206554,
+          "median": 66,
+          "p95": 67,
+          "min": 65,
+          "max": 678
+        },
+        "models.flowers.prepare": {
+          "n": 1007,
+          "mean": 1610.9165839126117,
+          "median": 1577,
+          "p95": 1624,
+          "min": 1562,
+          "max": 2589
+        },
+        "models.apple_tree.prepare": {
+          "n": 1007,
+          "mean": 3.3058589870903674,
+          "median": 3,
+          "p95": 4,
+          "min": 2,
+          "max": 19
+        },
+        "graphics.renderpass.begin": {
+          "n": 1007,
+          "mean": 9.43098311817279,
+          "median": 9,
+          "p95": 10,
+          "min": 8,
+          "max": 23
+        },
+        "models.flowers.display": {
+          "n": 1007,
+          "mean": 1250.3813306852035,
+          "median": 1229,
+          "p95": 1243,
+          "min": 1169,
+          "max": 2425
+        },
+        "graphics.flora": {
+          "n": 1007,
+          "mean": 3648.895729890765,
+          "median": 3610,
+          "p95": 3969,
+          "min": 3567,
+          "max": 4553
+        },
+        "graphics.leaves": {
+          "n": 1007,
+          "mean": 28.920556107249254,
+          "median": 24,
+          "p95": 26,
+          "min": 1,
+          "max": 632
+        },
+        "graphics.apples": {
+          "n": 1007,
+          "mean": 48.94736842105263,
+          "median": 47,
+          "p95": 68,
+          "min": 10,
+          "max": 75
+        },
+        "graphics.particles": {
+          "n": 1007,
+          "mean": 0.6206554121151936,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 6
+        },
+        "graphics.renderpass.end": {
+          "n": 1007,
+          "mean": 0.6196623634558094,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 3
+        },
+        "god_ray.pass": {
+          "n": 1007,
+          "mean": 54.994041708043696,
+          "median": 48,
+          "p95": 49,
+          "min": 47,
+          "max": 645
+        },
+        "god_ray_temporal.pass": {
+          "n": 1007,
+          "mean": 15.576961271102284,
+          "median": 15,
+          "p95": 15,
+          "min": 14,
+          "max": 618
+        },
+        "lens_flare_sun_visible.pass": {
+          "n": 1007,
+          "mean": 3.3286991062562064,
+          "median": 3,
+          "p95": 4,
+          "min": 3,
+          "max": 7
+        },
+        "lens_flare.pass": {
+          "n": 1007,
+          "mean": 4.290963257199603,
+          "median": 4,
+          "p95": 5,
+          "min": 4,
+          "max": 29
+        },
+        "lens_flare_temporal.pass": {
+          "n": 1007,
+          "mean": 4.671300893743793,
+          "median": 5,
+          "p95": 5,
+          "min": 4,
+          "max": 27
+        },
+        "composition.pass": {
+          "n": 1007,
+          "mean": 21.92452830188679,
+          "median": 22,
+          "p95": 22,
+          "min": 20,
+          "max": 44
+        },
+        "post_processing.pass": {
+          "n": 1007,
+          "mean": 215.58689175769612,
+          "median": 213,
+          "p95": 214,
+          "min": 212,
+          "max": 538
+        },
+        "egui.render": {
+          "n": 1007,
+          "mean": 508.9692154915591,
+          "median": 505,
+          "p95": 513,
+          "min": 489,
+          "max": 1086
+        },
+        "ddgi.atlas_reduce": {
+          "n": 1007,
+          "mean": 4.10824230387289,
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 154
+        },
+        "models.particles.prepare": {
+          "n": 1007,
+          "mean": 0.576961271102284,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 1
+        }
+      }
+    },
+    {
+      "name": "2-after",
+      "variant": "after",
+      "args": [
+        "--hidden",
+        "--mute",
+        "--perf",
+        "--camera-snapshot",
+        "player-default",
+        "--auto-exit",
+        "28"
+      ],
+      "screen": "screen=2880x1620 scene=576x324 ratio=25:1 pixel_stride=5 pixels=576x324 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native",
+      "readyLine": "[02:50:54.932 INFO re_flora::util::startup_progress] [STARTUP] status=ready stage=first_frame stage_ms=729.7 total_ms=7850.5",
+      "resolutions": [],
+      "maxDropped": 0,
+      "frameRate": 52.5933609958538,
+      "cpu": {
+        "frame.cpu_total": {
+          "n": 1015,
+          "mean": 18937.335960591132,
+          "median": 17424,
+          "p95": 34330,
+          "min": 16788,
+          "max": 38257
+        },
+        "frame.egui": {
+          "n": 1015,
+          "mean": 373.584236453202,
+          "median": 287,
+          "p95": 359,
+          "min": 251,
+          "max": 13966
+        },
+        "render.path": {
+          "n": 1015,
+          "mean": 14498.103448275862,
+          "median": 15391,
+          "p95": 16989,
+          "min": 3493,
+          "max": 19603
+        },
+        "emissive_voxel.scan": {
+          "n": 1015,
+          "mean": 7.603940886699507,
+          "median": 7,
+          "p95": 9,
+          "min": 6,
+          "max": 14
+        },
+        "render.acquire": {
+          "n": 1015,
+          "mean": 10720.31133004926,
+          "median": 11725,
+          "p95": 13081,
+          "min": 26,
+          "max": 14702
+        },
+        "render.record": {
+          "n": 1015,
+          "mean": 3341.958620689655,
+          "median": 3253,
+          "p95": 3804,
+          "min": 2927,
+          "max": 6220
+        },
+        "render.shadow_prepass_record": {
+          "n": 1015,
+          "mean": 686.3211822660098,
+          "median": 633,
+          "p95": 811,
+          "min": 537,
+          "max": 2375
+        },
+        "render.trace_record": {
+          "n": 1015,
+          "mean": 2118.3389162561575,
+          "median": 2095,
+          "p95": 2329,
+          "min": 1896,
+          "max": 4208
+        },
+        "render.submit_present": {
+          "n": 1015,
+          "mean": 273.0118226600985,
+          "median": 268,
+          "p95": 306,
+          "min": 241,
+          "max": 527
+        },
+        "frame.tracked_cpu": {
+          "n": 1015,
+          "mean": 493.2433497536946,
+          "median": 142,
+          "p95": 1501,
+          "min": 108,
+          "max": 1740
+        },
+        "frame.untracked_cpu": {
+          "n": 1015,
+          "mean": 3572.3960591133005,
+          "median": 1478,
+          "p95": 29095,
+          "min": 216,
+          "max": 32457
+        },
+        "app.scene_services": {
+          "n": 1015,
+          "mean": 358.2295566502463,
+          "median": 1,
+          "p95": 1377,
+          "min": 0,
+          "max": 1623
+        },
+        "app.fruit_physics": {
+          "n": 1015,
+          "mean": 7.497536945812808,
+          "median": 7,
+          "p95": 12,
+          "min": 5,
+          "max": 32
+        },
+        "app.tree_pose_submit": {
+          "n": 1015,
+          "mean": 68.1192118226601,
+          "median": 65,
+          "p95": 86,
+          "min": 57,
+          "max": 129
+        },
+        "app.canopy_audio": {
+          "n": 1015,
+          "mean": 4.861083743842364,
+          "median": 5,
+          "p95": 7,
+          "min": 3,
+          "max": 29
+        },
+        "app.acoustic_quality": {
+          "n": 1015,
+          "mean": 0.06798029556650247,
+          "median": 0,
+          "p95": 1,
+          "min": 0,
+          "max": 1
+        },
+        "app.terrain_hover": {
+          "n": 1015,
+          "mean": 0.08866995073891626,
+          "median": 0,
+          "p95": 1,
+          "min": 0,
+          "max": 5
+        },
+        "app.ecology": {
+          "n": 1015,
+          "mean": 1.89064039408867,
+          "median": 1,
+          "p95": 3,
+          "min": 1,
+          "max": 94
+        }
+      },
+      "gpu": {
+        "frame.render": {
+          "n": 1015,
+          "mean": 13591.473891625616,
+          "median": 13441,
+          "p95": 14522,
+          "min": 12989,
+          "max": 15057
+        },
+        "moisture_spread.pass": {
+          "n": 1015,
+          "mean": 278.86206896551727,
+          "median": 279,
+          "p95": 282,
+          "min": 274,
+          "max": 306
+        },
+        "tree_surface_update.pass": {
+          "n": 1015,
+          "mean": 54.39014778325123,
+          "median": 54,
+          "p95": 58,
+          "min": 53,
+          "max": 84
+        },
+        "tracer.shadow_prepass": {
+          "n": 1015,
+          "mean": 2063.408866995074,
+          "median": 2032,
+          "p95": 2291,
+          "min": 1615,
+          "max": 3268
+        },
+        "models.geometry.prepare": {
+          "n": 1015,
+          "mean": 0.6137931034482759,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 6
+        },
+        "clear.targets": {
+          "n": 1015,
+          "mean": 18.76551724137931,
+          "median": 19,
+          "p95": 20,
+          "min": 17,
+          "max": 43
+        },
+        "ddgi.probe_trace": {
+          "n": 1015,
+          "mean": 628.9891625615763,
+          "median": 616,
+          "p95": 838,
+          "min": 265,
+          "max": 1511
+        },
+        "ddgi.irradiance_filter": {
+          "n": 1015,
+          "mean": 20.901477832512317,
+          "median": 19,
+          "p95": 20,
+          "min": 9,
+          "max": 620
+        },
+        "ddgi.visibility_filter": {
+          "n": 1015,
+          "mean": 72.43743842364532,
+          "median": 70,
+          "p95": 77,
+          "min": 23,
+          "max": 683
+        },
+        "ddgi.atlas_gutters": {
+          "n": 1015,
+          "mean": 13.91527093596059,
+          "median": 13,
+          "p95": 14,
+          "min": 7,
+          "max": 617
+        },
+        "vegetation_response.pass": {
+          "n": 1015,
+          "mean": 282.28275862068966,
+          "median": 279,
+          "p95": 287,
+          "min": 277,
+          "max": 877
+        },
+        "wind_volume.pass": {
+          "n": 1015,
+          "mean": 2.3950738916256156,
+          "median": 1,
+          "p95": 6,
+          "min": 0,
+          "max": 28
+        },
+        "leaf_shadow_opacity.pass": {
+          "n": 1015,
+          "mean": 21.192118226600986,
+          "median": 22,
+          "p95": 22,
+          "min": 19,
+          "max": 37
+        },
+        "leaf_shadow_temporal.pass": {
+          "n": 1015,
+          "mean": 92.23546798029557,
+          "median": 92,
+          "p95": 93,
+          "min": 91,
+          "max": 117
+        },
+        "leaf_shadow_mask.pass": {
+          "n": 1015,
+          "mean": 63.24630541871921,
+          "median": 63,
+          "p95": 67,
+          "min": 59,
+          "max": 111
+        },
+        "raster_tree_shadow.pass": {
+          "n": 1015,
+          "mean": 4.977339901477833,
+          "median": 5,
+          "p95": 5,
+          "min": 4,
+          "max": 18
+        },
+        "world_model_shadow.pass": {
+          "n": 1015,
+          "mean": 0.6354679802955665,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 13
+        },
+        "shadow_depth_copy.pass": {
+          "n": 1015,
+          "mean": 18.103448275862068,
+          "median": 18,
+          "p95": 19,
+          "min": 17,
+          "max": 53
+        },
+        "tracer_shadow.pass": {
+          "n": 1015,
+          "mean": 346.1546798029557,
+          "median": 344,
+          "p95": 348,
+          "min": 337,
+          "max": 1057
+        },
+        "vsm_filtering.pass": {
+          "n": 1015,
+          "mean": 355.8738916256158,
+          "median": 346,
+          "p95": 356,
+          "min": 339,
+          "max": 949
+        },
+        "moisture_dry.pass": {
+          "n": 1015,
+          "mean": 5.227586206896552,
+          "median": 8,
+          "p95": 11,
+          "min": 0,
+          "max": 35
+        },
+        "tracer.render": {
+          "n": 1015,
+          "mean": 10665.055172413793,
+          "median": 10527,
+          "p95": 11536,
+          "min": 10440,
+          "max": 12079
+        },
+        "raster_tree_lighting.pass": {
+          "n": 1015,
+          "mean": 76.50738916256158,
+          "median": 75,
+          "p95": 76,
+          "min": 74,
+          "max": 398
+        },
+        "tracer.pass": {
+          "n": 1015,
+          "mean": 205.9832512315271,
+          "median": 206,
+          "p95": 208,
+          "min": 203,
+          "max": 229
+        },
+        "models.flowers.contacts": {
+          "n": 1015,
+          "mean": 69.33201970443349,
+          "median": 69,
+          "p95": 70,
+          "min": 68,
+          "max": 93
+        },
+        "graphics.pass": {
+          "n": 1015,
+          "mean": 9974.078817733991,
+          "median": 9847,
+          "p95": 10853,
+          "min": 9764,
+          "max": 11401
+        },
+        "graphics.flora_lighting_cache": {
+          "n": 1015,
+          "mean": 3254.865024630542,
+          "median": 3221,
+          "p95": 3252,
+          "min": 3208,
+          "max": 4272
+        },
+        "graphics.leaf_lighting_cache": {
+          "n": 1015,
+          "mean": 66.46995073891625,
+          "median": 66,
+          "p95": 67,
+          "min": 65,
+          "max": 75
+        },
+        "models.flowers.prepare": {
+          "n": 1015,
+          "mean": 1610.0857142857142,
+          "median": 1580,
+          "p95": 1622,
+          "min": 1563,
+          "max": 2598
+        },
+        "models.apple_tree.prepare": {
+          "n": 1015,
+          "mean": 3.1724137931034484,
+          "median": 3,
+          "p95": 4,
+          "min": 2,
+          "max": 25
+        },
+        "graphics.renderpass.begin": {
+          "n": 1015,
+          "mean": 10.176354679802955,
+          "median": 10,
+          "p95": 11,
+          "min": 9,
+          "max": 36
+        },
+        "models.flowers.display": {
+          "n": 1015,
+          "mean": 1261.3123152709359,
+          "median": 1229,
+          "p95": 1249,
+          "min": 1107,
+          "max": 2414
+        },
+        "graphics.flora": {
+          "n": 1015,
+          "mean": 3653.2532019704436,
+          "median": 3612,
+          "p95": 3985,
+          "min": 3554,
+          "max": 4558
+        },
+        "graphics.leaves": {
+          "n": 1015,
+          "mean": 26.400985221674876,
+          "median": 24,
+          "p95": 25,
+          "min": 5,
+          "max": 628
+        },
+        "graphics.apples": {
+          "n": 1015,
+          "mean": 46.69753694581281,
+          "median": 44,
+          "p95": 66,
+          "min": 12,
+          "max": 80
+        },
+        "graphics.particles": {
+          "n": 1015,
+          "mean": 0.6334975369458128,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 3
+        },
+        "graphics.renderpass.end": {
+          "n": 1015,
+          "mean": 0.6009852216748769,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 3
+        },
+        "god_ray.pass": {
+          "n": 1015,
+          "mean": 55.70541871921182,
+          "median": 49,
+          "p95": 50,
+          "min": 48,
+          "max": 638
+        },
+        "god_ray_temporal.pass": {
+          "n": 1015,
+          "mean": 15.606896551724137,
+          "median": 15,
+          "p95": 15,
+          "min": 14,
+          "max": 605
+        },
+        "lens_flare_sun_visible.pass": {
+          "n": 1015,
+          "mean": 3.382266009852217,
+          "median": 3,
+          "p95": 4,
+          "min": 3,
+          "max": 28
+        },
+        "lens_flare.pass": {
+          "n": 1015,
+          "mean": 4.285714285714286,
+          "median": 4,
+          "p95": 5,
+          "min": 4,
+          "max": 29
+        },
+        "lens_flare_temporal.pass": {
+          "n": 1015,
+          "mean": 5.8847290640394085,
+          "median": 5,
+          "p95": 5,
+          "min": 4,
+          "max": 599
+        },
+        "composition.pass": {
+          "n": 1015,
+          "mean": 22.523152709359607,
+          "median": 22,
+          "p95": 22,
+          "min": 20,
+          "max": 607
+        },
+        "post_processing.pass": {
+          "n": 1015,
+          "mean": 215.14778325123152,
+          "median": 213,
+          "p95": 214,
+          "min": 212,
+          "max": 817
+        },
+        "egui.render": {
+          "n": 1015,
+          "mean": 509.35960591133005,
+          "median": 505,
+          "p95": 515,
+          "min": 492,
+          "max": 867
+        },
+        "ddgi.atlas_reduce": {
+          "n": 1015,
+          "mean": 4.101477832512315,
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 180
+        },
+        "models.particles.prepare": {
+          "n": 1015,
+          "mean": 0.574384236453202,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 3
+        }
+      }
+    },
+    {
+      "name": "3-before",
+      "variant": "before",
+      "args": [
+        "--hidden",
+        "--mute",
+        "--perf",
+        "--camera-snapshot",
+        "player-default",
+        "--auto-exit",
+        "28"
+      ],
+      "screen": "screen=2880x1620 scene=576x324 ratio=25:1 pixel_stride=5 pixels=576x324 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native",
+      "readyLine": "[02:51:29.881 INFO re_flora::util::startup_progress] [STARTUP] status=ready stage=first_frame stage_ms=674.8 total_ms=7433.2",
+      "resolutions": [],
+      "maxDropped": 0,
+      "frameRate": 49.847300584912986,
+      "cpu": {
+        "frame.cpu_total": {
+          "n": 964,
+          "mean": 19984.908713692945,
+          "median": 18421,
+          "p95": 34852,
+          "min": 16820,
+          "max": 38011
+        },
+        "frame.egui": {
+          "n": 964,
+          "mean": 378.17116182572613,
+          "median": 281,
+          "p95": 360,
+          "min": 244,
+          "max": 15665
+        },
+        "render.path": {
+          "n": 964,
+          "mean": 15291.703319502074,
+          "median": 16365,
+          "p95": 18011,
+          "min": 3477,
+          "max": 20727
+        },
+        "emissive_voxel.scan": {
+          "n": 964,
+          "mean": 7.626556016597511,
+          "median": 7,
+          "p95": 9,
+          "min": 6,
+          "max": 33
+        },
+        "render.acquire": {
+          "n": 964,
+          "mean": 11607.728215767635,
+          "median": 12806,
+          "p95": 14142,
+          "min": 28,
+          "max": 16638
+        },
+        "render.record": {
+          "n": 964,
+          "mean": 3266.014522821577,
+          "median": 3182,
+          "p95": 3653,
+          "min": 2888,
+          "max": 5522
+        },
+        "render.shadow_prepass_record": {
+          "n": 964,
+          "mean": 671.8163900414938,
+          "median": 619,
+          "p95": 780,
+          "min": 536,
+          "max": 2064
+        },
+        "render.trace_record": {
+          "n": 964,
+          "mean": 2070.02489626556,
+          "median": 2049,
+          "p95": 2264,
+          "min": 1870,
+          "max": 3284
+        },
+        "render.submit_present": {
+          "n": 964,
+          "mean": 270.37344398340247,
+          "median": 263,
+          "p95": 301,
+          "min": 241,
+          "max": 1723
+        },
+        "frame.tracked_cpu": {
+          "n": 964,
+          "mean": 541.7448132780083,
+          "median": 146,
+          "p95": 1506,
+          "min": 107,
+          "max": 2675
+        },
+        "frame.untracked_cpu": {
+          "n": 964,
+          "mean": 3773.298755186722,
+          "median": 1453,
+          "p95": 29805,
+          "min": 215,
+          "max": 32790
+        },
+        "app.scene_services": {
+          "n": 964,
+          "mean": 407.1369294605809,
+          "median": 0,
+          "p95": 1388,
+          "min": 0,
+          "max": 1605
+        },
+        "app.fruit_physics": {
+          "n": 964,
+          "mean": 7.326763485477178,
+          "median": 6,
+          "p95": 12,
+          "min": 5,
+          "max": 116
+        },
+        "app.tree_pose_submit": {
+          "n": 964,
+          "mean": 67.68153526970954,
+          "median": 64,
+          "p95": 85,
+          "min": 54,
+          "max": 1494
+        },
+        "app.canopy_audio": {
+          "n": 964,
+          "mean": 4.723029045643154,
+          "median": 4,
+          "p95": 7,
+          "min": 3,
+          "max": 23
+        },
+        "app.acoustic_quality": {
+          "n": 964,
+          "mean": 0.07780082987551867,
+          "median": 0,
+          "p95": 1,
+          "min": 0,
+          "max": 1
+        },
+        "app.terrain_hover": {
+          "n": 964,
+          "mean": 0.08298755186721991,
+          "median": 0,
+          "p95": 1,
+          "min": 0,
+          "max": 1
+        },
+        "app.ecology": {
+          "n": 964,
+          "mean": 1.8526970954356847,
+          "median": 1,
+          "p95": 5,
+          "min": 1,
+          "max": 20
+        }
+      },
+      "gpu": {
+        "frame.render": {
+          "n": 964,
+          "mean": 14721.698132780082,
+          "median": 14569,
+          "p95": 15671,
+          "min": 14022,
+          "max": 16195
+        },
+        "moisture_spread.pass": {
+          "n": 964,
+          "mean": 278.99377593361,
+          "median": 279,
+          "p95": 282,
+          "min": 274,
+          "max": 308
+        },
+        "tree_surface_update.pass": {
+          "n": 964,
+          "mean": 54.34128630705394,
+          "median": 54,
+          "p95": 57,
+          "min": 53,
+          "max": 78
+        },
+        "tracer.shadow_prepass": {
+          "n": 964,
+          "mean": 2059.2935684647305,
+          "median": 2035,
+          "p95": 2272,
+          "min": 1611,
+          "max": 3175
+        },
+        "models.geometry.prepare": {
+          "n": 964,
+          "mean": 0.6161825726141079,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 5
+        },
+        "clear.targets": {
+          "n": 964,
+          "mean": 18.925311203319502,
+          "median": 19,
+          "p95": 22,
+          "min": 17,
+          "max": 32
+        },
+        "ddgi.probe_trace": {
+          "n": 964,
+          "mean": 628.4149377593361,
+          "median": 617,
+          "p95": 838,
+          "min": 266,
+          "max": 1414
+        },
+        "ddgi.irradiance_filter": {
+          "n": 964,
+          "mean": 19.17323651452282,
+          "median": 19,
+          "p95": 22,
+          "min": 9,
+          "max": 36
+        },
+        "ddgi.visibility_filter": {
+          "n": 964,
+          "mean": 70.81327800829875,
+          "median": 70,
+          "p95": 77,
+          "min": 23,
+          "max": 665
+        },
+        "ddgi.atlas_gutters": {
+          "n": 964,
+          "mean": 13.300829875518673,
+          "median": 13,
+          "p95": 14,
+          "min": 8,
+          "max": 32
+        },
+        "vegetation_response.pass": {
+          "n": 964,
+          "mean": 281.3869294605809,
+          "median": 279,
+          "p95": 287,
+          "min": 277,
+          "max": 611
+        },
+        "wind_volume.pass": {
+          "n": 964,
+          "mean": 2.5020746887966805,
+          "median": 1,
+          "p95": 6,
+          "min": 0,
+          "max": 29
+        },
+        "leaf_shadow_opacity.pass": {
+          "n": 964,
+          "mean": 20.945020746887966,
+          "median": 20,
+          "p95": 22,
+          "min": 19,
+          "max": 46
+        },
+        "leaf_shadow_temporal.pass": {
+          "n": 964,
+          "mean": 92.24688796680498,
+          "median": 92,
+          "p95": 93,
+          "min": 91,
+          "max": 116
+        },
+        "leaf_shadow_mask.pass": {
+          "n": 964,
+          "mean": 63.191908713692946,
+          "median": 63,
+          "p95": 67,
+          "min": 59,
+          "max": 114
+        },
+        "raster_tree_shadow.pass": {
+          "n": 964,
+          "mean": 4.991701244813278,
+          "median": 5,
+          "p95": 5,
+          "min": 4,
+          "max": 26
+        },
+        "world_model_shadow.pass": {
+          "n": 964,
+          "mean": 0.6172199170124482,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 3
+        },
+        "shadow_depth_copy.pass": {
+          "n": 964,
+          "mean": 17.993775933609957,
+          "median": 18,
+          "p95": 19,
+          "min": 17,
+          "max": 43
+        },
+        "tracer_shadow.pass": {
+          "n": 964,
+          "mean": 346.40145228215766,
+          "median": 345,
+          "p95": 349,
+          "min": 337,
+          "max": 981
+        },
+        "vsm_filtering.pass": {
+          "n": 964,
+          "mean": 356.7136929460581,
+          "median": 345,
+          "p95": 365,
+          "min": 340,
+          "max": 944
+        },
+        "moisture_dry.pass": {
+          "n": 964,
+          "mean": 5.186721991701245,
+          "median": 1,
+          "p95": 11,
+          "min": 0,
+          "max": 33
+        },
+        "tracer.render": {
+          "n": 964,
+          "mean": 11799.10580912863,
+          "median": 11651,
+          "p95": 12716,
+          "min": 11516,
+          "max": 13124
+        },
+        "raster_tree_lighting.pass": {
+          "n": 964,
+          "mean": 75.66286307053942,
+          "median": 76,
+          "p95": 76,
+          "min": 74,
+          "max": 99
+        },
+        "tracer.pass": {
+          "n": 964,
+          "mean": 206.3713692946058,
+          "median": 206,
+          "p95": 208,
+          "min": 203,
+          "max": 229
+        },
+        "models.flowers.contacts": {
+          "n": 964,
+          "mean": 69.28319502074689,
+          "median": 69,
+          "p95": 70,
+          "min": 67,
+          "max": 94
+        },
+        "graphics.pass": {
+          "n": 964,
+          "mean": 11111.495850622407,
+          "median": 10967,
+          "p95": 12031,
+          "min": 10841,
+          "max": 12444
+        },
+        "graphics.flora_lighting_cache": {
+          "n": 964,
+          "mean": 3274.3309128630704,
+          "median": 3230,
+          "p95": 3599,
+          "min": 3208,
+          "max": 4322
+        },
+        "graphics.leaf_lighting_cache": {
+          "n": 964,
+          "mean": 68.26141078838174,
+          "median": 67,
+          "p95": 67,
+          "min": 65,
+          "max": 659
+        },
+        "models.flowers.prepare": {
+          "n": 964,
+          "mean": 1617.5923236514523,
+          "median": 1579,
+          "p95": 1638,
+          "min": 1562,
+          "max": 2598
+        },
+        "models.apple_tree.prepare": {
+          "n": 964,
+          "mean": 3.254149377593361,
+          "median": 3,
+          "p95": 4,
+          "min": 2,
+          "max": 16
+        },
+        "graphics.renderpass.begin": {
+          "n": 964,
+          "mean": 9.66804979253112,
+          "median": 10,
+          "p95": 10,
+          "min": 9,
+          "max": 30
+        },
+        "models.flowers.display": {
+          "n": 964,
+          "mean": 1260.951244813278,
+          "median": 1231,
+          "p95": 1250,
+          "min": 1219,
+          "max": 2369
+        },
+        "graphics.flora": {
+          "n": 964,
+          "mean": 4756.426348547718,
+          "median": 4718,
+          "p95": 5110,
+          "min": 4646,
+          "max": 5704
+        },
+        "graphics.leaves": {
+          "n": 964,
+          "mean": 31.37344398340249,
+          "median": 23,
+          "p95": 25,
+          "min": 0,
+          "max": 630
+        },
+        "graphics.apples": {
+          "n": 964,
+          "mean": 47.62240663900415,
+          "median": 45,
+          "p95": 66,
+          "min": 10,
+          "max": 625
+        },
+        "graphics.particles": {
+          "n": 964,
+          "mean": 0.6089211618257261,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 8
+        },
+        "graphics.renderpass.end": {
+          "n": 964,
+          "mean": 0.6265560165975104,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 3
+        },
+        "god_ray.pass": {
+          "n": 964,
+          "mean": 51.65145228215768,
+          "median": 49,
+          "p95": 49,
+          "min": 47,
+          "max": 658
+        },
+        "god_ray_temporal.pass": {
+          "n": 964,
+          "mean": 16.36721991701245,
+          "median": 15,
+          "p95": 16,
+          "min": 14,
+          "max": 605
+        },
+        "lens_flare_sun_visible.pass": {
+          "n": 964,
+          "mean": 3.3257261410788383,
+          "median": 3,
+          "p95": 4,
+          "min": 3,
+          "max": 6
+        },
+        "lens_flare.pass": {
+          "n": 964,
+          "mean": 4.266597510373444,
+          "median": 4,
+          "p95": 5,
+          "min": 4,
+          "max": 15
+        },
+        "lens_flare_temporal.pass": {
+          "n": 964,
+          "mean": 4.754149377593361,
+          "median": 5,
+          "p95": 5,
+          "min": 4,
+          "max": 28
+        },
+        "composition.pass": {
+          "n": 964,
+          "mean": 21.926348547717843,
+          "median": 22,
+          "p95": 23,
+          "min": 20,
+          "max": 37
+        },
+        "post_processing.pass": {
+          "n": 964,
+          "mean": 216.8091286307054,
+          "median": 214,
+          "p95": 215,
+          "min": 212,
+          "max": 805
+        },
+        "egui.render": {
+          "n": 964,
+          "mean": 509.82053941908714,
+          "median": 505,
+          "p95": 516,
+          "min": 468,
+          "max": 854
+        },
+        "ddgi.atlas_reduce": {
+          "n": 964,
+          "mean": 4.1379668049792535,
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 155
+        },
+        "models.particles.prepare": {
+          "n": 964,
+          "mean": 0.5746887966804979,
+          "median": 1,
+          "p95": 1,
+          "min": 0,
+          "max": 3
+        }
+      }
+    }
+  ]
+}
