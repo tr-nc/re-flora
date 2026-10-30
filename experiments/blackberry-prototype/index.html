@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#f5f3e9"><link rel="icon" href="data:,">
+<title>野生黑莓 · re-flora 植物研究室</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{"imports":{"three":"../butterfly-method-comparison/vendor/three-0.183.0/build/three.module.js","three/addons/":"../butterfly-method-comparison/vendor/three-0.183.0/examples/jsm/"}}</script>
+</head>
+<body>
+<header><a class="wordmark" href="#">re-flora<span> / 植物研究室</span></a><span class="edition">FIELD STUDY — 01</span><a href="#research">调研笔记 ↗</a></header>
+<main>
+<section class="intro"><div><div class="eyebrow">THE UNTAMED GARDEN / 未经修剪的花园</div><h1>让花园，长出一点野性。</h1><p>从一丛黑莓开始，补上草花与树木之间的层次。</p></div><div class="specimen"><span class="tag">HTML 形态原型 · 未接入游戏</span><strong>野生黑莓</strong><i>Rubus fruticosus agg.</i></div></section>
+<section class="lab" aria-label="交互式黑莓形态原型">
+<div class="viewport" id="viewport">
+  <div class="scene-top"><span class="live-dot"></span><span id="scene-label">果期 · 同丛保留无果新枝</span><span class="seed">SEED <output id="seed-value">27</output></span></div>
+  <canvas id="scene" aria-label="可旋转的三维黑莓灌木；拖动旋转、滚轮缩放，也可使用下方视角按钮"></canvas>
+  <div class="error" id="error" hidden></div>
+  <div class="scene-bottom"><span id="render-label">原创低模 / 实时 3D</span><span>拖动旋转 · 滚轮缩放</span></div>
+  <div class="views" role="group" aria-label="观察视角"><button data-view="garden" aria-pressed="true">花园视角</button><button data-view="side" aria-pressed="false">侧面</button><button data-view="top" aria-pressed="false">俯视</button><button data-view="detail" aria-pressed="false">枝叶近看</button></div>
+</div>
+<aside>
+  <div class="panel-title"><h2>一丛，而不是一棵。</h2><span>01 / 形态</span></div>
+  <fieldset><legend>观察阶段</legend><div class="segments" id="stages"><button data-stage="leaf" aria-pressed="false">枝叶</button><button data-stage="flower" aria-pressed="false">花期</button><button data-stage="fruit" aria-pressed="true">果期</button></div></fieldset>
+  <div class="slider"><label for="canes">基生枝数 <output id="canes-value">11</output></label><input id="canes" type="range" min="5" max="17" value="11" step="1"></div>
+  <div class="slider"><label for="spread">向外舒展 <output id="spread-value">1.00×</output></label><input id="spread" type="range" min="0.65" max="1.4" value="1" step="0.01"></div>
+  <div class="slider"><label for="density">叶簇密度 <output id="density-value">78%</output></label><input id="density" type="range" min="0.2" max="1" value="0.78" step="0.01"></div>
+  <div class="checks"><label><input id="skeleton" type="checkbox">只看枝条骨架</label><label><input id="wind" type="checkbox" checked>微风</label><label><input id="scale" type="checkbox" checked>人形尺标 · 1.7 m</label><label><input id="pixel" type="checkbox">低分辨率预览</label></div>
+  <div class="actions"><button id="reseed">换一丛 ↗</button><button id="reset">重置</button></div>
+  <p class="panel-note">仅网页会话有效，不修改游戏设置。低分辨率模式是栅格预览，不是游戏像素管线。</p>
+</aside>
+</section>
+<div class="under-lab"><span><b>观察重点</b> 长枝的弧线 · 叶簇间的空隙 · 不对称的边缘</span><span id="model-stats" aria-live="polite"></span></div>
+<section class="research" id="research">
+  <div class="section-heading"><div class="eyebrow">READ THE PLANT / 先读懂植物</div><h2>野生感，来自结构，不是噪点。</h2><p>黑莓是蔓生灌木。它的多年生根冠，持续长出新一代枝条。<a href="https://extension.oregonstate.edu/catalog/ec-1303-growing-blackberries-your-home-garden" target="_blank" rel="noreferrer">[2]</a></p></div>
+  <div class="findings">
+    <article><div class="drawing" aria-hidden="true"><svg viewBox="0 0 320 130"><path d="M143 120 C138 36 110 6 40 88 M146 120 C155 4 249 5 284 96 M149 120 C166 53 192 48 212 40 M146 120 C143 52 126 27 119 17" fill="none" stroke="#7c5b4f" stroke-width="3"/><path d="M73 55 Q60 27 45 34 Q48 53 73 55 M246 48 Q269 23 282 31 Q273 49 246 48 M188 54 Q166 34 174 25 Q195 29 188 54" fill="#73865c"/><path d="M25 122H296" stroke="#c6c7b4"/></svg></div><span class="number">01 / CANES</span><h3>先向上，再向外。</h3><p>多根木质长枝拱垂、搭靠，枝尖甚至可以触地生根。不是缩小的树，也不是均匀的绿球。<a href="https://www.rhs.org.uk/weeds/brambles-and-other-woody-weeds" target="_blank" rel="noreferrer">[1]</a></p></article>
+    <article><div class="drawing" aria-hidden="true"><svg viewBox="0 0 320 130"><path d="M158 120L158 62 M158 87L112 70 M158 87L204 70" stroke="#7c5b4f" stroke-width="2" fill="none"/><path d="M158 73 L137 51 138 35 145 32 143 23 158 6 171 22 169 31 179 38 175 55Z M131 77 L104 89 89 77 91 70 80 64 76 44 98 44 105 51 112 48 132 61Z M185 77 L213 89 228 77 226 70 237 64 241 44 219 44 212 51 205 48 185 61Z" fill="#718353"/><path d="M158 72V13 M130 76L84 49 M186 76L233 49" stroke="#b7bf85" stroke-width="1.4"/></svg></div><span class="number">02 / COMPOUND LEAVES</span><h3>有节奏，不铺满。</h3><p>本轮采用三小叶复叶，保留尖端、粗锯齿和中折面。叶柄把叶簇接到枝条，而不是向空间撒叶片。<a href="https://www.rhs.org.uk/plants/16132/rubus-fruticosus-agg/details" target="_blank" rel="noreferrer">[3]</a></p></article>
+    <article><div class="drawing" aria-hidden="true"><svg viewBox="0 0 320 130"><path d="M114 12L148 40 185 21 M148 40L144 61 M185 21L211 47" fill="none" stroke="#73865c" stroke-width="3"/><g fill="#423140" stroke="#695066" stroke-width="1.5"><circle cx="135" cy="68" r="9"/><circle cx="151" cy="67" r="9"/><circle cx="128" cy="82" r="9"/><circle cx="144" cy="82" r="9"/><circle cx="159" cy="82" r="9"/><circle cx="135" cy="96" r="9"/><circle cx="150" cy="96" r="9"/><circle cx="143" cy="108" r="8"/></g><g fill="#ad6556" stroke="#c4876c"><circle cx="204" cy="55" r="7"/><circle cx="216" cy="56" r="7"/><circle cx="200" cy="67" r="7"/><circle cx="212" cy="68" r="7"/><circle cx="223" cy="68" r="7"/><circle cx="207" cy="79" r="7"/><circle cx="218" cy="80" r="7"/></g></svg></div><span class="number">03 / FRUITING LATERALS</span><h3>一颗果，许多小核果。</h3><p>颗粒紧密组成黑莓，再由数颗组成果簇。结果老枝与无果新枝并存，成熟度可以不一致。<a href="https://extension.oregonstate.edu/catalog/ec-1303-growing-blackberries-your-home-garden" target="_blank" rel="noreferrer">[2]</a></p></article>
+  </div>
+</section>
+<section class="direction"><div><div class="eyebrow">ART DIRECTION / 本轮取舍</div><h2>保留野性，先不模拟荒野。</h2></div><div><p>做：不对称拱枝、三小叶、五瓣花、绿红黑果簇、轻微风动。</p><p>暂不做：生根扩散、真实两年生周期、采摘、碰撞与生态交互。</p><p class="muted">模型尺寸与密度是美术假设；花期／果期是展示预设，风是位移示意。本页不是物种精确复刻，也不是原生游戏性能验证。</p></div></section>
+<footer><span>re-flora · WILD BLACKBERRY / STUDY 01</span><span>参考：<a href="https://www.rhs.org.uk/weeds/brambles-and-other-woody-weeds" target="_blank" rel="noreferrer">RHS</a> / <a href="https://extension.oregonstate.edu/catalog/ec-1303-growing-blackberries-your-home-garden" target="_blank" rel="noreferrer">OSU Extension</a> / <a href="https://plants.ces.ncsu.edu/plants/rubus-allegheniensis/" target="_blank" rel="noreferrer">NC State Extension</a></span></footer>
+</main>
+<noscript>此原型需要 JavaScript 才能显示三维黑莓。调研笔记仍可阅读。</noscript>
+<script type="module" src="viewer.mjs"></script>
+</body></html>
