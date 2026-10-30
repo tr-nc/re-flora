@@ -2708,6 +2708,9 @@ impl App {
                 let prototype_extent = self.window_state.window_extent();
                 let prototype_scale = self.window_state.window().scale_factor() as f32;
                 let egui_start = Instant::now();
+                let matte_settings = crate::egui_renderer::matte_glass::MatteSettings {
+                    cell_points: self.debug_settings.adjustables.ui_glass_cell_size.value,
+                };
                 let mower_mode_available = self.mower_mode_available();
                 let pavement_label = self.pavement_tool_label();
                 let pavement_instructions = self.pavement_tool_instructions();
@@ -2716,6 +2719,7 @@ impl App {
                 let pavement_intent = self.pavement.intent_preview(&pavement_preview);
                 self.egui_renderer
                     .update(&self.window_state.window(), |ctx| {
+                        matte_settings.apply_to_context(ctx);
                         let mut style = (*ctx.global_style()).clone();
                         apply_gui_style(&mut style);
                         ui_style::apply_panel_outline_preference(&mut style, false);
@@ -3832,9 +3836,7 @@ impl App {
                     device,
                     cmdbuf,
                     self.tracer.get_screen_output_tex(),
-                    crate::egui_renderer::matte_glass::MatteSettings {
-                        cell_points: self.debug_settings.adjustables.ui_glass_cell_size.value,
-                    },
+                    matte_settings,
                 );
                 self.swapchain
                     .record_blit(composite.get_image(), cmdbuf, &frame);

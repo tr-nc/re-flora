@@ -1,5 +1,15 @@
 # Pixel matte UI glass
 
+## Panel sizing contract
+
+Panel width and height use whole counts of the renderer's DPI-rounded glass cells,
+including the title, border and inner padding but excluding outer spacing. Fixed
+and content-sized panels pad upward; edge resizing uses cell steps. **Moving a
+panel remains continuous**, and text/control sizes are not quantized or scaled.
+Clipping at the viewport edge does not change the panel-local grid. Layout and
+compositing use the same frame's cell-size setting, even while that setting changes.
+The layout-owner extension is documented in [`crates/egui/VENDORED.md`](../crates/egui/VENDORED.md).
+
 ## Current filter: five taps per cell
 
 Pixelated glass is permanent. Each cell now reads **five nearest source texels**:
@@ -111,7 +121,8 @@ backpack, Debug Panel, soil inspector, FPS/VRAM telemetry, Frame Timing, the tex
 lifecycle diagnostic window, and construction/carry/tree-kick hints. Controls use
 complementary pale inset fills and dark text. Selection/hover/pressed fills were
 updated together to avoid dark text on the old dark backgrounds. Existing panel
-outline preferences, layout, input, and save behavior remain intact.
+outline preferences, input, and save behavior remain intact; whole-cell padding
+changes outer frame size without scaling its contents.
 
 Ordinary egui text, textures, tooltips, and the startup splash keep the regular
 renderer; they are not detected or recolored by the GPU.

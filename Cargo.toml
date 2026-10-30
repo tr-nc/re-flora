@@ -44,6 +44,7 @@ tempfile = "3.23.0"
 static_assertions = "1.1"
 # Carry narrowly patched, licensed sources in-tree; no machine-local overrides.
 [patch.crates-io]
+egui = { path = "crates/egui" }
 egui-winit = { path = "crates/egui-winit" }
 petalsonic = { path = "crates/petalsonic" }
 

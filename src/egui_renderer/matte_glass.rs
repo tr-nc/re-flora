@@ -11,12 +11,32 @@ const PIXEL: f32 = 1.0;
 
 /// Saved cell size enters rendering here. Pixelated glass is unconditional;
 /// each surface owns its pixel grid anchor.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct MatteSettings {
     pub cell_points: u32,
 }
 
+impl Default for MatteSettings {
+    fn default() -> Self {
+        Self { cell_points: 12 }
+    }
+}
+
 impl MatteSettings {
+    /// Freeze one setting for layout and compositing of the same UI frame.
+    pub(crate) fn apply_to_context(self, ctx: &egui::Context) {
+        ctx.data_mut(|data| data.insert_temp(Id::new("matte_layout_settings"), self));
+    }
+
+    fn size_step(ctx: &egui::Context) -> egui::Vec2 {
+        let settings = ctx.data(|data| {
+            data.get_temp::<Self>(Id::new("matte_layout_settings"))
+                .unwrap_or_default()
+        });
+        let scale = ctx.pixels_per_point();
+        egui::Vec2::splat(settings.cell_pixels(scale) as f32 / scale)
+    }
+
     pub(super) fn cell_pixels(self, pixels_per_point: f32) -> u32 {
         let scale = if pixels_per_point.is_finite() && pixels_per_point > 0.0 {
             pixels_per_point
@@ -145,6 +165,7 @@ impl MatteFrameExt for Frame {
         let background = ui.painter().add(Shape::Noop);
         let mut prepared = clear_body(self).begin(ui);
         let inner = contents(&mut prepared.content_ui);
+        prepared.snap_size(MatteSettings::size_step(ui.ctx()));
         let rect = prepared.frame.widget_rect(prepared.content_ui.min_rect());
         // Painter::set applies this UI's fade/disabled opacity to the mesh as usual.
         if ui.is_rect_visible(rect) {
@@ -184,6 +205,7 @@ impl MatteWindowExt for egui::Window<'_> {
             .id(id)
             .order(Order::Middle)
             .frame(native_frame)
+            .size_step(MatteSettings::size_step(ctx))
             .show(ctx, contents);
         if let Some(shown) = &result {
             let bounds = shown.response.rect - frame.outer_margin;
@@ -194,7 +216,12 @@ impl MatteWindowExt for egui::Window<'_> {
                         .enumerate()
                         .skip(start.0 + 1)
                         .find_map(|(index, entry)| match &entry.shape {
-                            Shape::Rect(rect) if rect.rect == bounds => {
+                            Shape::Rect(rect)
+                                if (rect.rect.min - bounds.min).abs().max_elem()
+                                    <= egui::emath::GUI_ROUNDING
+                                    && (rect.rect.max - bounds.max).abs().max_elem()
+                                        <= egui::emath::GUI_ROUNDING =>
+                            {
                                 Some(egui::layers::ShapeIdx(index))
                             }
                             _ => None,
@@ -214,6 +241,9 @@ impl MatteWindowExt for egui::Window<'_> {
         result
     }
 }
+
+#[cfg(test)]
+mod grid_tests;
 
 #[cfg(test)]
 mod tests {
@@ -326,7 +356,19 @@ mod tests {
                 assert!(material < text);
             }
         }
-        assert_eq!(layouts[0], layouts[1]);
+        assert_eq!(
+            layouts[0].1, layouts[1].1,
+            "content layout must be unchanged"
+        );
+        assert_grid_aligned_frame(layouts[1].0);
+        assert!(layouts[1].0.width() >= layouts[0].0.width());
+        assert!(layouts[1].0.height() >= layouts[0].0.height());
+    }
+
+    fn assert_grid_aligned_frame(rect: Rect) {
+        for length in [rect.width(), rect.height()] {
+            assert!((length / 12.0 - (length / 12.0).round()).abs() < 0.002);
+        }
     }
 
     #[test]
