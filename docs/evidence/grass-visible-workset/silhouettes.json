@@ -1,0 +1,110 @@
+{
+  "classification": "green > red AND green > blue; diagnostic grass-only silhouette; does not establish identical lighting/depth values",
+  "comparisons": [
+    {
+      "before": "near-pose1-cull0",
+      "after": "near-pose1-cull1",
+      "image": "near-both-b.png",
+      "identicalGrassSilhouette": true,
+      "metric": "0 (0)"
+    },
+    {
+      "before": "far-pose1-cull0",
+      "after": "far-pose1-cull1",
+      "image": "far-both-b.png",
+      "identicalGrassSilhouette": true,
+      "metric": "0 (0)"
+    },
+    {
+      "before": "low-pose1-cull0",
+      "after": "low-pose1-cull1",
+      "image": "low-both-b.png",
+      "identicalGrassSilhouette": true,
+      "metric": "0 (0)"
+    },
+    {
+      "before": "inside-pose1-cull0",
+      "after": "inside-pose1-cull1",
+      "image": "inside-both-b.png",
+      "identicalGrassSilhouette": true,
+      "metric": "0 (0)"
+    },
+    {
+      "before": "near-pose0-cull0",
+      "after": "near-pose0-cull1",
+      "image": "near-both-b.png",
+      "identicalGrassSilhouette": true,
+      "metric": "0 (0)"
+    },
+    {
+      "before": "far-pose0-cull0",
+      "after": "far-pose0-cull1",
+      "image": "far-both-b.png",
+      "identicalGrassSilhouette": true,
+      "metric": "0 (0)"
+    },
+    {
+      "before": "growth-resize-cull0",
+      "after": "growth-resize-cull1",
+      "image": "wide-both-b.png",
+      "identicalGrassSilhouette": true,
+      "metric": "0 (0)"
+    },
+    {
+      "before": "moving-cull0",
+      "after": "moving-cull1",
+      "image": "orbit-both-b-120.png",
+      "identicalGrassSilhouette": true,
+      "metric": "0 (0)"
+    },
+    {
+      "before": "moving-cull0",
+      "after": "moving-cull1",
+      "image": "orbit-both-b-150.png",
+      "identicalGrassSilhouette": true,
+      "metric": "0 (0)"
+    },
+    {
+      "before": "moving-cull0",
+      "after": "moving-cull1",
+      "image": "orbit-both-b-180.png",
+      "identicalGrassSilhouette": true,
+      "metric": "0 (0)"
+    },
+    {
+      "before": "moving-cull0",
+      "after": "moving-cull1",
+      "image": "orbit-both-b-210.png",
+      "identicalGrassSilhouette": true,
+      "metric": "0 (0)"
+    },
+    {
+      "before": "moving-cull0",
+      "after": "moving-cull1",
+      "image": "orbit-both-b-240.png",
+      "identicalGrassSilhouette": true,
+      "metric": "0 (0)"
+    },
+    {
+      "before": "moving-cull0",
+      "after": "moving-cull1",
+      "image": "orbit-both-b-270.png",
+      "identicalGrassSilhouette": true,
+      "metric": "0 (0)"
+    },
+    {
+      "before": "moving-cull0",
+      "after": "moving-cull1",
+      "image": "orbit-both-b-300.png",
+      "identicalGrassSilhouette": true,
+      "metric": "0 (0)"
+    },
+    {
+      "before": "moving-cull0",
+      "after": "moving-cull1",
+      "image": "orbit-both-b-330.png",
+      "identicalGrassSilhouette": true,
+      "metric": "0 (0)"
+    }
+  ]
+}

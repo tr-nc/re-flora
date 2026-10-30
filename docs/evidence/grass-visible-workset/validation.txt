@@ -1,0 +1,40 @@
+Grass draw/workset delivery — historical validation evidence
+
+Sources: step 1 e1870de6; step 2 source hashes in manifest.json, committed with this evidence.
+Final Release executable SHA256: fed5362a17c75d899eacdc3e1176fd3163cdb9cf917acb051a518040ba1811f1.
+Personal config/gui.toml SHA256 before/after: 2cead7ccdd097416d94cd79e264bf1f7937e6c1c6431762f5f4324ac31df565f.
+No production quality, plant population, world size, hydration, or saved settings were reduced/changed.
+
+BUILD AND TEST
+cargo fmt --check: passed.
+cargo check --bin re-flora: passed.
+cargo test --bin re-flora: 1803 passed, 15 ignored.
+cargo test -p re-flora-vkn --lib: 76 passed.
+cargo check and cargo build --release: blocked by unchanged src/bin/collision_bench_rapier.rs:821 unresolved fs (E0433), derivative line 822 type inference (E0282).
+cargo build --release --bin re-flora: passed; final main executable is current.
+cargo run --release -- --hidden --mute --auto-exit 0.5, isolated RE_FLORA_ROOT: first frame ready, exit 0, application exited successfully, no ERROR/VUID/SYNC-HAZARD/panic.
+Generated Rust structs changed only through cargo check/build from shader sources; no hand edits.
+
+CORRECTNESS
+shader/tests/grass_visibility_envelope_test.slang, compiled with Slang executable backend: 319200 actual stem vertices passed. Production natural bend, vibration, spawn, wilt and square-band geometry helpers; tall/short randomized heights, partial growth, all six planes, near-plane crossing and camera-inside bounds. Explicit check, not a slow normal unit test.
+17 native runs / 4354 completed frame-slot audits: source indices in range and unique, visible count <= source count, index count matches species topology, indirect firstIndex/vertexOffset/firstInstance all zero. Reference mode preserves every source index in original order.
+Coverage: near/far/low/inside, cached and noncached paths, growth/resize lifecycle, deterministic orbit/dolly with live wind and real mow/replant during rendering, startup cross-chunk mowing/replant/overpaint identity checks. Native runs require actual nonempty grass batches; empty scenes are not accepted as coverage.
+15 paired grass-only silhouettes are identical (compare.mjs, green > red AND green > blue); 8 pairs are moving-camera/mow/replant keyframes. Near and mowing pairs were visually inspected. Full RGB images can differ with lighting timing; this is not exact RGB/depth equivalence or exhaustive temporal-artifact acceptance.
+Khronos validation layer + VK_LAYER_VALIDATE_SYNC=1: both step1 reference and final 32-chunk app exited cleanly; no ERROR, VUID, SYNC-HAZARD, panic or Validation Warning. Exact commands/environment in sync.mjs, summaries and compressed native logs archived.
+One audited full-world frame at the final 16:10 camera: 309180 source instances -> 145503 retained; 909232 lighting/pose bands. Counts vary with wind/camera. CPU counters/cache capacity still describe source capacity, not actual indirect draw count.
+Actual workset memory on this GPU: DEVICE_LOCAL | HOST_VISIBLE | HOST_COHERENT. GPU writes, shader reads, indirect reads (and diagnostic host reads only) are published together. Existing acquired-frame-slot fence owns reset/reallocation. Production adds no GPU readback or wait.
+
+PERFORMANCE
+Three independent formal groups, each 4 sequential runs: step1, step2, overall. 28 s after ready, discard first 8 s. Same copied GUI config, player-default camera, native hidden surface/swapchain, muted. No simultaneous GPU tests or compilation during formal measurements.
+Step1 at 2880x1620 / scene 576x324: draw 4.7589 -> 3.6511 ms; total GPU mean 14.7171 -> 13.5884 ms; mean run FPS 49.7314 -> 52.4905 (+5.55%).
+System-selected highest-score monitor changed from DP-2 to HDMI-1 during the task. Final step2 and overall groups therefore ran at 1600x1000 / scene 320x200 (same pixel stride 5, one sample). Every group's before/after resolution is identical and stable; do NOT combine absolute timings across the two viewports or count the resolution change as an optimization gain.
+Step2 detailed means: draw 3.3976 -> 1.7873 ms; lighting/pose 3.2515 -> 2.0433 ms; new visibility pass 1.1030 ms included. GPU total 12.8030 -> 11.0887 ms. FPS 55.5167 -> 60.9769 (+9.84%).
+Overall ordinary profiler: GPU mean 14.1555 -> 11.0591 ms (-21.87%); FPS 52.2903 -> 62.3346 (+19.21%); CPU frame-wall P95 33.7480 -> 30.7705 ms.
+Statistics here are equal-weight means of per-run statistics, not pooled percentiles. FPS comes from frame-number/wall-clock deltas, never inverse GPU time. Inclusive parent scopes are not added to children.
+Detailed groups use 1024 query capacity and dropped=0. Ordinary groups retain the normal 64-slot profiler and allow known late-scope overflow; only ordinary total-frame metrics are used from that group. Raw samples and exact options/hashes are archived.
+Hydration's periodic synchronous atlas reads and the previously unclassified CPU residual remain; these changes do not claim to fix them. No portable speedup guarantee: Linux / RTX 3060 Ti / i5-12600KF / NVIDIA 580.159.04 only.
+
+EXCLUDED EXPLORATION
+A first exploratory process had a desktop settings-portal timeout; it was rejected, not used as a formal sample. A denoiser fixture had no grass, so its attempted visibility validation was rejected and replaced with the real planted orbit/edit fixture. An initial diagnostic variable ending in VALIDATE triggered the existing launch-owner fixture classifier; it was renamed to AUDIT and the entire native suite rerun on the final binary. A per-root atomic prototype was superseded by workgroup reservations; no isolated causal speedup for that internal change is claimed.
+
+HTML presentation: docs/reports/grass-visible-workset.html. Opened in a dedicated Chromium session at 1440x1000 and 390x844. Inspected desktop/mobile layout, proof section and image pairs. All four images loaded; no document horizontal overflow; in-page anchors valid; expanded raw-run tables work. Browser closed. Screenshots retained under target/grass-workset/report-*.png.

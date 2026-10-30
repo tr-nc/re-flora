@@ -590,6 +590,12 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let grass_visibility_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            "shader/foliage/grass_visibility.comp",
+            "main",
+        )
+        .unwrap();
         let grass_band_vert_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             "shader/foliage/grass_band.vert",
@@ -772,6 +778,7 @@ impl PipelineBuilder {
             grass_band_vert_sm,
             grass_band_cached_vert_sm,
             flora_lighting_band_cache_sm,
+            grass_visibility_sm,
             stem_band_frag_sm,
             cpu_stem_band_vert_sm,
             cpu_stem_band_shadow_vert_sm,
@@ -932,6 +939,14 @@ impl PipelineBuilder {
                 ],
             })
             .expect("flora lighting cache static descriptors must resolve");
+        let grass_visibility_ppl =
+            ComputePipeline::new_uninitialized(device, &shader_modules.grass_visibility_sm, pool);
+        grass_visibility_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "gui_input",
+                providers: &[resources],
+            })
+            .expect("grass visibility static descriptors");
         let flora_lighting_band_cache_ppl = ComputePipeline::new_uninitialized(
             device,
             &shader_modules.flora_lighting_band_cache_sm,
@@ -1208,6 +1223,7 @@ impl PipelineBuilder {
             tree_refit_ppl,
             flora_lighting_cache_ppl,
             flora_lighting_band_cache_ppl,
+            grass_visibility_ppl,
             flower_visit_ppl,
             flower_stem_bands_ppl,
             tree_leaf_lighting_cache_ppl,
@@ -3118,6 +3134,7 @@ pub struct ShaderModules {
     pub grass_band_vert_sm: ShaderModule,
     pub grass_band_cached_vert_sm: ShaderModule,
     pub flora_lighting_band_cache_sm: ShaderModule,
+    pub grass_visibility_sm: ShaderModule,
     pub stem_band_frag_sm: ShaderModule,
     pub cpu_stem_band_vert_sm: ShaderModule,
     pub cpu_stem_band_shadow_vert_sm: ShaderModule,
@@ -3176,6 +3193,7 @@ pipeline_collection! {
         tree_refit_ppl,
         flora_lighting_cache_ppl,
         flora_lighting_band_cache_ppl,
+        grass_visibility_ppl,
         flower_visit_ppl,
         flower_stem_bands_ppl,
         tree_leaf_lighting_cache_ppl,

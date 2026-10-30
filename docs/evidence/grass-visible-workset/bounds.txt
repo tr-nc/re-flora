@@ -1,0 +1,10 @@
+gcc 15.2: /tmp/unknown-HnjMVw.cpp(26): warning :  '#pragma once' in main file [-Wpragma-once-outside-header]
+   26 | #pragma once
+      |         ^~~~
+gcc 15.2: /tmp/unknown-HnjMVw.cpp(2306): warning :  '#pragma once' in main file [-Wpragma-once-outside-header]
+ 2306 | #pragma once
+      |         ^~~~
+gcc 15.2: /tmp/unknown-HnjMVw.cpp(10675): warning :  '#pragma once' in main file [-Wpragma-once-outside-header]
+10675 | #pragma once
+      |         ^~~~
+PASS: 319200 actual stem vertices, growth/wilt/spawn/wind envelopes and all six frustum planes

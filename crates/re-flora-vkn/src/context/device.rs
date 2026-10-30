@@ -520,6 +520,20 @@ impl Device {
         }
     }
 
+    pub fn cmd_draw_indexed_indirect_raw(
+        &self,
+        command_buffer: vk::CommandBuffer,
+        buffer: vk::Buffer,
+        offset: vk::DeviceSize,
+    ) {
+        unsafe {
+            self.as_raw().cmd_draw_indexed_indirect(
+                command_buffer, buffer, offset, 1,
+                std::mem::size_of::<vk::DrawIndexedIndirectCommand>() as u32,
+            );
+        }
+    }
+
     pub fn cmd_dispatch_raw(
         &self,
         command_buffer: vk::CommandBuffer,

@@ -1,4 +1,5 @@
 import plant_hydration;
+import grass_visibility;
 #ifndef RE_FLORA_GLASS_TRANSPORT
 #define RE_FLORA_GLASS_TRANSPORT 0
 #endif
@@ -48,14 +49,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     PushConstantFlora floraPc = floraPushConstants();
     uint voxelCount = floraLightingCacheVoxelCount(floraPc);
-    uint instanceCount = floraLightingCacheInstanceCount(floraPc);
+    uint instanceCount = grassVisibleCount(floraPc);
     if (dispatchThreadId.x >= voxelCount || dispatchThreadId.y >= instanceCount) return;
 
     // Grass bands are authored axial layers, not vertices in a voxel mesh.
     int3 voxelLocalPosition = int3(0, int(dispatchThreadId.x), 0);
 
     uint instanceType = floraInstanceType();
-    uint localInstanceIndex = dispatchThreadId.y;
+    uint localInstanceIndex = grassSourceIndex(floraPc, dispatchThreadId.y);
     uint instanceIndex = instanceType * MAX_FLORA_INSTANCES_PER_SPECIES +
                          localInstanceIndex;
     uint3 chunkWorldOffset = floraChunkWorldOffset();
@@ -101,7 +102,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
     flora_lighting_cache[
         floraLightingCacheIndex(
-            floraPc, localInstanceIndex, dispatchThreadId.x)] =
+            floraPc, dispatchThreadId.y, dispatchThreadId.x)] =
         float4(irradiance, 1.0);
 #if RE_FLORA_STEM_BAND_CACHE
     // Reuse the existing once-per-layer preparation and lighting work. The
@@ -117,6 +118,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         prepared.shadow_weight, irradiance, prepared.voxel_position),
         prepared.should_trim ? 0.0 : 1.0);
     grass_band_pose_cache[floraLightingCacheIndex(
-        floraPc, localInstanceIndex, dispatchThreadId.x)] = pose;
+        floraPc, dispatchThreadId.y, dispatchThreadId.x)] = pose;
 #endif
 }

@@ -1,0 +1,369 @@
+{
+  "sourceBase": "e1870de6",
+  "finalBinarySha256": "fed5362a17c75d899eacdc3e1176fd3163cdb9cf917acb051a518040ba1811f1",
+  "sources": [
+    {
+      "path": "Cargo.lock",
+      "sha256": "fb2725f11d019591e24960a5dc83d120ba178b45795d44cc39da668abbfb6f71"
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256": "b7d26bee5ba7bc6a4347884c6c4773e04021ae95d65c5390ff981569f9d4ca5c"
+    },
+    {
+      "path": "build.rs",
+      "sha256": "c47da7dc28ebba581c95e921283bcb9ed354fc8004fde8327d496fb7dd7ea1f9"
+    },
+    {
+      "path": "crates/re-flora-shader-build/src/lib.rs",
+      "sha256": "8eeb753ca98022957729d27b93e401561e27369f925a9b061ab2bf02914dc059"
+    },
+    {
+      "path": "crates/re-flora-vkn/src/command/command_buffer.rs",
+      "sha256": "e34800f807073af813731253bc468924872a2e2e9a37afa177942511c91d3600"
+    },
+    {
+      "path": "crates/re-flora-vkn/src/context/device.rs",
+      "sha256": "9a65b31469d093522be94188b060b94073cff702ec73e0101a2eab3eee45310e"
+    },
+    {
+      "path": "crates/re-flora-vkn/src/pipeline/graphics_pipeline.rs",
+      "sha256": "be6d4a25f4798af924e907f896004fd117dbf4ebb7aefc213997552ddd4b11a2"
+    },
+    {
+      "path": "crates/re-flora-vkn/src/sync/barrier.rs",
+      "sha256": "b6f2581e5cfaa85d78f6c1c5b3cc71bc41a1d976f887544a91142a683da8bb1a"
+    },
+    {
+      "path": "shader/slang/flora_lighting_cache.comp.slang",
+      "sha256": "cd4a6941239a3fb04120424718e5b06f38ea5c04e68954cd9e3fc3c474b579a7"
+    },
+    {
+      "path": "shader/slang/flora_types.slang",
+      "sha256": "98173a8aa1310ae0deadfbb53f776bd12e06fcbd7c7fcddbf7660d8f8643d2a0"
+    },
+    {
+      "path": "shader/slang/flora_vertex.slang",
+      "sha256": "d2101244590ec852cf8de9a43e484a1027f9ea66f0861b9e76279ae029b578de"
+    },
+    {
+      "path": "shader/slang/grass_band.vert.slang",
+      "sha256": "ce089f3deadd2cc10d0db3df5947f33ce7d29020530d93bfe486f9e74e3e002c"
+    },
+    {
+      "path": "shader/slang/grass_band_cached.vert.slang",
+      "sha256": "c05ee44344821264647ec2345874969ffa53f3d5626a628db3d82e981bfe2bac"
+    },
+    {
+      "path": "shader/slang/grass_visibility.comp.slang",
+      "sha256": "222977f4639e2dbe358e0e74f14cb20dda8541b710fbc389b9d7bea26d50418c"
+    },
+    {
+      "path": "shader/slang/grass_visibility.slang",
+      "sha256": "aedebd99558ebdb5ad05ecc2746ad71d0374f66d40a432874b747df2b3118f42"
+    },
+    {
+      "path": "shader/slang/grass_visibility_bounds.slang",
+      "sha256": "fd94eed3b9a5f1269518ebad3783368747f617022e00e08a8c20a392e79822dc"
+    },
+    {
+      "path": "shader/tests/grass_visibility_envelope_test.slang",
+      "sha256": "0b139f65a2d7beeed8a2dfaf15e1c50b89b0a56ced8b85f6280fb2f665e096a0"
+    },
+    {
+      "path": "src/app/core/grass_stem_review.rs",
+      "sha256": "3b4d07801863aa28fcf2c77842d5af9b49043039756cd39df77b45b84b39e955"
+    },
+    {
+      "path": "src/auto-generated/gpu_structs.rs",
+      "sha256": "c6ba0eb6f83d396c7ed9289093d4f6e5069c8aeebc2fa7eb00e0db412d40b15f"
+    },
+    {
+      "path": "src/tracer/flora_frame_plan.rs",
+      "sha256": "19d5a7e3f64d22d4ec976b6c5157eab5a5b8e0a95a09b3d8cc8591007be82bd8"
+    },
+    {
+      "path": "src/tracer/grass_visibility.rs",
+      "sha256": "4abaf7c343361e371a7eb11fac5f510a32cba77dde366c330de92c289d9c3fe4"
+    },
+    {
+      "path": "src/tracer/grass_visibility/validation.rs",
+      "sha256": "822d3488412a32590af6ad7f16ab8977a67972929d7fa7d3b8e7de7087e20c8c"
+    },
+    {
+      "path": "src/tracer/mod.rs",
+      "sha256": "3f650c0e9c9b27e2621eb63f41afd07768c9b5cb95decc9add07d75a8cc93fae"
+    },
+    {
+      "path": "src/tracer/pipeline_builder.rs",
+      "sha256": "07e0c9f0b1bf911fb602cfdda40ce014b37f0ecf9479f0ef7538343486e6fabd"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "docs/evidence/grass-visible-workset/README.md",
+      "bytes": 3223,
+      "sha256": "07d10958a4265015f9947a80461d3ac65b6a1f70cc8e337d1c78a9d4807a7065"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/bounds.txt",
+      "bytes": 553,
+      "sha256": "a3e0e3a3bad9b8620f63788c9d18ade35d7e097b6b50ff93328dc3ff1a012359"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/capture.mjs",
+      "bytes": 1544,
+      "sha256": "a1e39e55735d055f2864faa75cc8520917050d55fb5d61e388140e0108314208"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/compare.mjs",
+      "bytes": 1708,
+      "sha256": "f0f14fe712a43bc280267c6b5a126bf061faa31f8c59d2bbc7771f7305fa3f76"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/images/README.md",
+      "bytes": 2536,
+      "sha256": "b1177c4563e715859ee9295c39aa95fbf0f91cdf9c60ad5e3cb4f0ac093e0a5d"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/images/mow-culled.png",
+      "bytes": 467260,
+      "sha256": "742f61851025ac86f28ad1cd3c90c721b4e8ceba0b4030e443d7007262b48665"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/images/mow-reference.png",
+      "bytes": 467133,
+      "sha256": "5ff1c94b3febe1b25409d86609f50a36819691e50d403146eb28d17d880843b4"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/images/near-culled.png",
+      "bytes": 417885,
+      "sha256": "2f1cb8f545cb84d6c6d75a0c279aab7d331b2f55aef5521906ccae15caad5af7"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/images/near-reference.png",
+      "bytes": 417694,
+      "sha256": "153a579fcb514c5c049e822563911cf5b410aac9e2b4568aab17b5773e9f79ce"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native-summary.json",
+      "bytes": 13616,
+      "sha256": "c9773b31d06d1fb61a02a6ca6543d2ec8ab04f28863997b7b730dad446080c78"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/far-pose0-cull0.log.gz",
+      "bytes": 86885,
+      "sha256": "355b66a32ac924038d7bd40d839405ff07692ef7d177bb25e5afcae896782c35"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/far-pose0-cull1.log.gz",
+      "bytes": 87074,
+      "sha256": "60df898b4c94257f7cc586c93916470fb0946cf0116bfab38e71517bd07558f1"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/far-pose1-cull0.log.gz",
+      "bytes": 85876,
+      "sha256": "b62fcdc86133fa85814ab8ffea2dd3c1e252f245f6408a4c3563e6acdff512d2"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/far-pose1-cull1.log.gz",
+      "bytes": 85764,
+      "sha256": "8aa6a1a7b9ab3f61fbdb368f715e86328e570b9cd1d58abbeb5a9c1d7a349b5b"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/growth-resize-cull0.log.gz",
+      "bytes": 122019,
+      "sha256": "097688a386bedca0733cf35d93818ca23699572029276e13d82da3559b3f99df"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/growth-resize-cull1.log.gz",
+      "bytes": 122843,
+      "sha256": "bf3f9695c7a068d06004bff3df21c8bac903d0681be383832f6fc4566b6c377c"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/inside-pose1-cull0.log.gz",
+      "bytes": 85532,
+      "sha256": "d5574dc687829b00610b02da9c98adc8645a1f9d8ce2b966216802fa9695a7d2"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/inside-pose1-cull1.log.gz",
+      "bytes": 85743,
+      "sha256": "0f760de3935a5d76a13c1d39fb6a5a634a2f5c864eabeb093393971c2dcd6882"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/low-pose1-cull0.log.gz",
+      "bytes": 85678,
+      "sha256": "21826fcfcd5abd5555a295e9470fc08cf8054f6b9c31670558a2333a6e75c518"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/low-pose1-cull1.log.gz",
+      "bytes": 85430,
+      "sha256": "f8194dc8c78aaa1052211b098c30bcc8e9fade2be2b1b1994caff76e76820a4a"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/moving-cull0.log.gz",
+      "bytes": 122440,
+      "sha256": "1088fde19462ddbab80cdfbed5b3ec4a2ee16e10c8c151849587fdecf40f7ca2"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/moving-cull1.log.gz",
+      "bytes": 125101,
+      "sha256": "8d85ea38084f9e3b233f9fc9184028a39e9db4adb6a0676cbbd055fc86e969ef"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/mow-replant.log.gz",
+      "bytes": 27490,
+      "sha256": "67f352326b0993ae6072017aa477c8a9dda45f125008b0749396debdf55424a1"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/near-pose0-cull0.log.gz",
+      "bytes": 86081,
+      "sha256": "ec6801df3c1a293acc0293a69cabbb853928de8e4f0577bfa771508692246cfb"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/near-pose0-cull1.log.gz",
+      "bytes": 85545,
+      "sha256": "ee2a0400f98195c016f7f3c2b23f064a29d852a5f1aa2dd3c03784f10b05e8bb"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/near-pose1-cull0.log.gz",
+      "bytes": 86434,
+      "sha256": "cbf8bc69c20be00a56a5825a1508d186260efa4be09d33db4d551ea816d046bf"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/near-pose1-cull1.log.gz",
+      "bytes": 85932,
+      "sha256": "d81f78a0531ea516239eb9e21dbe6a6b28082dbdb38c71b88f6f8b0901bce323"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/smoke-tail.txt",
+      "bytes": 4543,
+      "sha256": "9827634de7433c079ad43178612c4f00b6b773a53bad85d174adf0c3da9b5172"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/sync-baseline.log.gz",
+      "bytes": 28151,
+      "sha256": "7e6c60c2e3b01e7e8472f1e5da0062d349eb46f89e02d7a5c9ffa76103c49c18"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/native/sync-final.log.gz",
+      "bytes": 28164,
+      "sha256": "3caaf453621ee6818dc06f9b12f70c871ea99e251a6cde133185c8df614e32d3"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/overall/0-before.samples.json.gz",
+      "bytes": 124307,
+      "sha256": "7a804c54a942e7f441fe6845d4133d8dd9be4800f370fb995f0184e53a9708f0"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/overall/1-after.samples.json.gz",
+      "bytes": 146728,
+      "sha256": "e2f29e72eca8744e347d6585642495a3fa18780277e5231a35c0f0f48c70f53c"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/overall/2-after.samples.json.gz",
+      "bytes": 147446,
+      "sha256": "0e0db4d9e60f9ed68518f64133641a8ddc5e09019b5267c87a5f65076a5daeff"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/overall/3-before.samples.json.gz",
+      "bytes": 123773,
+      "sha256": "96109efd141c8b0a554399ea52e929d1a5f0af604b5d66b701a26890211c37fa"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/overall/summary.json",
+      "bytes": 52278,
+      "sha256": "ee9faa689775f5683f84ccda8f580efdc22d5aa0ea70f989d63119693ae8fabc"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/report.mjs",
+      "bytes": 14908,
+      "sha256": "e084bad273b692dee649f7820f9a7ea43d880d96b56188cd07d957f82d338942"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/silhouettes.json",
+      "bytes": 2872,
+      "sha256": "4a0bf5055bc79947d07468786702ed442c3854df0feef7f23899d8a274db325a"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/step1/0-before.samples.json.gz",
+      "bytes": 122822,
+      "sha256": "8a4f3ff8d48672bc355b26426e8fe23abe8ccdf1c7fd0290570c08efe2918c83"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/step1/1-after.samples.json.gz",
+      "bytes": 128944,
+      "sha256": "245267c9c92cf0ee3ebb8abedbf3fa4d108dc64f316424238304a3aa90600abf"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/step1/2-after.samples.json.gz",
+      "bytes": 130395,
+      "sha256": "5f32e3ffca7ba5e6033016f57d1aebc990588e62923a06d67ed2c0350258dc16"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/step1/3-before.samples.json.gz",
+      "bytes": 123510,
+      "sha256": "cc8f583992d3296fee15a5572cd7afb6b08b5ca8ed7d88c25772de79e0ba5e7d"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/step1/summary.json",
+      "bytes": 52890,
+      "sha256": "89b6ca08cc67156fd417b3b2078e0a50df26429b5cc11b83465fbbdb676a15e2"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/step1/validation.txt",
+      "bytes": 2164,
+      "sha256": "720f8d0d385ccfbf3050886ba59eaa70eb09bf7d1200e86c595161ccd6a9e097"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/step2/0-before.samples.json.gz",
+      "bytes": 135116,
+      "sha256": "b2f2c7f0d9d8fef57175c7790e8430757a15d10ea2d4437cdf8a2d06c406bb20"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/step2/1-after.samples.json.gz",
+      "bytes": 148273,
+      "sha256": "cff3dfa44351268ed1618b4533bd404096734d9e7266d41ae7ee8a8054806fda"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/step2/2-after.samples.json.gz",
+      "bytes": 148229,
+      "sha256": "b39b03ee28112ab08e859f6cdf7d0f571faef807337bb1b8b20a78fe501b7306"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/step2/3-before.samples.json.gz",
+      "bytes": 132539,
+      "sha256": "c68ed2c02883d2529b3379347e7e6d0ab5a08b177a9db0fa3271e84e5acf469f"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/step2/summary.json",
+      "bytes": 53292,
+      "sha256": "5883ea1797c023b231d6c0449dbd3fc5639553af7f40d898c7165013539937f9"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/sync-summary.json",
+      "bytes": 751,
+      "sha256": "2ea22d14a090cd948a6865a16025f0bc9f526c2d4cedd9670884bac430204628"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/sync.mjs",
+      "bytes": 1904,
+      "sha256": "1c4e56d44d677779555e43badc377fc3e98d40cbfc705b1dac6a34bc8b3c4b65"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/validate.mjs",
+      "bytes": 4864,
+      "sha256": "77fb31af25c54aaa396b4540b4c4cd375a1c57c667713b22bc6b7afc38c536da"
+    },
+    {
+      "path": "docs/evidence/grass-visible-workset/validation.txt",
+      "bytes": 6038,
+      "sha256": "5c72c41d1339c66e7ca5c4f13545ae517df4a6ca221ca3a9c2b45cd8993f47fd"
+    },
+    {
+      "path": "docs/reports/grass-visible-workset.html",
+      "bytes": 15020,
+      "sha256": "5326d39c15d027e139d381a600b7b57a6dd91783ac0d7e27d1ce864ce94845c8"
+    }
+  ]
+}

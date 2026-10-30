@@ -1,0 +1,608 @@
+{
+  "binary": "/home/terence/code/re-flora/target/grass-workset/final",
+  "binaryHash": "fed5362a17c75d899eacdc3e1176fd3163cdb9cf917acb051a518040ba1811f1",
+  "configHash": "2cead7ccdd097416d94cd79e264bf1f7937e6c1c6431762f5f4324ac31df565f",
+  "runs": [
+    {
+      "job": {
+        "name": "near-pose1-cull0",
+        "scene": "near",
+        "pose": 1,
+        "enabled": 0
+      },
+      "args": [
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--perf",
+        "--authored-flora-bench"
+      ],
+      "validatedFrames": 239,
+      "first": {
+        "source": 704,
+        "visible": 704,
+        "bands": 4416
+      },
+      "last": {
+        "source": 4168,
+        "visible": 4168,
+        "bands": 25896
+      },
+      "images": [
+        {
+          "name": "near-both-b.png",
+          "hash": "153a579fcb514c5c049e822563911cf5b410aac9e2b4568aab17b5773e9f79ce"
+        }
+      ]
+    },
+    {
+      "job": {
+        "name": "near-pose1-cull1",
+        "scene": "near",
+        "pose": 1,
+        "enabled": 1
+      },
+      "args": [
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--perf",
+        "--authored-flora-bench"
+      ],
+      "validatedFrames": 239,
+      "first": {
+        "source": 704,
+        "visible": 704,
+        "bands": 4416
+      },
+      "last": {
+        "source": 4168,
+        "visible": 3353,
+        "bands": 21660
+      },
+      "images": [
+        {
+          "name": "near-both-b.png",
+          "hash": "2f1cb8f545cb84d6c6d75a0c279aab7d331b2f55aef5521906ccae15caad5af7"
+        }
+      ]
+    },
+    {
+      "job": {
+        "name": "far-pose1-cull0",
+        "scene": "far",
+        "pose": 1,
+        "enabled": 0
+      },
+      "args": [
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--perf",
+        "--authored-flora-bench"
+      ],
+      "validatedFrames": 239,
+      "first": {
+        "source": 704,
+        "visible": 704,
+        "bands": 4416
+      },
+      "last": {
+        "source": 4168,
+        "visible": 4168,
+        "bands": 25896
+      },
+      "images": [
+        {
+          "name": "far-both-b.png",
+          "hash": "4ab8d090c50e9071a7dfff14e3cfe03131e1e632861d23d94572baffa2a4fe19"
+        }
+      ]
+    },
+    {
+      "job": {
+        "name": "far-pose1-cull1",
+        "scene": "far",
+        "pose": 1,
+        "enabled": 1
+      },
+      "args": [
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--perf",
+        "--authored-flora-bench"
+      ],
+      "validatedFrames": 239,
+      "first": {
+        "source": 704,
+        "visible": 704,
+        "bands": 4416
+      },
+      "last": {
+        "source": 4168,
+        "visible": 4168,
+        "bands": 25896
+      },
+      "images": [
+        {
+          "name": "far-both-b.png",
+          "hash": "a684aababf012b88f93033823749035dae6bb6dd2152b2bdc4b93d75ea394ab0"
+        }
+      ]
+    },
+    {
+      "job": {
+        "name": "low-pose1-cull0",
+        "scene": "low",
+        "pose": 1,
+        "enabled": 0
+      },
+      "args": [
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--perf",
+        "--authored-flora-bench"
+      ],
+      "validatedFrames": 239,
+      "first": {
+        "source": 704,
+        "visible": 704,
+        "bands": 4416
+      },
+      "last": {
+        "source": 4168,
+        "visible": 4168,
+        "bands": 25896
+      },
+      "images": [
+        {
+          "name": "low-both-b.png",
+          "hash": "059865527ea9ad7bf520404470b026849841abc0576df0d18307e08ee504438d"
+        }
+      ]
+    },
+    {
+      "job": {
+        "name": "low-pose1-cull1",
+        "scene": "low",
+        "pose": 1,
+        "enabled": 1
+      },
+      "args": [
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--perf",
+        "--authored-flora-bench"
+      ],
+      "validatedFrames": 239,
+      "first": {
+        "source": 704,
+        "visible": 479,
+        "bands": 3272
+      },
+      "last": {
+        "source": 4168,
+        "visible": 2983,
+        "bands": 20008
+      },
+      "images": [
+        {
+          "name": "low-both-b.png",
+          "hash": "6949b0172dd176414ca1f0cb7aa9e478eac5dc4ce34b03f4e5c4ec4c4ea03c6c"
+        }
+      ]
+    },
+    {
+      "job": {
+        "name": "inside-pose1-cull0",
+        "scene": "inside",
+        "pose": 1,
+        "enabled": 0
+      },
+      "args": [
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--perf",
+        "--authored-flora-bench"
+      ],
+      "validatedFrames": 239,
+      "first": {
+        "source": 704,
+        "visible": 704,
+        "bands": 4416
+      },
+      "last": {
+        "source": 4168,
+        "visible": 4168,
+        "bands": 25896
+      },
+      "images": [
+        {
+          "name": "inside-both-b.png",
+          "hash": "8ded75b452e17339e6942860a8404d41f5774ef3025839413b347e3b1db6613e"
+        }
+      ]
+    },
+    {
+      "job": {
+        "name": "inside-pose1-cull1",
+        "scene": "inside",
+        "pose": 1,
+        "enabled": 1
+      },
+      "args": [
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--perf",
+        "--authored-flora-bench"
+      ],
+      "validatedFrames": 239,
+      "first": {
+        "source": 704,
+        "visible": 375,
+        "bands": 2676
+      },
+      "last": {
+        "source": 4168,
+        "visible": 2361,
+        "bands": 16452
+      },
+      "images": [
+        {
+          "name": "inside-both-b.png",
+          "hash": "997b791f9deb7908488b551a6e71369b512c0cf21ec8791a603cd7ac0f2fa315"
+        }
+      ]
+    },
+    {
+      "job": {
+        "name": "near-pose0-cull0",
+        "scene": "near",
+        "pose": 0,
+        "enabled": 0
+      },
+      "args": [
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--perf",
+        "--authored-flora-bench"
+      ],
+      "validatedFrames": 239,
+      "first": {
+        "source": 704,
+        "visible": 704,
+        "bands": 4416
+      },
+      "last": {
+        "source": 4168,
+        "visible": 4168,
+        "bands": 25896
+      },
+      "images": [
+        {
+          "name": "near-both-b.png",
+          "hash": "736ffb9aedea7ed9c44ea563f09cb0daf8780bdfd930c4d4e9bd40b30a99a009"
+        }
+      ]
+    },
+    {
+      "job": {
+        "name": "near-pose0-cull1",
+        "scene": "near",
+        "pose": 0,
+        "enabled": 1
+      },
+      "args": [
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--perf",
+        "--authored-flora-bench"
+      ],
+      "validatedFrames": 239,
+      "first": {
+        "source": 704,
+        "visible": 704,
+        "bands": 4416
+      },
+      "last": {
+        "source": 4168,
+        "visible": 3353,
+        "bands": 21660
+      },
+      "images": [
+        {
+          "name": "near-both-b.png",
+          "hash": "ec0733aae5c4a202550792e6efd0f7cebde7d9df2f609bd02496b4940795e789"
+        }
+      ]
+    },
+    {
+      "job": {
+        "name": "far-pose0-cull0",
+        "scene": "far",
+        "pose": 0,
+        "enabled": 0
+      },
+      "args": [
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--perf",
+        "--authored-flora-bench"
+      ],
+      "validatedFrames": 239,
+      "first": {
+        "source": 704,
+        "visible": 704,
+        "bands": 4416
+      },
+      "last": {
+        "source": 4168,
+        "visible": 4168,
+        "bands": 25896
+      },
+      "images": [
+        {
+          "name": "far-both-b.png",
+          "hash": "530a0fd38ee2ba95ab0746704fa604bffea937736417f9574fb59111ef5512c6"
+        }
+      ]
+    },
+    {
+      "job": {
+        "name": "far-pose0-cull1",
+        "scene": "far",
+        "pose": 0,
+        "enabled": 1
+      },
+      "args": [
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--perf",
+        "--authored-flora-bench"
+      ],
+      "validatedFrames": 239,
+      "first": {
+        "source": 704,
+        "visible": 704,
+        "bands": 4416
+      },
+      "last": {
+        "source": 4168,
+        "visible": 4168,
+        "bands": 25896
+      },
+      "images": [
+        {
+          "name": "far-both-b.png",
+          "hash": "a684aababf012b88f93033823749035dae6bb6dd2152b2bdc4b93d75ea394ab0"
+        }
+      ]
+    },
+    {
+      "job": {
+        "name": "growth-resize-cull0",
+        "scene": "wide",
+        "pose": 1,
+        "enabled": 0,
+        "lifecycle": true
+      },
+      "args": [
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--perf",
+        "--authored-flora-bench"
+      ],
+      "validatedFrames": 359,
+      "first": {
+        "source": 704,
+        "visible": 704,
+        "bands": 4416
+      },
+      "last": {
+        "source": 4168,
+        "visible": 4168,
+        "bands": 25896
+      },
+      "images": [
+        {
+          "name": "wide-both-b.png",
+          "hash": "8c8997e8144c804c213962a814c5995fddf7b0637a55db0bbea09da453294d91"
+        }
+      ]
+    },
+    {
+      "job": {
+        "name": "moving-cull0",
+        "scene": "orbit",
+        "pose": 1,
+        "enabled": 0,
+        "moving": true
+      },
+      "args": [
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--perf",
+        "--authored-flora-bench"
+      ],
+      "validatedFrames": 359,
+      "first": {
+        "source": 704,
+        "visible": 704,
+        "bands": 4416
+      },
+      "last": {
+        "source": 4168,
+        "visible": 4168,
+        "bands": 25896
+      },
+      "images": [
+        {
+          "name": "orbit-both-b-120.png",
+          "hash": "6b464b4fc28655111723bbf31756ce0f653c568a43722c7eccd119562dc27ccd"
+        },
+        {
+          "name": "orbit-both-b-150.png",
+          "hash": "e8678c0058d7078c597764882f264239a23071c1d69eac62ccfde2c71c02e6ae"
+        },
+        {
+          "name": "orbit-both-b-180.png",
+          "hash": "5ff1c94b3febe1b25409d86609f50a36819691e50d403146eb28d17d880843b4"
+        },
+        {
+          "name": "orbit-both-b-210.png",
+          "hash": "326905e5dd28792e2c03ff5c7870cb3f91a0637a2cc27cda6d0610cd3883c39b"
+        },
+        {
+          "name": "orbit-both-b-240.png",
+          "hash": "82c8361af2cb6432f5f4acb0b452b31dad16b90b33db049efedd716fde871d1e"
+        },
+        {
+          "name": "orbit-both-b-270.png",
+          "hash": "6968b31bf4941a03eec88df4de27edbae9a5bed1a0a8bec922320b08e0046025"
+        },
+        {
+          "name": "orbit-both-b-300.png",
+          "hash": "7e8a6b4c37215e6bd17bd2b93e95873f9c94b4288c7e7a87e40f4119364aa0b3"
+        },
+        {
+          "name": "orbit-both-b-330.png",
+          "hash": "d1ecab6cee679eecc5651b2fb86dd786efd620ce59ea5d0784a435e0ec8d8217"
+        }
+      ]
+    },
+    {
+      "job": {
+        "name": "growth-resize-cull1",
+        "scene": "wide",
+        "pose": 1,
+        "enabled": 1,
+        "lifecycle": true
+      },
+      "args": [
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--perf",
+        "--authored-flora-bench"
+      ],
+      "validatedFrames": 359,
+      "first": {
+        "source": 704,
+        "visible": 704,
+        "bands": 4416
+      },
+      "last": {
+        "source": 4168,
+        "visible": 4168,
+        "bands": 25896
+      },
+      "images": [
+        {
+          "name": "wide-both-b.png",
+          "hash": "d816ea65b84da87f088d6ec030c7fd53df2d2fed1e7cea38e6e5e4ffcb034a10"
+        }
+      ]
+    },
+    {
+      "job": {
+        "name": "moving-cull1",
+        "scene": "orbit",
+        "pose": 1,
+        "enabled": 1,
+        "moving": true
+      },
+      "args": [
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--perf",
+        "--authored-flora-bench"
+      ],
+      "validatedFrames": 359,
+      "first": {
+        "source": 704,
+        "visible": 704,
+        "bands": 4416
+      },
+      "last": {
+        "source": 4168,
+        "visible": 3828,
+        "bands": 24348
+      },
+      "images": [
+        {
+          "name": "orbit-both-b-120.png",
+          "hash": "ce515c8f129ea233297c57b78bd46ccb1e6f88c4da95c9213b6a761c51caa4be"
+        },
+        {
+          "name": "orbit-both-b-150.png",
+          "hash": "1b9d8c5f43297103404365a1a53dd828db5153ee76b3e5e44db27028b3d0e977"
+        },
+        {
+          "name": "orbit-both-b-180.png",
+          "hash": "742f61851025ac86f28ad1cd3c90c721b4e8ceba0b4030e443d7007262b48665"
+        },
+        {
+          "name": "orbit-both-b-210.png",
+          "hash": "2c420fe7d7ba525b534ebb25a22cb702ef762c0ef5d8c39de55b212188e4a8d9"
+        },
+        {
+          "name": "orbit-both-b-240.png",
+          "hash": "224c17f128e530d95d864d6d28a41adb520263af1a883e0b2041462dec607013"
+        },
+        {
+          "name": "orbit-both-b-270.png",
+          "hash": "016f494f9f7d631500e7cb16c24579ecdd1bd6fabf9419d2c5c7f1cf74adaa0f"
+        },
+        {
+          "name": "orbit-both-b-300.png",
+          "hash": "8629074e082b4512f249592748fa2fe98e7cd712039d557e10f55553479e6232"
+        },
+        {
+          "name": "orbit-both-b-330.png",
+          "hash": "b908e17eb9b30960d2921423b18c1815ae3d1c3743d9c7307c1886d6f31792ce"
+        }
+      ]
+    },
+    {
+      "job": {
+        "name": "mow-replant",
+        "enabled": 1,
+        "edits": true
+      },
+      "args": [
+        "--hidden",
+        "--mute",
+        "--windowed",
+        "--perf",
+        "--camera-snapshot",
+        "player-default",
+        "--auto-exit",
+        "2"
+      ],
+      "validatedFrames": 50,
+      "first": {
+        "source": 309180,
+        "visible": 159268,
+        "bands": 994776
+      },
+      "last": {
+        "source": 309180,
+        "visible": 159287,
+        "bands": 994892
+      },
+      "images": []
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-//! Opt-in fixed-camera Release fixture for the sole square-band grass renderer.
+//! Opt-in Release fixture for square-band grass, with fixed views or a moving edit sweep.
 //! Uses normal seeded grass and the shared benchmark clock; never saves tuning.
 use super::App;
 use anyhow::{ensure, Result};
@@ -80,7 +80,7 @@ impl GrassStemReview {
         let parts: Vec<_> = case.split('-').collect();
         ensure!(
             parts.len() == 3,
-            "expected <near|mid|far|top|low|inside|wide>-<both|tall|short|curved>-b"
+            "expected <near|mid|far|top|low|inside|wide|orbit>-<both|tall|short|curved>-b"
         );
         let distance = match parts[0] {
             "near" => "near",
@@ -90,6 +90,7 @@ impl GrassStemReview {
             "low" => "low",
             "inside" => "inside",
             "wide" => "wide",
+            "orbit" => "orbit",
             _ => anyhow::bail!("unknown grass review distance"),
         };
         let species_mode = match parts[1] {
@@ -190,8 +191,43 @@ impl GrassStemReview {
             "low" => Vec3::new(0.0, 0.04, 0.0001),
             "inside" => Vec3::new(0.0, 0.008, 0.0001),
             "wide" => Vec3::new(0.5, 1.0, 1.6),
+            "orbit" => {
+                let angle =
+                    frame.saturating_sub(warmup_frames) as f32 / 120.0 * std::f32::consts::TAU;
+                let radius = 0.07 + 0.11 * (0.5 + 0.5 * angle.sin());
+                Vec3::new(
+                    radius * angle.sin(),
+                    0.01 + 0.06 * angle.cos().powi(2),
+                    radius * angle.cos(),
+                )
+            }
             _ => Vec3::new(0.25, 0.45, 1.0),
         };
+        if self.distance == "orbit" {
+            if frame.is_multiple_of(30) {
+                log::info!(
+                    "[GRASS_VISIBILITY_CAMERA] frame={frame} eye={:?}",
+                    (target + offset).to_array()
+                );
+            }
+            let edit = crate::app::world_edits::TerrainBrushEdit {
+                start: target,
+                end: target,
+                radius: 0.055,
+            };
+            if frame == warmup_frames + 60 {
+                app.apply_surface_flora_removal(edit)?;
+                log::info!("[GRASS_VISIBILITY_EDIT] frame={frame} action=mow");
+            } else if frame == warmup_frames + 120 {
+                app.apply_surface_flora_regeneration_at(
+                    edit,
+                    987,
+                    true,
+                    (self.fixed_response_time().unwrap() * 1000.0) as u32,
+                )?;
+                log::info!("[GRASS_VISIBILITY_EDIT] frame={frame} action=replant");
+            }
+        }
         app.camera_control.set_orbit_focus(target);
         ensure!(
             app.tracer
@@ -404,6 +440,10 @@ impl GrassStemReview {
         }
         app.render_flags.enable_flora = true;
         if frame == warmup_frames
+            || (self.distance == "orbit"
+                && frame >= warmup_frames
+                && frame < total_frames
+                && (frame - warmup_frames).is_multiple_of(30))
             || (self.moisture_review.as_deref() == Some("lifecycle")
                 && [30, 59, 60, 90, 150, 180, 300, 600].contains(&frame))
         {
@@ -413,11 +453,15 @@ impl GrassStemReview {
                 *app.launch_owners.screenshot_mut() =
                     super::screenshot::ScreenshotRuntime::new(Some(crate::ScreenshotOptions {
                         path: directory
-                            .join(if self.moisture_review.as_deref() == Some("lifecycle") {
-                                format!("{}-{frame}.png", self.case)
-                            } else {
-                                format!("{}.png", self.case)
-                            })
+                            .join(
+                                if self.moisture_review.as_deref() == Some("lifecycle")
+                                    || self.distance == "orbit"
+                                {
+                                    format!("{}-{frame}.png", self.case)
+                                } else {
+                                    format!("{}.png", self.case)
+                                },
+                            )
                             .to_string_lossy()
                             .into_owned(),
                         delay: 0.0,

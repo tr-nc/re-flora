@@ -334,6 +334,16 @@ impl ImageUse {
 }
 
 impl BufferUse {
+    /// Publish a producer to every forthcoming reader, before read-only uses merge.
+    pub(crate) fn combined_reads(uses: &[Self]) -> BufferState {
+        let (first, rest) = uses.split_first().expect("at least one buffer reader");
+        let state = first.state();
+        assert!(!state.access().contains_write(), "buffer reader cannot write");
+        rest.iter().fold(state, |state, usage| {
+            state.merged_read_with(usage.state()).expect("buffer reader cannot write")
+        })
+    }
+
     pub(crate) fn state(self) -> BufferState {
         match self {
             Self::ComputeRead => {
@@ -676,6 +686,16 @@ mod tests {
         );
         assert_ne!(BufferUse::IndexRead.state(), BufferUse::VertexRead.state());
         assert_ne!(BufferUse::HostWrite.state(), BufferUse::HostRead.state());
+    }
+
+    #[test]
+    fn shared_workset_publication_covers_shader_and_command_fetch() {
+        let published = BufferUse::combined_reads(&[BufferUse::ShaderRead, BufferUse::IndirectRead]);
+        assert!(BufferUse::ComputeWrite.state().needs_ordering(published));
+        for consumer in [BufferUse::ComputeRead, BufferUse::ShaderRead, BufferUse::IndirectRead] {
+            // Later read merging cannot lose visibility for a consumer stage.
+            assert_eq!(published.merged_read_with(consumer.state()), Some(published));
+        }
     }
 
     #[test]

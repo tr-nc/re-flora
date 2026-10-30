@@ -3,7 +3,7 @@ use super::{
     DescriptorUpdate, PreparedDescriptorGeneration,
 };
 use crate::{
-    merge_descriptor_bindings, CommandBuffer, DescriptorPool, DescriptorSet,
+    merge_descriptor_bindings, Buffer, BufferUse, CommandBuffer, DescriptorPool, DescriptorSet,
     DescriptorSetLayoutBinding, Device, FormatOverride, FrameRetirement, PipelineLayout,
     RenderPass, RenderPassDesc, ResourceContainer, ShaderModule, Viewport,
 };
@@ -49,6 +49,23 @@ pub struct PushConstantInfo {
 /// barrier inside the render pass.
 pub struct PreparedDrawDescriptors {
     descriptor_set: PreparedTransientDescriptorSet,
+}
+
+/// An indirect command whose read barrier and lifetime were established outside a render pass.
+/// The producer must write a valid VkDrawIndexedIndirectCommand. In particular, nonzero
+/// firstInstance requires the optional drawIndirectFirstInstance device feature.
+pub struct PreparedIndexedIndirectDraw {
+    buffer: Buffer,
+    offset: u64,
+}
+impl PreparedIndexedIndirectDraw {
+    pub fn new(cmdbuf: &CommandBuffer, buffer: &Buffer, offset: u64) -> Self {
+        assert_eq!(offset % 4, 0, "indirect command must be word-aligned");
+        assert!(offset.checked_add(std::mem::size_of::<vk::DrawIndexedIndirectCommand>() as u64)
+            .is_some_and(|end| end <= buffer.get_size_bytes()));
+        cmdbuf.use_buffer(buffer, BufferUse::IndirectRead);
+        Self { buffer: buffer.clone(), offset }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -607,22 +624,7 @@ impl GraphicsPipeline {
         first_instance: u32,
         push_constants: Option<&PushConstantInfo>,
     ) {
-        self.record_bind(cmdbuf);
-        self.record_bind_descriptor_sets(cmdbuf, Some(descriptors.descriptor_set.set_no()));
-        self.0.descriptors.bind_prepared_transient(
-            &descriptors.descriptor_set,
-            |set_no, descriptor_set| {
-                self.0.device.cmd_bind_descriptor_sets_graphics_raw(
-                    cmdbuf.as_raw(),
-                    self.0.pipeline_layout.as_raw(),
-                    set_no,
-                    &[descriptor_set],
-                );
-            },
-        );
-        if let Some(push_constants) = push_constants {
-            self.record_push_constants(cmdbuf, push_constants);
-        }
+        self.record_prepared_draw_bindings(cmdbuf, descriptors, push_constants);
         self.record_draw_indexed(
             cmdbuf,
             index_count,
@@ -631,6 +633,38 @@ impl GraphicsPipeline {
             vertex_offset,
             first_instance,
         );
+    }
+
+    pub fn record_indexed_indirect_with_prepared_descriptors(
+        &self,
+        cmdbuf: &CommandBuffer,
+        descriptors: &PreparedDrawDescriptors,
+        command: &PreparedIndexedIndirectDraw,
+        push_constants: Option<&PushConstantInfo>,
+    ) {
+        self.record_prepared_draw_bindings(cmdbuf, descriptors, push_constants);
+        self.0.device.cmd_draw_indexed_indirect_raw(
+            cmdbuf.as_raw(), command.buffer.as_raw(), command.offset,
+        );
+    }
+
+    fn record_prepared_draw_bindings(
+        &self, cmdbuf: &CommandBuffer, descriptors: &PreparedDrawDescriptors,
+        push_constants: Option<&PushConstantInfo>,
+    ) {
+        self.record_bind(cmdbuf);
+        self.record_bind_descriptor_sets(cmdbuf, Some(descriptors.descriptor_set.set_no()));
+        self.0.descriptors.bind_prepared_transient(
+            &descriptors.descriptor_set,
+            |set_no, descriptor_set| {
+                self.0.device.cmd_bind_descriptor_sets_graphics_raw(
+                    cmdbuf.as_raw(), self.0.pipeline_layout.as_raw(), set_no, &[descriptor_set],
+                );
+            },
+        );
+        if let Some(push_constants) = push_constants {
+            self.record_push_constants(cmdbuf, push_constants);
+        }
     }
 
     /// Allocates a standalone descriptor set for a reflected resource, for example an egui

@@ -28,8 +28,8 @@ StemBandVertex main(VertexInput input)
     uint voxelCount = floraLightingCacheVoxelCount(pc);
     if (band >= voxelCount) return output;
 
-    uint species = pc.instance_ty & FLORA_INSTANCE_TYPE_MASK;
-    uint localIndex = input.instance - species * MAX_FLORA_INSTANCES_PER_SPECIES;
+    // Indexed-indirect draws start at zero in the shared compact workset.
+    uint localIndex = input.instance;
     uint index = floraLightingCacheIndex(pc, localIndex, band);
     GrassBandPose pose = grass_band_pose_cache[index];
     uint height = uint(pose.position_height.w);

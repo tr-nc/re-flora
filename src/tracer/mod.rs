@@ -70,6 +70,7 @@ mod dynamic_fruit_resources;
 mod flower_models;
 mod flower_visits;
 mod grass_band_cache;
+mod grass_visibility;
 mod ordered_dither;
 pub(crate) mod scene_resolution;
 pub use ordered_dither::OrderedDitherSettings;
@@ -158,8 +159,8 @@ const FLORA_INSTANCE_TYPE_MASK: u32 = 0xff;
 const FLORA_LIGHTING_CACHE_INSTANCE_COUNT_SHIFT: u32 = 8;
 
 use crate::builder::{
-    ContreeBuilderResources, FloraInstanceResources, PlainBuilderResources,
-    SceneAccelBuilderResources, SurfaceResources, TreeLeavesInstance,
+    ContreeBuilderResources, PlainBuilderResources, SceneAccelBuilderResources, SurfaceResources,
+    TreeLeavesInstance,
 };
 use crate::ddgi::{
     DdgiBatchCompletion, DdgiBatchObservation, DdgiBatchOrder, DdgiBuildKind, DdgiBuildToken,
@@ -1770,6 +1771,7 @@ pub struct Tracer {
     environment_lighting: AuthoredEnvironmentLighting,
     flora_lighting_cache: FloraLightingCache,
     grass_band_cache: grass_band_cache::GrassBandCache,
+    grass_visibility: grass_visibility::GrassVisibility,
     vegetation_response: VegetationResponse,
     fruit_releases: fruit_release::FruitReleases,
     ddgi_voxel_visibility: DdgiVoxelVisibility,
@@ -2158,6 +2160,7 @@ impl Tracer {
             environment_lighting: AuthoredEnvironmentLighting::default(),
             flora_lighting_cache: FloraLightingCache::default(),
             grass_band_cache: grass_band_cache::GrassBandCache::default(),
+            grass_visibility: grass_visibility::GrassVisibility::default(),
             vegetation_response: VegetationResponse::new(chunk_bound),
             fruit_releases: fruit_release::FruitReleases::default(),
             ddgi_voxel_visibility,
@@ -4842,6 +4845,56 @@ impl Tracer {
         } else {
             FloraFramePlan::default()
         };
+        let visible_grass = self.grass_visibility.prepare(
+            self.vulkan_ctx.device().clone(),
+            self.allocator.clone(),
+            gpu_profiler_frame_slot,
+            &flora_frame_plan,
+        );
+        let visibility_pipeline = &self.pipeline_topology.compute().grass_visibility_ppl;
+        visibility_pipeline.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+        Self::with_gpu_scope(
+            gpu_profiler.as_deref_mut(),
+            gpu_profiler_frame_slot,
+            cmdbuf,
+            "graphics.flora_visibility",
+            || {
+                for batch in flora_frame_plan.batches() {
+                    let instances =
+                        &surface_resources.instances.chunk_flora_instances[batch.chunk_index()].1;
+                    let push = crate::generated::gpu_structs::PushConstantGrassVisibility {
+                        chunk_world_offset: instances.chunk_world_offset.to_array(),
+                        species: batch.species_index() as u32,
+                        instance_count: batch.instance_count(),
+                        word_offset: batch.visibility_offset(),
+                        enabled: u32::from(grass_visibility::culling_enabled()),
+                        bands: batch.mesh_voxel_count(),
+                    };
+                    visibility_pipeline
+                        .record_with_descriptors(
+                            cmdbuf,
+                            &[
+                                (
+                                    "flora_instances",
+                                    DescriptorResource::Buffer(&instances.resource.instances_buf),
+                                ),
+                                (
+                                    "grass_visible_instances",
+                                    DescriptorResource::Buffer(&visible_grass),
+                                ),
+                                self.vegetation_response.descriptors()[0],
+                                self.vegetation_response.descriptors()[1],
+                            ],
+                            Extent3D::new(batch.instance_count(), 1, 1),
+                            Some(bytemuck::bytes_of(&push)),
+                        )
+                        .expect("grass visibility descriptors");
+                }
+            },
+        );
+        // Publish the write to *both* consumers before the tracker merges later
+        // read-only uses. Command fetch must not race ahead of compute preparation.
+        cmdbuf.use_buffer_reads(&visible_grass, grass_visibility::readers());
         let required_flora_cache_entries = flora_frame_plan.required_cache_entries();
         let tree_foliage_frame_plan = TreeFoliageFramePlan::for_main(
             TreeFoliageMainConfig {
@@ -4952,9 +5005,14 @@ impl Tracer {
                 );
                 push_constant.instance_ty =
                     flora_lighting_cache_instance_ty(species_index as u32, batch.instance_count());
+                push_constant.grass_visibility_offset = batch.visibility_offset();
                 let cached = band_cache_buffer.is_some()
                     && species::is_grass_species_index(species_index as u32);
                 let mut descriptors = vec![
+                    (
+                        "grass_visible_instances",
+                        DescriptorResource::Buffer(&visible_grass),
+                    ),
                     (
                         "flora_instances",
                         DescriptorResource::Buffer(&instances.resource.instances_buf),
@@ -5228,6 +5286,10 @@ impl Tracer {
                 } else {
                     vec![
                         (
+                            "grass_visible_instances",
+                            DescriptorResource::Buffer(&visible_grass),
+                        ),
+                        (
                             "flora_instances",
                             DescriptorResource::Buffer(&instances.resource.instances_buf),
                         ),
@@ -5253,6 +5315,17 @@ impl Tracer {
                 pipeline
                     .prepare_draw_descriptors(cmdbuf, &resources)
                     .expect("flora draw descriptors must match reflection")
+            })
+            .collect::<Vec<_>>();
+        let prepared_flora_indirect = flora_frame_plan
+            .batches()
+            .iter()
+            .map(|batch| {
+                re_flora_vkn::PreparedIndexedIndirectDraw::new(
+                    cmdbuf,
+                    &visible_grass,
+                    u64::from(batch.visibility_offset()) * 4,
+                )
             })
             .collect::<Vec<_>>();
 
@@ -5527,6 +5600,7 @@ impl Tracer {
                 )
             });
             let mut prepared_flora_descriptors = prepared_flora_descriptors.iter();
+            let mut prepared_flora_indirect = prepared_flora_indirect.iter();
             for group in flora_frame_plan.groups() {
                 let species_index = group.species_index();
                 let lod_state = group.lod_state();
@@ -5568,14 +5642,13 @@ impl Tracer {
                     let descriptors = prepared_flora_descriptors
                         .next()
                         .expect("every flora frame batch must have prepared descriptors");
-                    pipeline.record_indexed_with_prepared_descriptors(
+                    push_constant.grass_visibility_offset = batch.visibility_offset();
+                    pipeline.record_indexed_indirect_with_prepared_descriptors(
                         cmdbuf,
                         descriptors,
-                        stem_band_mesh::grass_index_count(batch.mesh_voxel_count()),
-                        batch.instance_count(),
-                        0,
-                        0,
-                        FloraInstanceResources::species_offset(species_index),
+                        prepared_flora_indirect
+                            .next()
+                            .expect("every grass batch has an indirect command"),
                         Some(&PushConstantInfo {
                             shader_stage: vk::ShaderStageFlags::VERTEX,
                             push_constants: bytemuck::bytes_of(&push_constant).to_vec(),
@@ -5584,6 +5657,7 @@ impl Tracer {
                 }
             }
             debug_assert!(prepared_flora_descriptors.next().is_none());
+            debug_assert!(prepared_flora_indirect.next().is_none());
             self.vegetation_response.observe_draws(&flora_frame_plan);
             if self.raster_lighting_is_ddgi() && recorded_flora_instance_count > 0 {
                 let active = self.ddgi_runtime.status().active();
@@ -5592,7 +5666,7 @@ impl Tracer {
                 }) {
                     self.ddgi_flora_consumer_logged_token_serial = Some(token.serial());
                     log::info!(
-                        "[DDGI][FLORA_CONSUMER] draw_recorded active_token_serial={} terrain_revision={} spacing_voxels={} instance_count={} cache_entries={} sampler=flora_lighting_cache shading_info=shared",
+                        "[DDGI][FLORA_CONSUMER] draw_recorded active_token_serial={} terrain_revision={} spacing_voxels={} instance_count={} cache_entries={} sampler=flora_lighting_cache shading_info=shared count_kind=source_capacity draw=indirect",
                         token.serial(),
                         active.relocated_terrain_revision.unwrap_or_default(),
                         active.grid.spacing_voxels(),

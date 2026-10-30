@@ -725,6 +725,7 @@ const SHADER_FILES: &[&str] = &[
     "shader/foliage/vegetation_response.comp",
     "shader/foliage/flower_pixel.vert",
     "shader/foliage/grass_band.vert",
+    "shader/foliage/grass_visibility.comp",
     "shader/foliage/flora_lighting_cache.comp",
     "shader/foliage/leaves.vert",
     "shader/foliage/leaves_shadow.vert",

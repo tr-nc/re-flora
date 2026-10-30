@@ -77,6 +77,13 @@ impl CommandBuffer {
         self.record_buffer_use(buffer, usage);
     }
 
+    /// Publish a GPU-produced buffer to multiple readers in one dependency.
+    /// Call before the first reader (and outside render passes); declaring readers
+    /// separately cannot expand the destination visibility of an earlier barrier.
+    pub fn use_buffer_reads(&self, buffer: &Buffer, readers: &[BufferUse]) {
+        self.record_buffer_state(buffer, BufferUse::combined_reads(readers));
+    }
+
     /// Declares the next semantic use of an Image in this recording.
     pub fn use_image(&self, image: &Image, usage: ImageUse) {
         self.use_image_layers(image, 0, image.get_desc().array_len, usage);

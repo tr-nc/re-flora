@@ -1,4 +1,5 @@
 import flora_types;
+import grass_visibility;
 import plant_hydration;
 import flora_vertex;
 import grass_growth_shape;
@@ -20,8 +21,8 @@ StemBandVertex main(VertexInput input) {
     StemBandVertex output;output.position=float4(2,2,2,1);output.color=float3(0);
     uint band=input.vertex>>3u;
     uint species=floraInstanceType();
-    uint localIndex=input.instance-species*MAX_FLORA_INSTANCES_PER_SPECIES;
-    Instance instance=flora_instances.data[input.instance];
+    uint localIndex=grassSourceIndex(floraPushConstants(),input.instance);
+    Instance instance=flora_instances.data[species*MAX_FLORA_INSTANCES_PER_SPECIES+localIndex];
     uint3 root=surfaceFloraStemWorldPosition(instance.packed_local_pos,floraChunkWorldOffset());
     uint seed=instanceSeed(root);
     uint3 base=unpackInstanceLocalPosition(instance.packed_local_pos);
@@ -66,7 +67,7 @@ StemBandVertex main(VertexInput input) {
     float3 color=sampleFloraBaseColor(true,species,seed,int3(0,int(band),0),root,pose.color_gradient,info);
     color=applyGrassMoistureMaterial(color,species,support.moisture_level,
         gui_input.grass_moisture_response != 0u);
-    float3 light=flora_lighting_cache.irradiance[floraLightingCacheIndex(floraPushConstants(),localIndex,band)].xyz;
+    float3 light=flora_lighting_cache.irradiance[floraLightingCacheIndex(floraPushConstants(),input.instance,band)].xyz;
     output.color=shadeFloraVertexWithEnvironment(color,pose.shadow_weight,light,pose.voxel_position);
     return output;
 }

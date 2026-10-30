@@ -22,6 +22,7 @@ pub(super) struct FloraFrameBatch {
     instance_count: u32,
     mesh_voxel_count: u32,
     lighting_cache_offset: u32,
+    visibility_offset: u32,
 }
 
 impl FloraFrameBatch {
@@ -43,6 +44,11 @@ impl FloraFrameBatch {
 
     pub(super) fn mesh_voxel_count(self) -> u32 {
         self.mesh_voxel_count
+    }
+
+    /// Word offset of this batch's indirect command followed by source indices.
+    pub(super) fn visibility_offset(self) -> u32 {
+        self.visibility_offset
     }
 
     pub(super) fn lighting_cache_offset(self) -> u32 {
@@ -72,6 +78,7 @@ pub(super) struct FloraFramePlan {
     batches: Vec<FloraFrameBatch>,
     groups: Vec<FloraFrameBatchGroup>,
     required_cache_entries: u32,
+    visibility_words: u32,
     instance_count: u64,
 }
 
@@ -110,6 +117,7 @@ impl FloraFramePlan {
         let mut batches = Vec::new();
         let mut groups = Vec::new();
         let mut required_cache_entries = 0u32;
+        let mut visibility_words = 0u32;
         let mut total_instance_count = 0u64;
         for species_index in 0..config.species_count {
             if !species_enabled(species_index) {
@@ -148,7 +156,11 @@ impl FloraFramePlan {
                         instance_count: batch_instance_count,
                         mesh_voxel_count: voxel_count,
                         lighting_cache_offset: required_cache_entries,
+                        visibility_offset: visibility_words,
                     });
+                    visibility_words = visibility_words
+                        .checked_add(super::grass_visibility::COMMAND_WORDS + batch_instance_count)
+                        .expect("grass visibility plan size must fit u32");
                     required_cache_entries = next_cache_entries;
                     total_instance_count += u64::from(batch_instance_count);
                 }
@@ -166,6 +178,7 @@ impl FloraFramePlan {
             batches,
             groups,
             required_cache_entries,
+            visibility_words,
             instance_count: total_instance_count,
         }
     }
@@ -184,6 +197,10 @@ impl FloraFramePlan {
 
     pub(super) fn required_cache_entries(&self) -> u32 {
         self.required_cache_entries
+    }
+
+    pub(super) fn visibility_words(&self) -> u32 {
+        self.visibility_words
     }
 
     pub(super) fn instance_count(&self) -> u64 {
@@ -764,6 +781,7 @@ mod tests {
                     instance_count: 2,
                     mesh_voxel_count: 5,
                     lighting_cache_offset: 0,
+                    visibility_offset: 0,
                 },
                 FloraFrameBatch {
                     species_index: 0,
@@ -772,6 +790,7 @@ mod tests {
                     instance_count: 3,
                     mesh_voxel_count: 2,
                     lighting_cache_offset: 10,
+                    visibility_offset: 7,
                 },
                 FloraFrameBatch {
                     species_index: 2,
@@ -780,6 +799,7 @@ mod tests {
                     instance_count: 1,
                     mesh_voxel_count: 11,
                     lighting_cache_offset: 16,
+                    visibility_offset: 15,
                 },
                 FloraFrameBatch {
                     species_index: 2,
@@ -788,6 +808,7 @@ mod tests {
                     instance_count: 4,
                     mesh_voxel_count: 4,
                     lighting_cache_offset: 27,
+                    visibility_offset: 21,
                 },
             ]
         );

@@ -1,0 +1,35 @@
+[
+  {
+    "name": "step1",
+    "args": [
+      "--hidden",
+      "--mute",
+      "--perf",
+      "--camera-snapshot",
+      "player-default",
+      "--auto-exit",
+      "2"
+    ],
+    "status": 0,
+    "binaryHash": "9b394040bc40b1b31a090f70a9b1020eeb88a3ef74753bf2b030dd743626ec87",
+    "errors": [],
+    "complete": true
+  },
+  {
+    "name": "final",
+    "args": [
+      "--hidden",
+      "--mute",
+      "--perf",
+      "--camera-snapshot",
+      "player-default",
+      "--auto-exit",
+      "2"
+    ],
+    "status": 0,
+    "binaryHash": "fed5362a17c75d899eacdc3e1176fd3163cdb9cf917acb051a518040ba1811f1",
+    "errors": [],
+    "complete": true,
+    "lastAudit": "source=309180 visible=145503 bands=909232 unique=true range=true indirect=true"
+  }
+]

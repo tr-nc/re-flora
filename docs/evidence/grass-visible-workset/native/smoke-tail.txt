@@ -1,0 +1,36 @@
+warning: re-flora-vkn@0.1.0: using Slang compiler API 2025.23.2 from /home/terence/vulkan-sdk/x86_64/lib/libslang.so
+warning: re-flora-vkn@0.1.0: precompiled 138 native Slang shaders into SPIR-V artifacts (compiled 1, reused 137)
+warning: re-flora@0.4.0: using Slang compiler API 2025.23.2 from /home/terence/vulkan-sdk/x86_64/lib/libslang.so
+    Finished `release` profile [optimized] target(s) in 0.14s
+     Running `target/release/re-flora --tail-latest-log 30`
+Tailing latest run log: /home/terence/code/re-flora/target/grass-workset/smoke/target/re-flora-logs/re-flora-20261031-034954.004-151458.log (last 30 lines)
+[03:49:54.183 INFO re_flora::util::startup_progress] [STARTUP] status=done stage=swapchain_gui stage_ms=10.7 total_ms=176.9
+[03:49:54.183 INFO re_flora::util::startup_progress] [STARTUP] status=begin stage=terrain_builders stage_ms=0.0 total_ms=176.9
+[03:49:54.481 INFO re_flora::util::startup_progress] [STARTUP] status=done stage=terrain_builders stage_ms=297.6 total_ms=474.5
+[03:49:54.481 INFO re_flora::util::startup_progress] [STARTUP] status=begin stage=spatial_audio stage_ms=0.0 total_ms=474.5
+[03:49:54.559 INFO re_flora::util::startup_progress] [STARTUP] status=done stage=spatial_audio stage_ms=78.3 total_ms=552.8
+[03:49:54.559 INFO re_flora::util::startup_progress] [STARTUP] status=begin stage=shader_modules stage_ms=0.0 total_ms=552.8
+[03:49:54.684 INFO re_flora::util::startup_progress] [STARTUP] status=done stage=shader_modules stage_ms=125.2 total_ms=678.0
+[03:49:54.684 INFO re_flora::util::startup_progress] [STARTUP] status=begin stage=renderer_resources stage_ms=0.0 total_ms=678.0
+[03:49:54.810 INFO re_flora::util::startup_progress] [STARTUP] status=done stage=renderer_resources stage_ms=125.4 total_ms=803.4
+[03:49:54.810 INFO re_flora::util::startup_progress] [STARTUP] status=begin stage=compute_pipelines stage_ms=0.0 total_ms=803.5
+[03:49:55.934 INFO re_flora::util::startup_progress] [STARTUP] status=done stage=compute_pipelines stage_ms=1124.3 total_ms=1927.8
+[03:49:55.934 INFO re_flora::util::startup_progress] [STARTUP] status=begin stage=graphics_pipelines stage_ms=0.0 total_ms=1927.8
+[03:49:57.134 INFO re_flora::util::startup_progress] [STARTUP] status=done stage=graphics_pipelines stage_ms=1200.0 total_ms=3127.8
+[03:49:57.134 INFO re_flora::util::startup_progress] [STARTUP] status=begin stage=renderer_geometry stage_ms=0.0 total_ms=3127.9
+[03:49:57.135 INFO re_flora::util::startup_progress] [STARTUP] status=done stage=renderer_geometry stage_ms=0.7 total_ms=3128.6
+[03:49:57.135 INFO re_flora::util::startup_progress] [STARTUP] status=begin stage=scene_services stage_ms=0.0 total_ms=3128.6
+[03:49:57.178 INFO re_flora::util::startup_progress] [STARTUP] status=done stage=scene_services stage_ms=42.6 total_ms=3171.2
+[03:49:57.178 INFO re_flora::util::startup_progress] [STARTUP] status=begin stage=terrain_and_model_caches stage_ms=0.0 total_ms=3171.2
+[03:49:59.178 INFO re_flora::util::startup_progress] [STARTUP] status=waiting stage=terrain_and_model_caches stage_ms=2000.1 total_ms=5171.3
+[03:50:01.178 INFO re_flora::util::startup_progress] [STARTUP] status=waiting stage=terrain_and_model_caches stage_ms=4000.3 total_ms=7171.5
+[03:50:02.736 INFO re_flora::util::startup_progress] [STARTUP] status=done stage=terrain_and_model_caches stage_ms=5558.6 total_ms=8729.8
+[03:50:02.736 INFO re_flora::util::startup_progress] [STARTUP] status=begin stage=world_population_and_lighting stage_ms=0.0 total_ms=8729.8
+[03:50:03.258 INFO re_flora::util::startup_progress] [STARTUP] status=done stage=world_population_and_lighting stage_ms=521.4 total_ms=9251.2
+[03:50:03.258 INFO re_flora::util::startup_progress] [STARTUP] status=begin stage=first_frame stage_ms=0.0 total_ms=9251.2
+[03:50:03.971 INFO re_flora::app::core] Loading complete; first game frame ready (gpu_wait_ms=21.071)
+[03:50:03.977 INFO re_flora_vkn::context::pipeline_cache] [PIPELINE_CACHE] status=saved bytes=5261642 path=/home/terence/.cache/re-flora/pipelines-v1/76cc30e3e9a8942c071a1d173a9342dd509cab46dc6af131b760e3a6e59341b0.bin
+[03:50:03.977 INFO re_flora::util::startup_progress] [STARTUP] status=done stage=first_frame stage_ms=719.7 total_ms=9970.9
+[03:50:03.977 INFO re_flora::util::startup_progress] [STARTUP] status=ready stage=first_frame stage_ms=719.7 total_ms=9970.9
+[03:50:04.136 INFO re_flora] Application exited successfully
+[03:50:04.136 INFO re_flora] Run log saved to /home/terence/code/re-flora/target/grass-workset/smoke/target/re-flora-logs/re-flora-20261031-034954.004-151458.log

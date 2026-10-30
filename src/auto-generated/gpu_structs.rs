@@ -148,6 +148,14 @@ pub struct GrassLighting {
     pub irradiance: [u32; 0],
 }
 
+/// Auto-generated from `B_GrassVisibilitySource` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GrassVisibilitySource {
+    pub packed_local_pos: u32,
+    pub spawn_start_ms: u32,
+}
+
 /// Auto-generated from `B_Heightmap` (native Slang source of truth).
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -471,7 +479,7 @@ pub struct PushConstantFloraLightingCache {
     pub time: f32,
     pub instance_ty: u32,
     pub response_offset: u32,
-    pub model_object_prepare: u32,
+    pub grass_visibility_offset: u32,
     pub chunk_world_offset: [u32; 3],
     pub lighting_cache_location: u32,
     pub height_dark_color_rgb10: [u32; 12],
@@ -524,11 +532,23 @@ pub struct PushConstantGrassBand {
     pub time: f32,
     pub instance_ty: u32,
     pub response_offset: u32,
-    pub model_object_prepare: u32,
+    pub grass_visibility_offset: u32,
     pub chunk_world_offset: [u32; 3],
     pub lighting_cache_location: u32,
     pub height_dark_color_rgb10: [u32; 12],
     pub height_light_color_rgb10: [u32; 12],
+}
+
+/// Auto-generated from `PushConstantGrassVisibility` (native Slang source of truth).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PushConstantGrassVisibility {
+    pub chunk_world_offset: [u32; 3],
+    pub species: u32,
+    pub instance_count: u32,
+    pub word_offset: u32,
+    pub enabled: u32,
+    pub bands: u32,
 }
 
 /// Auto-generated from `PushConstantIrradianceFilter` (native Slang source of truth).
@@ -576,7 +596,7 @@ pub struct PushConstantLeaves {
     pub time: f32,
     pub instance_ty: u32,
     pub response_offset: u32,
-    pub model_object_prepare: u32,
+    pub grass_visibility_offset: u32,
     pub chunk_world_offset: [u32; 3],
     pub lighting_cache_location: u32,
     pub height_dark_color_rgb10: [u32; 12],
@@ -590,7 +610,7 @@ pub struct PushConstantLeavesShadow {
     pub time: f32,
     pub instance_ty: u32,
     pub response_offset: u32,
-    pub model_object_prepare: u32,
+    pub grass_visibility_offset: u32,
     pub chunk_world_offset: [u32; 3],
     pub lighting_cache_location: u32,
     pub height_dark_color_rgb10: [u32; 12],
