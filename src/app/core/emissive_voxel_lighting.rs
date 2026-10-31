@@ -958,7 +958,16 @@ fn emissive_voxel_emitter(voxels_per_world_unit: Vec3) -> Result<EmissiveVoxelEm
         * 0.5;
     let voxel_half_diagonal_world = (voxel_size_world * 0.5).length();
     EmissiveVoxelEmitter::new(
-        EMISSIVE_VOXEL_COLOR_SRGB,
+        EMISSIVE_VOXEL_COLOR_SRGB
+            .to_array()
+            .map(|channel| {
+                if channel <= 0.04045 {
+                    channel / 12.92
+                } else {
+                    ((channel + 0.055) / 1.055).powf(2.4)
+                }
+            })
+            .into(),
         EMISSIVE_VOXEL_SURFACE_RADIANCE * average_projected_area,
         (voxel_size_world.min_element() * 0.001).max(f32::EPSILON),
         EMISSIVE_VOXEL_LIGHT_RANGE_WORLD.max(voxel_half_diagonal_world),
@@ -1840,10 +1849,12 @@ mod tests {
             emitters[0].1.intensity,
             crate::lighting::EMISSIVE_VOXEL_SURFACE_RADIANCE * average_projected_area
         );
-        assert_eq!(
-            emitters[0].1.color,
-            crate::lighting::EMISSIVE_VOXEL_COLOR_SRGB
-        );
+        // The surface shader decodes the same sRGB emission into scene-linear
+        // radiance; the provider must not upload raw display-space RGB as energy.
+        assert!(emitters[0]
+            .1
+            .color
+            .abs_diff_eq(Vec3::new(1.0, 0.1070231, 0.00699541), 1.0e-6));
     }
 
     #[test]

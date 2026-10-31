@@ -205,7 +205,6 @@ void parseTraceResult(out float3 albedo, MarchingResult result)
 }
 
 float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,
-                      float3 surfacePosition,
                       uint localInvocationIndex,
                       out DirectSunShadowTransmittances shadow)
 {
@@ -221,8 +220,11 @@ float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,
             voxelCenter, normal, gui_input.terrain_ray_origin_offset_world);
         sunIrradiance = shadowRayColor(receiver, shadow) * cosine;
     }
+    // Like sun visibility, a terrain voxel owns one local-light response. Using
+    // the camera-ray hit here drew lighting/shadow boundaries inside one voxel.
+    float3 localReceiver = terrainVoxelSurfacePositionAlongNormal(voxelCenter, normal);
     float3 localIrradiance = tracerVisibleLocalLightIrradiance(
-        surfacePosition, normal, localInvocationIndex);
+        localReceiver, normal, localInvocationIndex);
     return (sunIrradiance + localIrradiance) * albedo;
 }
 
@@ -626,7 +628,7 @@ void getPixelColor(out float3 color, out float depth,
     {
         DirectSunShadowTransmittances shadow;
         directLight = directLighting(albedo, result.normal,
-                                     result.center_position, result.position,
+                                     result.center_position,
                                      localInvocationIndex,
                                      shadow);
         environmentCaptureReceiver.w = shadow.terrain;

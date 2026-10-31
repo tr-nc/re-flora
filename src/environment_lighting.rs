@@ -1601,8 +1601,13 @@ mod tests {
         assert!(shadowing.contains(
             "pointSunShadowReceiver(terrainRayOriginAlongNormal(voxelCenter,normal,offsetWorld))"
         ));
+        // Terrain direct terms cannot receive camera-dependent surface hits;
+        // DDGI spatial interpolation below deliberately retains that input.
         assert!(tracer.contains(
-            "directLight = directLighting(albedo, result.normal,\n                                     result.center_position, result.position,"
+            "directLight = directLighting(albedo, result.normal,\n                                     result.center_position,"
+        ));
+        assert!(tracer.contains(
+            "float3 localReceiver = terrainVoxelSurfacePositionAlongNormal(voxelCenter, normal)"
         ));
         let compact = tracer.split_whitespace().collect::<String>();
         assert!(compact.contains(

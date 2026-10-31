@@ -787,6 +787,9 @@ def summarize(
     )
     direct_light_luminances: list[float] = []
     direct_light_rgb_channel_negative_count = [0, 0, 0]
+    direct_light_voxel_samples: dict[
+        tuple[int, int, int], list[tuple[float, float, float]]
+    ] = {}
     roi_combined_zero_count = 0
     roi_combined_voxel_face_counts: dict[
         tuple[int, int, int, int], list[int]
@@ -904,6 +907,10 @@ def summarize(
             in_world_roi = world_roi is None
             if world_pixel is not None and world_roi is not None:
                 in_world_roi = position_in_world_roi(world_pixel[:3], world_roi)
+            if in_world_roi and captured_voxel_key is not None:
+                direct_light_voxel_samples.setdefault(captured_voxel_key, []).append(
+                    direct_rgb
+                )
             irradiance_rgb = irradiance_pixel[:3]
             combined_zero = all(
                 irradiance + direct == 0.0
@@ -944,6 +951,14 @@ def summarize(
     direct_light_luminances.sort()
     for values in direct_light_roi_luminances.values():
         values.sort()
+    direct_light_voxel_rgb_ranges = sorted(
+        max(
+            max(p[channel] for p in samples) - min(p[channel] for p in samples)
+            for channel in range(3)
+        )
+        for samples in direct_light_voxel_samples.values()
+        if len(samples) >= DIRECT_LIGHT_RECEIVER_VOXEL_MIN_PIXELS
+    )
     terrain_shadow_receiver_voxel_transmittance_ranges = sorted(
         max(samples) - min(samples)
         for samples in terrain_shadow_receiver_voxel_samples.values()
@@ -1081,6 +1096,10 @@ def summarize(
         ),
         "exact_direct_sun_visibility_max": (
             max(exact_sun_visibilities) if exact_sun_visibilities else None
+        ),
+        "direct_light_receiver_voxel_count": len(direct_light_voxel_rgb_ranges),
+        "direct_light_receiver_voxel_rgb_range_max": (
+            direct_light_voxel_rgb_ranges[-1] if direct_light_voxel_rgb_ranges else None
         ),
         "direct_light_available": direct_light_available,
         "direct_light_finite": direct_light_finite if direct_light_available else None,
@@ -1835,6 +1854,15 @@ def _run_cli(
     parser.add_argument("--direct-light-shadowed-roi", type=float, nargs=6)
     parser.add_argument("--max-direct-light-shadowed-luminance-max", type=float)
     parser.add_argument(
+        "--max-direct-light-receiver-voxel-rgb-range",
+        type=float,
+        help=(
+            "limit within-voxel direct-light RGB variation using captured marcher "
+            "centers (at least four pixels per voxel, restricted by --world-roi); "
+            "fails if no eligible captured voxels are available"
+        ),
+    )
+    parser.add_argument(
         "--max-terrain-shadow-receiver-voxel-transmittance-range",
         type=float,
         help=(
@@ -2104,6 +2132,10 @@ def _run_cli(
     gate_max(
         "direct_light_shadowed_roi_luminance_max",
         args.max_direct_light_shadowed_luminance_max,
+    )
+    gate_max(
+        "direct_light_receiver_voxel_rgb_range_max",
+        args.max_direct_light_receiver_voxel_rgb_range,
     )
     gate_max(
         "terrain_shadow_receiver_voxel_transmittance_range_max",

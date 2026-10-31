@@ -24,8 +24,9 @@ a receiver, GUI policy, and shadow camera, never a list of effect maps.
 sampling implementation. The PCSS receiver-plane path shares the leaf policy.
 
 - `voxelSunShadowReceiver`: canonical voxel-face-offset terrain/leaf samples, stable
-  across pixels. Continuous hit positions still serve local lights and DDGI, but
-  there is no unused atmospheric receiver field in the shadow query.
+  across pixels. Terrain local lighting likewise uses a voxel-owned surface point;
+  DDGI spatial interpolation retains the continuous camera hit position. There is
+  no unused atmospheric receiver field in the shadow query.
 - `surfaceSunShadowReceiver`: an already exposed face/triangle point receives only
   the normal offset, **not** a second half-voxel displacement.
 - `pointSunShadowReceiver`: already positioned models/flora/soil. `withLeafReceiver`

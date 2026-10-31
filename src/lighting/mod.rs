@@ -13,7 +13,7 @@ pub(crate) use raster_entity::*;
 pub(crate) use registry::*;
 pub(crate) use voxel_emissive::*;
 
-pub(crate) const LOCAL_LIGHT_GPU_ABI_VERSION: u32 = 2;
+pub(crate) const LOCAL_LIGHT_GPU_ABI_VERSION: u32 = 3;
 pub(crate) const LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS: u32 = 1 << 0;
 pub(crate) const LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS: u32 = 1 << 1;
 /// First production small-N budget. CPU providers and the registry remain unbounded; selection is
@@ -47,6 +47,9 @@ pub(crate) struct PointLight {
     pub source_radius: f32,
     /// Finite support radius in world units.
     pub range: f32,
+    /// Nonzero only for an aggregated voxel emitter: its axis-aligned emitting
+    /// envelope, not an attenuation clamp or an artificial shadow blur radius.
+    pub source_half_extents: Vec3,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -171,6 +174,7 @@ impl PointLight {
             intensity,
             source_radius,
             range,
+            source_half_extents: Vec3::ZERO,
         })
     }
 }
@@ -637,7 +641,14 @@ impl LocalLightGpuSnapshot {
                 intensity: point.intensity,
                 direction: Vec3::ZERO.to_array(),
                 source_radius: point.source_radius,
-                shape_params: [0.0; 4],
+                shape_params: point
+                    .source_half_extents
+                    .extend(if point.source_half_extents.min_element() > 0.0 {
+                        1.0
+                    } else {
+                        0.0
+                    })
+                    .to_array(),
             };
         }
         Self {
@@ -891,6 +902,36 @@ mod tests {
         assert_eq!(gpu.lights[0].stable_id_slot, accepted_id.slot());
         assert_eq!(gpu.lights[0].stable_id_generation, accepted_id.generation());
         assert_eq!(gpu.overflow[0].id, overflow_id);
+    }
+
+    #[test]
+    fn finite_voxel_extent_survives_the_shared_live_and_transport_upload() {
+        let mut provider = EmissiveVoxelProvider::new(Vec3::splat(256.)).unwrap();
+        let emitter = EmissiveVoxelEmitter::new(Vec3::ONE, 0.001, 0.0001, 0.35).unwrap();
+        provider
+            .replace_all((8..11).flat_map(|x| {
+                (6..12)
+                    .flat_map(move |y| (9..12).map(move |z| (glam::UVec3::new(x, y, z), emitter)))
+            }))
+            .unwrap();
+        let mut registry = LocalLightRegistry::default();
+        registry.reconcile(provider.snapshot()).unwrap();
+        let gpu = LocalLightGpuSnapshot::from_authoritative(
+            &registry.snapshot(),
+            LocalLightBudget::point_lights(8),
+            7,
+        );
+        assert_eq!(gpu.info.count, 1);
+        assert_eq!(gpu.lights[0].position, [9.5 / 256., 9. / 256., 10.5 / 256.]);
+        assert_eq!(
+            gpu.lights[0].shape_params,
+            [1.5 / 256., 3. / 256., 1.5 / 256., 1.]
+        );
+        let analytic = point(Vec3::ZERO);
+        let LocalLight::Point(analytic) = analytic else {
+            unreachable!()
+        };
+        assert_eq!(analytic.source_half_extents, Vec3::ZERO);
     }
 
     #[test]

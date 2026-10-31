@@ -5,8 +5,9 @@ import marching_result;
 import scene_query;
 import scene_marching;
 import terrain_ray_origin;
+import local_emitter;
 
-public static const uint LOCAL_LIGHT_GPU_ABI_VERSION = 2u;
+public static const uint LOCAL_LIGHT_GPU_ABI_VERSION = 3u;
 public static const uint LOCAL_LIGHT_KIND_POINT = 1u;
 public static const uint LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS = 1u << 0u;
 public static const uint LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS = 1u << 1u;
@@ -14,7 +15,9 @@ public static const uint LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS = 1u << 1u;
 // Versioned record shared by live direct consumers and immutable DDGI transport snapshots.
 // Position, range, and source_radius are authoritative world units in the same space as terrain
 // and flora hit positions. source_radius both clamps near-field attenuation and defines the
-// spherical endpoint volume owned by the emitter for exact visibility. Point intensity is
+// spherical endpoint volume owned by an analytic point for exact visibility. Voxel emitters
+// instead carry their finite box half-extents in shape_params.xyz (w=1); visibility terminates
+// at each emitting surface sample, so the radius never exempts lantern frames. Point intensity is
 // scene-linear radiant intensity; the evaluator produces irradiance.
 public struct U_LightGpu
 {
@@ -139,6 +142,39 @@ public LocalPointLightSample evaluateUnshadowedPointLight(
     return result;
 }
 
+// Finite-emitter visibility uses the same published scene and finite segments as
+// analytic points. No screen-space blur, ambient fill, or shadow-strength floor.
+LocalLightVoxelEvaluation evaluateVoxelFiniteEmitter(
+    U_LightGpu light,
+    StructuredBuffer<ContreeNode> nodeData,
+    StructuredBuffer<uint> leafData,
+    readonly RWTexture3D<uint2> sceneTexture,
+    float3 receiverPosition, float3 receiverNormal,
+    float rayOriginOffsetWorld, uint localInvocationIndex)
+{
+    LocalLightVoxelEvaluation result = {};
+    float3 origin = terrainRayOriginFromPosition(receiverPosition, receiverNormal, rayOriginOffsetWorld);
+    [loop]
+    for (uint tap = 0u; tap < LOCAL_EMITTER_SAMPLE_COUNT; ++tap)
+    {
+        LocalEmitterSample sample = sampleLocalEmitter(light.position, light.shape_params.xyz,
+            light.range, receiverPosition, receiverNormal, tap);
+        if (sample.irradiance_per_intensity <= 0.0) continue;
+        result.candidates = 1u;
+        float3 segment = sample.position - origin;
+        float distance = length(segment);
+        float3 direction = segment / max(distance, 1.0e-12);
+        MarchingResult hit = marchScene(nodeData, leafData, sceneTexture,
+            origin, direction, 1.0 / direction, localInvocationIndex);
+        if (!hit.is_hit || hit.distance >= distance - 1.0e-5)
+            result.irradiance += light.color * light.intensity * sample.irradiance_per_intensity;
+    }
+    result.visible = any(result.irradiance > float3(0.0)) ? 1u : 0u;
+    result.occluded = result.candidates - result.visible;
+    result.irradiance_luma_q8 = lightingLuminanceQ8(result.irradiance);
+    return result;
+}
+
 public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLightAtIndex(
     U_LocalLightInfo info,
     StructuredBuffer<U_LightGpu> lights,
@@ -160,6 +196,10 @@ public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLightAtIndex(
     if (lightIndex < localLightCount(info))
     {
         U_LightGpu light = lights[lightIndex];
+        if (light.abi_version == LOCAL_LIGHT_GPU_ABI_VERSION &&
+            light.kind == LOCAL_LIGHT_KIND_POINT && light.shape_params.w > 0.5)
+            return evaluateVoxelFiniteEmitter(light, nodeData, leafData, sceneTexture,
+                receiverPosition, receiverNormal, rayOriginOffsetWorld, localInvocationIndex);
         LocalPointLightSample sample = evaluateUnshadowedPointLight(
             light, receiverPosition, receiverNormal);
         if (!any(sample.irradiance > float3(0.0))) return result;
@@ -256,6 +296,40 @@ public float3 evaluateVoxelVisibleLocalLightIrradiance(
 // Glass transport is a separate semantic entry point so feature-off shaders keep the legacy
 // visibility program and descriptor set exactly. Callers select this only in Glass-specialized
 // shader modules.
+LocalLightVoxelEvaluation evaluateVoxelGlassFiniteEmitter(
+    U_LocalLightInfo info, U_LightGpu light,
+    StructuredBuffer<ContreeNode> nodeData,
+    StructuredBuffer<uint> leafData,
+    readonly RWTexture3D<uint2> sceneTexture,
+    readonly RWTexture3D<uint> chunkAtlas,
+    float3 receiverPosition, float3 receiverNormal,
+    float rayOriginOffsetWorld, uint localInvocationIndex)
+{
+    LocalLightVoxelEvaluation result = {};
+    float3 origin = terrainRayOriginFromPosition(receiverPosition, receiverNormal, rayOriginOffsetWorld);
+    [loop]
+    for (uint tap = 0u; tap < LOCAL_EMITTER_SAMPLE_COUNT; ++tap)
+    {
+        LocalEmitterSample sample = sampleLocalEmitter(light.position, light.shape_params.xyz,
+            light.range, receiverPosition, receiverNormal, tap);
+        if (sample.irradiance_per_intensity <= 0.0) continue;
+        result.candidates = 1u;
+        float3 segment = sample.position - origin;
+        float distance = length(segment);
+        SceneStraightTransport transport = traceVoxelStraightTransport(
+            nodeData, leafData, sceneTexture, chunkAtlas, origin, segment / max(distance, 1.0e-12),
+            max(distance - 1.0e-5, 1.0e-6), (info.flags & LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS) != 0u,
+            localInvocationIndex);
+        float3 transmittance = transport.exhausted != 0u ||
+            transport.terminal.kind == SCENE_QUERY_EVENT_OPAQUE ? float3(0.0) : transport.transmittance;
+        result.irradiance += light.color * light.intensity * sample.irradiance_per_intensity * transmittance;
+    }
+    result.visible = any(result.irradiance > float3(0.0)) ? 1u : 0u;
+    result.occluded = result.candidates - result.visible;
+    result.irradiance_luma_q8 = lightingLuminanceQ8(result.irradiance);
+    return result;
+}
+
 public LocalLightVoxelEvaluation evaluateVoxelGlassVisibleLocalLightAtIndex(
     U_LocalLightInfo info,
     StructuredBuffer<U_LightGpu> lights,
@@ -278,6 +352,10 @@ public LocalLightVoxelEvaluation evaluateVoxelGlassVisibleLocalLightAtIndex(
     if (lightIndex < localLightCount(info))
     {
         U_LightGpu light = lights[lightIndex];
+        if (light.abi_version == LOCAL_LIGHT_GPU_ABI_VERSION &&
+            light.kind == LOCAL_LIGHT_KIND_POINT && light.shape_params.w > 0.5)
+            return evaluateVoxelGlassFiniteEmitter(info, light, nodeData, leafData, sceneTexture, chunkAtlas,
+                receiverPosition, receiverNormal, rayOriginOffsetWorld, localInvocationIndex);
         LocalPointLightSample sample = evaluateUnshadowedPointLight(
             light, receiverPosition, receiverNormal);
         if (!any(sample.irradiance > float3(0.0))) return result;

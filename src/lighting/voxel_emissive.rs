@@ -24,9 +24,12 @@ pub(crate) const EMISSIVE_VOXEL_SURFACE_RADIANCE: f32 = 4.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct EmissiveVoxelEmitter {
+    /// Scene-linear chromaticity, matching the emissive material's sRGB decode.
     pub color: Vec3,
+    /// One voxel's surface radiance times its mean projected area.
     pub intensity: f32,
-    /// Spherical near-field clamp in authoritative world units.
+    /// Conservative radius retained for analytic fallback and source bounds.
+    /// Finite-source visibility uses the actual box faces, not this sphere.
     pub source_radius_world: f32,
     /// Spherical finite support in authoritative world units.
     pub range_world: f32,
@@ -406,22 +409,22 @@ impl EmissiveVoxelProvider {
         if sources.is_empty() {
             return Ok(None);
         }
-        let mut weighted_position = Vec3::ZERO;
+        let mut source_min = Vec3::splat(f32::INFINITY);
+        let mut source_max = Vec3::splat(f32::NEG_INFINITY);
         let mut radiometric_color = Vec3::ZERO;
         let mut total_intensity = 0.0;
-        let mut fallback_position = Vec3::ZERO;
         for (voxel, emitter) in sources {
             let position = (voxel.get().as_vec3() + Vec3::splat(0.5)) / self.voxels_per_world_unit;
-            weighted_position += position * emitter.intensity;
-            fallback_position += position;
+            let half_size = Vec3::splat(0.5) / self.voxels_per_world_unit;
+            source_min = source_min.min(position - half_size);
+            source_max = source_max.max(position + half_size);
             radiometric_color += emitter.color * emitter.intensity;
             total_intensity += emitter.intensity;
         }
-        let position = if total_intensity > 0.0 {
-            weighted_position / total_intensity
-        } else {
-            fallback_position / sources.len() as f32
-        };
+        // Keep the actual world-space envelope. A cell remains a bounded source
+        // approximation, but no longer collapses finite emitters into hard-shadow points.
+        let position = (source_min + source_max) * 0.5;
+        let source_half_extents = (source_max - source_min) * 0.5;
         let color = if total_intensity > 0.0 {
             radiometric_color / total_intensity
         } else {
@@ -444,8 +447,20 @@ impl EmissiveVoxelProvider {
             range = range.max(emitter.range_world + offset);
         }
         range = range.max(source_radius);
-        PointLight::new(position, color, total_intensity, source_radius, range)
-            .map(Some)
+        // Inputs encode one voxel's radiance * mean projected area. A solid
+        // emitter's power scales with exposed surface, not the number of filled
+        // interior voxels; recover mean radiance before integrating its envelope.
+        let size = Vec3::ONE / self.voxels_per_world_unit;
+        let voxel_projected_area = (size.x * size.y + size.x * size.z + size.y * size.z) * 0.5;
+        let h = source_half_extents;
+        let envelope_projected_area = 2. * (h.x * h.y + h.x * h.z + h.y * h.z);
+        let intensity = total_intensity
+            * (envelope_projected_area / (sources.len() as f32 * voxel_projected_area));
+        PointLight::new(position, color, intensity, source_radius, range)
+            .map(|mut light| {
+                light.source_half_extents = source_half_extents;
+                Some(light)
+            })
             .map_err(|_| EmissiveVoxelProviderError::InvalidAggregate(cell.source_key()))
     }
 
@@ -535,11 +550,18 @@ mod tests {
         let LocalLight::Point(light) = source.light() else {
             panic!("voxel aggregates must currently produce point lights")
         };
-        assert!(light.position.x > 16.5 / 256.0);
-        assert!(light.position.x < 17.5 / 256.0);
+        assert_eq!(light.position.x, 17.0 / 256.0);
+        assert_eq!(
+            light.source_half_extents,
+            Vec3::new(1. / 256., 0.5 / 128., 0.5 / 64.)
+        );
         assert_eq!(light.position.y, 16.5 / 128.0);
         assert_eq!(light.position.z, 16.5 / 64.0);
-        assert_eq!(light.intensity, 6.0);
+        let size = Vec3::ONE / Vec3::new(256., 128., 64.);
+        let voxel_area = (size.x * size.y + size.x * size.z + size.y * size.z) * 0.5;
+        let h = light.source_half_extents;
+        let box_area = 2. * (h.x * h.y + h.x * h.z + h.y * h.z);
+        assert!((light.intensity - 6. * (box_area / (2. * voxel_area))).abs() < 1.0e-6);
         assert_eq!(light.color, Vec3::new(5.0 / 6.0, 4.0 / 6.0, 0.25));
         let far_center_world = Vec3::new(17.5 / 256.0, 16.5 / 128.0, 16.5 / 64.0);
         let voxel_half_diagonal_world = (Vec3::splat(0.5) / Vec3::new(256.0, 128.0, 64.0)).length();
@@ -552,6 +574,27 @@ mod tests {
                 >= far_center_world.distance(light.position) + emitter(Vec3::ONE, 1.0).range_world
         );
         assert!(light.range >= light.source_radius);
+    }
+
+    #[test]
+    fn solid_emitter_radiance_does_not_grow_with_interior_volume() {
+        let mut provider = EmissiveVoxelProvider::new(Vec3::splat(256.)).unwrap();
+        let voxel_area = 1.5 / (256. * 256.);
+        let emitter = EmissiveVoxelEmitter::new(Vec3::ONE, 4. * voxel_area, 0.0001, 0.35).unwrap();
+        for width in [2, 4, 8] {
+            provider
+                .replace_all((1..=width).flat_map(|x| {
+                    (1..=width)
+                        .flat_map(move |y| (1..=width).map(move |z| (UVec3::new(x, y, z), emitter)))
+                }))
+                .unwrap();
+            let LocalLight::Point(light) = provider.snapshot().sources()[0].light() else {
+                unreachable!()
+            };
+            let h = light.source_half_extents;
+            let projected_area = 2. * (h.x * h.y + h.x * h.z + h.y * h.z);
+            assert!((light.intensity / projected_area - 4.).abs() < 1.0e-5);
+        }
     }
 
     #[test]

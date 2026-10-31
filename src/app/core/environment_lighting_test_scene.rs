@@ -2014,14 +2014,14 @@ fn vec3_near(actual: Vec3, expected: Vec3, relative_epsilon: f32) -> bool {
         .all()
 }
 
-fn expected_emissive_voxel_intensity(voxel_count: u32) -> f32 {
-    // Isotropic 256 voxels/world-unit: mean projected area is 1.5 voxel-face areas.
-    crate::lighting::EMISSIVE_VOXEL_SURFACE_RADIANCE
-        * (1.5 / VOXELS_PER_WORLD_UNIT.powi(2))
-        * voxel_count as f32
-}
-
-fn volume_voxels(min: UVec3, max: UVec3) -> u32 {
+fn assert_emissive_box_radiance(point: PointLight, min: UVec3, max: UVec3) -> u32 {
+    let size = (max - min).as_vec3() / VOXELS_PER_WORLD_UNIT;
+    assert!(point.source_half_extents.abs_diff_eq(size * 0.5, 1.0e-6));
+    // Lambertian radiance is material-owned; adding solid interior voxels must
+    // not multiply the radiance of the exterior emitting faces.
+    let projected_area = (size.x * size.y + size.x * size.z + size.y * size.z) * 0.5;
+    let expected = crate::lighting::EMISSIVE_VOXEL_SURFACE_RADIANCE * projected_area;
+    assert!((point.intensity - expected).abs() <= 1.0e-6);
     (max - min).element_product()
 }
 
@@ -4589,19 +4589,10 @@ impl App {
                         + VOXEL_EMISSIVE_PRIMARY_MAX.as_vec3())
                         * (0.5 / VOXELS_PER_WORLD_UNIT);
                     assert!(point.position.abs_diff_eq(expected_position, 1.0e-6));
-                    let one_voxel_intensity = expected_emissive_voxel_intensity(1);
-                    let emitter_voxels = (point.intensity / one_voxel_intensity).round() as u32;
-                    assert!(emitter_voxels > 1);
-                    assert!(
-                        emitter_voxels
-                            <= volume_voxels(
-                                VOXEL_EMISSIVE_PRIMARY_MIN,
-                                VOXEL_EMISSIVE_PRIMARY_MAX,
-                            )
-                    );
-                    assert!(
-                        (point.intensity - expected_emissive_voxel_intensity(emitter_voxels)).abs()
-                            <= 1.0e-6
+                    let emitter_voxels = assert_emissive_box_radiance(
+                        point,
+                        VOXEL_EMISSIVE_PRIMARY_MIN,
+                        VOXEL_EMISSIVE_PRIMARY_MAX,
                     );
                     let source_half_extent =
                         (VOXEL_EMISSIVE_PRIMARY_MAX - VOXEL_EMISSIVE_PRIMARY_MIN).as_vec3()
@@ -4682,7 +4673,7 @@ impl App {
                     assert!(evidence.irradiance_luma_q8 > 0);
                     state.visible_luma_q8 = evidence.irradiance_luma_q8;
                     log::info!(
-                        "[VOXEL_EMISSIVE_ACCEPT] checkpoint=emitter-endpoint-visible self_occluded=false candidates=1 visible=1 occluded=0 luma_q8={} light_slot={} light_generation={} source_radius_endpoint_volume=true",
+                        "[VOXEL_EMISSIVE_ACCEPT] checkpoint=emitter-endpoint-visible self_occluded=false candidates=1 visible=1 occluded=0 luma_q8={} light_slot={} light_generation={} finite_emitter_surface_samples=true",
                         state.visible_luma_q8,
                         state.light_id.unwrap().slot(),
                         state.light_id.unwrap().generation(),
@@ -4806,19 +4797,10 @@ impl App {
                     };
                     let primary_intensity = f32::from_bits(state.primary_intensity_bits);
                     assert!(point.intensity > primary_intensity);
-                    let one_voxel_intensity = expected_emissive_voxel_intensity(1);
-                    let combined_count = (point.intensity / one_voxel_intensity).round() as u32;
-                    assert!(combined_count > 1);
-                    assert!(
-                        combined_count
-                            <= volume_voxels(
-                                VOXEL_EMISSIVE_PRIMARY_MIN,
-                                VOXEL_EMISSIVE_SECONDARY_MAX,
-                            )
-                    );
-                    assert!(
-                        (point.intensity - expected_emissive_voxel_intensity(combined_count)).abs()
-                            <= 1.0e-6
+                    let combined_count = assert_emissive_box_radiance(
+                        point,
+                        VOXEL_EMISSIVE_PRIMARY_MIN,
+                        VOXEL_EMISSIVE_SECONDARY_MAX,
                     );
                     let combined_half_extent =
                         (VOXEL_EMISSIVE_SECONDARY_MAX - VOXEL_EMISSIVE_PRIMARY_MIN).as_vec3()
@@ -4922,16 +4904,10 @@ impl App {
                     let LocalLight::Point(point) = record.light() else {
                         panic!("moved voxel aggregate must be a point")
                     };
-                    let moved_count =
-                        (point.intensity / expected_emissive_voxel_intensity(1)).round() as u32;
-                    assert!(moved_count > 1);
-                    assert!(
-                        moved_count
-                            <= volume_voxels(VOXEL_EMISSIVE_MOVED_MIN, VOXEL_EMISSIVE_MOVED_MAX,)
-                    );
-                    assert!(
-                        (point.intensity - expected_emissive_voxel_intensity(moved_count)).abs()
-                            <= 1.0e-6
+                    assert_emissive_box_radiance(
+                        point,
+                        VOXEL_EMISSIVE_MOVED_MIN,
+                        VOXEL_EMISSIVE_MOVED_MAX,
                     );
                     state.light_id = Some(record.id());
                     state.expected_source_revision = snapshot.source_revision();
@@ -5168,7 +5144,7 @@ impl App {
                     assert_eq!(lag, 0);
                     log_acceptance_field("VOXEL_EMISSIVE", "complete", field);
                     log::info!(
-                        "[VOXEL_EMISSIVE_ACCEPT] complete provider_lifecycle=true stable_same_cluster_id=true moved_generation=true direct_removed=true stale_contribution=false mixed_in_flight=false ddgi_off_candidates=0 ddgi_off_luma_q8=0 atlas_nonblack=true atlas_max_rgb={:.8} source_revision={} registry_revision={} transport_revision={} revision_lag={} coalesced_live_revisions={} geometry_revision={} terrain_direct=true raster_direct=true ddgi_injection=true emissive_material_transport=true shared_units=world emitter_endpoint_volume=true",
+                        "[VOXEL_EMISSIVE_ACCEPT] complete provider_lifecycle=true stable_same_cluster_id=true moved_generation=true direct_removed=true stale_contribution=false mixed_in_flight=false ddgi_off_candidates=0 ddgi_off_luma_q8=0 atlas_nonblack=true atlas_max_rgb={:.8} source_revision={} registry_revision={} transport_revision={} revision_lag={} coalesced_live_revisions={} geometry_revision={} terrain_direct=true raster_direct=true ddgi_injection=true emissive_material_transport=true shared_units=world finite_emitter_surface=true",
                         atlas.max_rgb_value,
                         state.expected_source_revision,
                         state.expected_registry_revision,

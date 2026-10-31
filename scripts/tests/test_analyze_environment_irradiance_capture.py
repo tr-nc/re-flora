@@ -2033,6 +2033,51 @@ class AnalyzeEnvironmentIrradianceCaptureTests(unittest.TestCase):
             json.loads(rejected.stdout)["validation_failures"],
         )
 
+    def test_direct_rgb_gate_rejects_subvoxel_variation_not_adjacent_colors(self) -> None:
+        voxel = 1.0 / analyzer.TERRAIN_VOXELS_PER_WORLD_UNIT
+        with tempfile.TemporaryDirectory() as directory:
+            capture_path = Path(directory) / "voxel-local-light.rfirr"
+            world = [(0.2 * voxel, 0.2 * voxel, 0.0, 1.0)] * 4 + [
+                (2.2 * voxel, 0.2 * voxel, 0.0, 1.0)
+            ] * 4
+            receivers = [(0.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)] * 4 + [
+                (2.5 * voxel, 0.5 * voxel, 0.5 * voxel, 1.0)
+            ] * 4
+            for varying in (False, True):
+                direct = [(0.25, 0.25, 0.25, 1.0)] * 4 + [
+                    (value, 0.5, 0.5, 1.0)
+                    for value in ((0.5, 0.5, 0.75, 0.75) if varying else (0.5,) * 4)
+                ]
+                self.write_capture_v7(
+                    capture_path,
+                    [(0.0, 0.0, 0.0, 1.0)] * 8,
+                    world,
+                    direct,
+                    receivers,
+                )
+                summary = analyzer.summarize(analyzer.load_capture(capture_path))
+                result = self.run_compatibility_analyzer(
+                    7, capture_path, "--max-direct-light-receiver-voxel-rgb-range", "0"
+                )
+                self.assertEqual(summary["direct_light_receiver_voxel_count"], 2)
+                self.assertEqual(
+                    summary["direct_light_receiver_voxel_rgb_range_max"],
+                    0.25 if varying else 0.0,
+                )
+                self.assertEqual(result.returncode, 1 if varying else 0, result.stderr)
+            # ROI excludes the varying second voxel without merging its identity
+            # into the first. An empty ROI cannot pass the gate vacuously.
+            for x_min, x_max, expected_code in ((0, voxel, 0), (10, 11, 1)):
+                result = self.run_compatibility_analyzer(
+                    7,
+                    capture_path,
+                    "--max-direct-light-receiver-voxel-rgb-range",
+                    "0",
+                    "--world-roi",
+                    str(x_min), "0", "-0.001", str(x_max), str(voxel), "0.001",
+                )
+                self.assertEqual(result.returncode, expected_code, result.stderr)
+
     def test_v8_leaf_shadow_gate_uses_captured_marcher_voxel_identity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             capture_path = Path(directory) / "subvoxel-leaf-shadow.rfirr"
