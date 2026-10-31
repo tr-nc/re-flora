@@ -818,7 +818,7 @@ fn penetration_stats(world: &PhysicsWorld, threshold: Real) -> (usize, Real) {
 fn resident_set_kib() -> Option<u64> {
     #[cfg(target_os = "linux")]
     {
-        let status = fs::read_to_string("/proc/self/status").ok()?;
+        let status = std::fs::read_to_string("/proc/self/status").ok()?;
         let line = status.lines().find(|line| line.starts_with("VmRSS:"))?;
         line.split_whitespace().nth(1)?.parse().ok()
     }
