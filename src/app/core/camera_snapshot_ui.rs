@@ -16,6 +16,14 @@ impl App {
             return Ok(());
         };
 
+        // Cottage views belong to the scene, not the disposable user snapshot file.
+        // Their height is resolved after its foundation has sampled natural terrain.
+        if self.launch_owners.loading_directive() == super::launch_owners::LoadingDirective::House
+            && crate::app::camera_snapshots::is_house_camera_preset(requested_name)
+        {
+            return Ok(());
+        }
+
         if is_player_default_snapshot_name(requested_name) {
             self.tracer
                 .apply_camera_pose(crate::app::camera_snapshots::player_default_camera_pose());

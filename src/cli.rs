@@ -1644,7 +1644,9 @@ Options:
   --glass-coverage <percent> Select fixed target screen coverage: 0, 10, 25, or 50 (default: 50)
   --glass-debug-view <view>  Experimental view: final, glass-front, opaque-provenance, screen-validity
                               Use screenshot preset 'glass-test-scene' to retain its fixed camera
-  --cozy-home                 Visit the stone cottage garden (separate, unsaved world)
+  --cozy-home                 Visit the two-storey flower cottage (separate, unsaved world)
+                              Built-in views: cozy-home-arrival, cozy-home-exterior,
+                              cozy-home-interior, cozy-home-balcony (use --camera-snapshot or --screenshot).
   --house-scene               Alias for --cozy-home
   --rooftop-poc               Bare model roof + editable soil, unlimited developer resources; unsaved experiment (no terrain load/save)
                               Capture: --rooftop-poc --hidden --mute --screenshot rooftop-scene target/roof.png --screenshot-delay 2 --auto-exit 10
@@ -1697,7 +1699,7 @@ Examples:
   re-flora --hidden --mute --auto-exit 14 --perf --water-profile performance --water-edit-soak
   re-flora --hidden --mute --environment-lighting-test-scene sealed --environment-irradiance-capture target/sealed.rfirr --auto-exit 8
   re-flora --hidden --mute --windowed --hybrid-transparency-test-scene --screenshot player-default target/hybrid-transparency-test.png --screenshot-delay 2 --auto-exit 6
-  re-flora --house-scene --camera-snapshot house-overlook
+  re-flora --cozy-home --screenshot cozy-home-exterior target/cottage.png --screenshot-delay 8 --auto-exit 10
   re-flora --latest-log
   re-flora --tail-latest-log 120
   re-flora --windowed --tree-bench --tree-bench-samples 10"#,

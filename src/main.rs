@@ -141,6 +141,9 @@ fn handle_camera_snapshot_query() {
             for name in garden_layout::REVIEW_PRESETS {
                 println!("{name}");
             }
+            for name in app::camera_snapshots::HOUSE_CAMERA_PRESETS {
+                println!("{name}");
+            }
         }
         Err(err) => {
             eprintln!("Failed to load camera snapshots: {err}");
@@ -149,11 +152,21 @@ fn handle_camera_snapshot_query() {
     }
 }
 
-fn validate_requested_camera_snapshot(camera: &CameraAutomation) -> Result<(), String> {
+fn validate_requested_camera_snapshot(
+    camera: &CameraAutomation,
+    scenario: &Scenario,
+) -> Result<(), String> {
     let Some(requested_name) = camera.snapshot_name() else {
         return Ok(());
     };
 
+    if app::camera_snapshots::is_house_camera_preset(requested_name) {
+        return if matches!(scenario, Scenario::House) {
+            Ok(())
+        } else {
+            Err(format!("Camera preset '{requested_name}' requires --cozy-home. Try: re-flora --cozy-home --camera-snapshot {requested_name}"))
+        };
+    }
     if garden_layout::is_review_preset(requested_name) {
         return Ok(());
     }
@@ -253,7 +266,7 @@ pub fn main() {
         }
         LaunchCommand::Run(plan) => *plan,
     };
-    if let Err(err) = validate_requested_camera_snapshot(&plan.automation.camera) {
+    if let Err(err) = validate_requested_camera_snapshot(&plan.automation.camera, &plan.scenario) {
         eprintln!("{err}");
         std::process::exit(1);
     }
@@ -282,6 +295,17 @@ pub fn main() {
 #[cfg(test)]
 mod startup_log_tests {
     use super::*;
+
+    #[test]
+    fn cottage_views_do_not_depend_on_user_snapshots_and_require_the_cottage() {
+        for name in app::camera_snapshots::HOUSE_CAMERA_PRESETS {
+            let camera = CameraAutomation::Snapshot((*name).to_owned());
+            assert!(validate_requested_camera_snapshot(&camera, &Scenario::House).is_ok());
+            let error = validate_requested_camera_snapshot(&camera, &Scenario::Garden).unwrap_err();
+            assert!(error.contains("requires --cozy-home"));
+            assert!(error.contains(&format!("re-flora --cozy-home --camera-snapshot {name}")));
+        }
+    }
 
     #[test]
     fn ordinary_runs_only_log_summaries_and_problems() {

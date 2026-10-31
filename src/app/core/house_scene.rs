@@ -1,687 +1,293 @@
-use super::App;
-use crate::app::world_edits::{VoxelEdit, WorldEditTransaction};
-use crate::builder::{
-    voxel_type_from_atlas_byte, PlainBuilder, VOXEL_TYPE_DIRT, VOXEL_TYPE_EMISSIVE,
-    VOXEL_TYPE_EMPTY, VOXEL_TYPE_IVY, VOXEL_TYPE_LIMESTONE, VOXEL_TYPE_OAK_WOOD, VOXEL_TYPE_PETAL,
-    VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND, VOXEL_TYPE_STUCCO,
+//! Isolated, unsaved visit to the reference-inspired two-storey flower cottage.
+mod architecture;
+
+use super::{planting::AuthoredFloraPlacementBatch, App};
+use crate::{
+    builder::{
+        voxel_type_from_atlas_byte, PlainBuilder, VOXEL_TYPE_DIRT, VOXEL_TYPE_GLASS,
+        VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND,
+    },
+    gameplay::{camera::PlayerWalkMovementRequest, CameraPose},
 };
-use crate::geom::{build_bvh, Cuboid, Sphere, Torus};
-use anyhow::{Context, Result};
-use glam::{Quat, UVec3, Vec3};
+use anyhow::{ensure, Context, Result};
+use architecture::{DOOR_X, FRONT_Z, MAX_X, MIN_X, MIN_Z, ORIGIN, PLANTERS, WINDOWS};
+use glam::{UVec3, Vec3};
 
-// Terrain voxels: 256 voxels per world unit. All decorative solids go through the
-// same loading transaction, visible publication, DDGI and collision paths as walls.
-const HOUSE_MIN_X: f32 = 100.0;
-const HOUSE_MAX_X: f32 = 252.0;
-const HOUSE_MIN_Z: f32 = 214.0;
-const HOUSE_MAX_Z: f32 = 354.0;
-const CENTER_X: f32 = (HOUSE_MIN_X + HOUSE_MAX_X) * 0.5;
-const WALL_HEIGHT: f32 = 60.0;
-const WALL_THICKNESS: f32 = 10.0;
-const ROOF_RISE: f32 = 30.0;
-const DOOR_RADIUS: f32 = 20.0;
-const WINDOW_OFFSET: f32 = 48.0;
-const WINDOW_HEIGHT: f32 = 32.0;
-const WINDOW_RADIUS: f32 = 10.0;
-const WINDOW_PANE_THICKNESS: f32 = 2.0;
-const SURFACE_SAMPLE_OFFSET: UVec3 = UVec3::new(HOUSE_MIN_X as u32, 32, HOUSE_MIN_Z as u32);
-const SURFACE_SAMPLE_DIM: UVec3 = UVec3::new(
-    (HOUSE_MAX_X - HOUSE_MIN_X) as u32 + 1,
-    224,
-    (HOUSE_MAX_Z - HOUSE_MIN_Z) as u32 + 1,
-);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct SurfaceSampleReport {
-    median_y: u32,
-    min_y: u32,
-    max_y: u32,
-    facade_center_y: u32,
+#[derive(Clone, Copy, Debug)]
+struct Ground {
+    min: u32,
+    max: u32,
+    approach: u32,
 }
 
-fn volume_index(local: UVec3, dim: UVec3) -> usize {
-    ((local.z * dim.y + local.y) * dim.x + local.x) as usize
-}
-
-fn is_terrain_voxel(voxel_type: u8) -> bool {
-    matches!(
-        voxel_type as u32,
-        VOXEL_TYPE_DIRT | VOXEL_TYPE_SAND | VOXEL_TYPE_ROCK
-    )
-}
-
-fn sample_house_surface(plain_builder: &mut PlainBuilder) -> Result<SurfaceSampleReport> {
-    let bytes = plain_builder
-        .read_chunk_atlas_region(SURFACE_SAMPLE_OFFSET, SURFACE_SAMPLE_DIM)
-        .context("read natural terrain below house")?;
-    let mut heights = Vec::with_capacity((SURFACE_SAMPLE_DIM.x * SURFACE_SAMPLE_DIM.z) as usize);
-    let mut facade_center_y = None;
-    for z in 0..SURFACE_SAMPLE_DIM.z {
-        for x in 0..SURFACE_SAMPLE_DIM.x {
-            let surface = (0..SURFACE_SAMPLE_DIM.y).rev().find_map(|y| {
-                let voxel_type = voxel_type_from_atlas_byte(
-                    bytes[volume_index(UVec3::new(x, y, z), SURFACE_SAMPLE_DIM)],
-                );
-                is_terrain_voxel(voxel_type).then_some(SURFACE_SAMPLE_OFFSET.y + y)
-            });
-            let surface = surface.with_context(|| {
-                format!(
-                    "house footprint column has no terrain at x={} z={}",
-                    SURFACE_SAMPLE_OFFSET.x + x,
-                    SURFACE_SAMPLE_OFFSET.z + z
-                )
-            })?;
-            if x == SURFACE_SAMPLE_DIM.x / 2 && z == SURFACE_SAMPLE_DIM.z - 1 {
-                facade_center_y = Some(surface);
+fn sample_ground(builder: &mut PlainBuilder) -> Result<Ground> {
+    let offset = UVec3::new(MIN_X as u32, 32, MIN_Z as u32) + ORIGIN.as_uvec3();
+    let dim = UVec3::new(
+        (MAX_X - MIN_X) as u32 + 1,
+        224,
+        (FRONT_Z - MIN_Z) as u32 + 1,
+    );
+    let bytes = builder.read_chunk_atlas_region(offset, dim)?;
+    let mut min = u32::MAX;
+    let mut max = 0;
+    let mut approach = None;
+    for z in 0..dim.z {
+        for x in 0..dim.x {
+            let y = (0..dim.y)
+                .rev()
+                .find(|&y| {
+                    let index = ((z * dim.y + y) * dim.x + x) as usize;
+                    matches!(
+                        u32::from(voxel_type_from_atlas_byte(bytes[index])),
+                        VOXEL_TYPE_DIRT | VOXEL_TYPE_ROCK | VOXEL_TYPE_SAND
+                    )
+                })
+                .with_context(|| format!("no natural terrain below cottage column x={x} z={z}"))?
+                + offset.y;
+            min = min.min(y);
+            max = max.max(y);
+            if x == (DOOR_X - MIN_X) as u32 && z == dim.z - 1 {
+                approach = Some(y);
             }
-            heights.push(surface);
         }
     }
-    heights.sort_unstable();
-    Ok(SurfaceSampleReport {
-        median_y: heights[heights.len() / 2],
-        min_y: *heights.first().context("empty house surface sample")?,
-        max_y: *heights.last().context("empty house surface sample")?,
-        facade_center_y: facade_center_y.context("missing facade center surface sample")?,
+    Ok(Ground {
+        min,
+        max,
+        approach: approach.context("missing cottage approach ground")?,
     })
 }
 
-fn stamp_cuboids(cuboids: Vec<Cuboid>, voxel_type: u32) -> Result<VoxelEdit> {
-    let aabbs = cuboids.iter().map(Cuboid::aabb).collect::<Vec<_>>();
-    let leaves = (0..cuboids.len() as u32).collect::<Vec<_>>();
-    let bvh_nodes = build_bvh(&aabbs, &leaves).map_err(anyhow::Error::msg)?;
-    Ok(VoxelEdit::StampCuboids {
-        bvh_nodes,
-        cuboids,
-        voxel_type,
-        atlas_state_write: Default::default(),
-    })
+fn world(local_voxels: Vec3) -> Vec3 {
+    (local_voxels + ORIGIN) / 256.
 }
 
-fn stamp_toruses(toruses: Vec<Torus>, voxel_type: u32) -> Result<VoxelEdit> {
-    let aabbs = toruses.iter().map(Torus::aabb).collect::<Vec<_>>();
-    let leaves = (0..toruses.len() as u32).collect::<Vec<_>>();
-    let bvh_nodes = build_bvh(&aabbs, &leaves).map_err(anyhow::Error::msg)?;
-    Ok(VoxelEdit::StampToruses {
-        bvh_nodes,
-        toruses,
-        voxel_type,
-    })
-}
-
-fn box_at(min: Vec3, max: Vec3) -> Cuboid {
-    Cuboid::from_min_max(min, max)
-}
-
-fn round_opening(
-    center_x: f32,
-    base_y: f32,
-    radius: f32,
-    tunnel_min_z: f32,
-    tunnel_max_z: f32,
-) -> Vec<Cuboid> {
-    let center_y = base_y + radius;
-    let mut slices = Vec::new();
-    let mut slice_bottom = base_y;
-    let top = base_y + radius * 2.0;
-    while slice_bottom < top {
-        let slice_top = (slice_bottom + 1.0).min(top);
-        let sample_y = (slice_bottom + slice_top) * 0.5;
-        let half_width = (radius.powi(2) - (sample_y - center_y).powi(2))
-            .max(0.0)
-            .sqrt();
-        slices.push(box_at(
-            Vec3::new(center_x - half_width, slice_bottom, tunnel_min_z),
-            Vec3::new(center_x + half_width, slice_top, tunnel_max_z),
-        ));
-        slice_bottom = slice_top;
+fn view(position: Vec3, target: Vec3, fov_deg: f32) -> CameraPose {
+    let d = target - position;
+    CameraPose {
+        position: world(position),
+        yaw_deg: d.x.atan2(-d.z).to_degrees(),
+        pitch_deg: d.y.atan2(glam::Vec2::new(d.x, d.z).length()).to_degrees(),
+        fov_deg,
     }
-    slices
-}
-
-fn house_base_y(surface: SurfaceSampleReport) -> f32 {
-    surface.max_y as f32 + 1.0
-}
-
-fn roof_y(x: f32, base: f32) -> f32 {
-    base + WALL_HEIGHT + ROOF_RISE * (1.0 - (x - CENTER_X).abs() / 76.0)
-}
-
-fn stamp_spheres(spheres: Vec<Sphere>, voxel_type: u32) -> Result<VoxelEdit> {
-    let aabbs = spheres.iter().map(Sphere::aabb).collect::<Vec<_>>();
-    let leaves = (0..spheres.len() as u32).collect::<Vec<_>>();
-    Ok(VoxelEdit::StampSpheres {
-        bvh_nodes: build_bvh(&aabbs, &leaves).map_err(anyhow::Error::msg)?,
-        spheres,
-        voxel_type,
-    })
-}
-
-fn beam_between(a: Vec3, b: Vec3, radius: f32) -> Cuboid {
-    Cuboid::new_oriented(
-        (a + b) * 0.5,
-        Vec3::new(radius, a.distance(b) * 0.5, radius),
-        Quat::from_rotation_arc(Vec3::Y, (b - a).normalize()),
-    )
-}
-
-fn house_plan(surface: SurfaceSampleReport) -> Result<WorldEditTransaction> {
-    let base = house_base_y(surface);
-    let mut edits = Vec::new();
-    // Continuous backing and foundation make the recessed joints closed and solid.
-    edits.push(stamp_cuboids(
-        vec![box_at(
-            Vec3::new(HOUSE_MIN_X, surface.min_y as f32 - 2.0, HOUSE_MIN_Z),
-            Vec3::new(HOUSE_MAX_X, base + WALL_HEIGHT, HOUSE_MAX_Z),
-        )],
-        VOXEL_TYPE_STUCCO,
-    )?);
-    let mut stones = Vec::new();
-    // Staggered, slightly irregular blocks; limestone is its own material, not a
-    // recoloring of the world's Rock or the existing warm Stucco.
-    for row in 0..10 {
-        let y = base + row as f32 * 9.0;
-        let offset = if row % 2 == 0 { 0.0 } else { -10.0 };
-        for col in 0..9 {
-            let x0 = (HOUSE_MIN_X + offset + col as f32 * 20.0).max(HOUSE_MIN_X);
-            let x1 = (HOUSE_MIN_X + offset + (col + 1) as f32 * 20.0 - 1.0).min(HOUSE_MAX_X);
-            if x1 <= x0 {
-                continue;
-            }
-            let top = (y + 8.0).min(roof_y(x0, base).min(roof_y(x1, base)));
-            if top <= y {
-                continue;
-            }
-            for z in [HOUSE_MIN_Z - 1.0, HOUSE_MAX_Z - 2.0] {
-                stones.push(box_at(Vec3::new(x0, y, z), Vec3::new(x1, top, z + 4.0)));
-            }
-        }
-        if row >= 7 {
-            continue;
-        }
-        for col in 0..8 {
-            let z0 = (HOUSE_MIN_Z + offset + col as f32 * 20.0).max(HOUSE_MIN_Z);
-            let z1 = (HOUSE_MIN_Z + offset + (col + 1) as f32 * 20.0 - 1.0).min(HOUSE_MAX_Z);
-            if z1 <= z0 {
-                continue;
-            }
-            for x in [HOUSE_MIN_X - 1.0, HOUSE_MAX_X - 2.0] {
-                stones.push(box_at(
-                    Vec3::new(x, y, z0),
-                    Vec3::new(x + 4.0, (y + 8.0).min(base + WALL_HEIGHT), z1),
-                ));
-            }
-        }
-    }
-    // Solid stone gables, then the same recessed face stones finish their surfaces.
-    let mut gables = Vec::new();
-    for y in 0..ROOF_RISE as u32 {
-        let half = 76.0 * (1.0 - y as f32 / ROOF_RISE);
-        for z in [HOUSE_MIN_Z, HOUSE_MAX_Z - WALL_THICKNESS] {
-            gables.push(box_at(
-                Vec3::new(CENTER_X - half, base + WALL_HEIGHT + y as f32, z),
-                Vec3::new(
-                    CENTER_X + half,
-                    base + WALL_HEIGHT + y as f32 + 1.0,
-                    z + WALL_THICKNESS,
-                ),
-            ));
-        }
-    }
-    edits.push(stamp_cuboids(gables, VOXEL_TYPE_STUCCO)?);
-    edits.push(stamp_cuboids(stones, VOXEL_TYPE_LIMESTONE)?);
-    // Carve a proper room. The opening has a flat threshold and a round arch;
-    // its 40-voxel clear width is comfortably above the player's capsule width.
-    let mut carve = vec![box_at(
-        Vec3::new(
-            HOUSE_MIN_X + WALL_THICKNESS,
-            base,
-            HOUSE_MIN_Z + WALL_THICKNESS,
-        ),
-        Vec3::new(
-            HOUSE_MAX_X - WALL_THICKNESS,
-            base + WALL_HEIGHT,
-            HOUSE_MAX_Z - WALL_THICKNESS,
-        ),
-    )];
-    carve.extend(round_opening(
-        CENTER_X,
-        base + 8.0,
-        DOOR_RADIUS,
-        HOUSE_MAX_Z - WALL_THICKNESS - 1.0,
-        HOUSE_MAX_Z + 5.0,
-    ));
-    carve.push(box_at(
-        Vec3::new(
-            CENTER_X - DOOR_RADIUS,
-            base,
-            HOUSE_MAX_Z - WALL_THICKNESS - 1.0,
-        ),
-        Vec3::new(CENTER_X + DOOR_RADIUS, base + 28.0, HOUSE_MAX_Z + 5.0),
-    ));
-    for x in [CENTER_X - WINDOW_OFFSET, CENTER_X + WINDOW_OFFSET] {
-        carve.extend(round_opening(
-            x,
-            base + WINDOW_HEIGHT - WINDOW_RADIUS,
-            WINDOW_RADIUS,
-            HOUSE_MAX_Z - WALL_THICKNESS - 1.0,
-            HOUSE_MAX_Z + 5.0,
-        ));
-    }
-    edits.push(stamp_cuboids(carve, VOXEL_TYPE_EMPTY)?);
-    let mut wood = Vec::new();
-    // Seamed oak boards and a broad entrance path cover the raised foundation.
-    for i in 0..11 {
-        let x = HOUSE_MIN_X + WALL_THICKNESS + i as f32 * 12.0;
-        wood.push(box_at(
-            Vec3::new(x, base - 3.0, HOUSE_MIN_Z + WALL_THICKNESS),
-            Vec3::new(
-                (x + 11.0).min(HOUSE_MAX_X - WALL_THICKNESS),
-                base,
-                HOUSE_MAX_Z,
-            ),
-        ));
-    }
-    for step in 0..5 {
-        let z = HOUSE_MAX_Z + step as f32 * 8.0;
-        wood.push(box_at(
-            Vec3::new(CENTER_X - 24.0, surface.min_y as f32 - 4.0, z),
-            Vec3::new(CENTER_X + 24.0, base - step as f32 * 2.0, z + 8.0),
-        ));
-    }
-    // Roof boards are real sloped terrain solids with a six-voxel living soil cap.
-    let mut soil = Vec::new();
-    for side in [-1.0, 1.0] {
-        let a = Vec3::new(
-            CENTER_X + side * 86.0,
-            roof_y(CENTER_X + side * 86.0, base),
-            284.0,
-        );
-        let b = Vec3::new(CENTER_X, roof_y(CENTER_X, base), 284.0);
-        let rotation = Quat::from_rotation_z((b.y - a.y).atan2((b.x - a.x).abs()) * -side);
-        let center = (a + b) * 0.5;
-        wood.push(Cuboid::new_oriented(
-            center,
-            Vec3::new(a.distance(b) * 0.5, 3.0, 82.0),
-            rotation,
-        ));
-        soil.push(Cuboid::new_oriented(
-            center + Vec3::Y * 5.0,
-            Vec3::new(a.distance(b) * 0.5, 3.0, 80.0),
-            rotation,
-        ));
-        for z in [202.0, 364.0] {
-            wood.push(beam_between(
-                Vec3::new(a.x, a.y + 5.0, z),
-                Vec3::new(b.x, b.y + 5.0, z),
-                3.0,
-            ));
-        }
-    }
-    // Door jambs, warm window sills, window boxes, a little table and two benches.
-    for x in [CENTER_X - 22.0, CENTER_X + 22.0] {
-        wood.push(box_at(
-            Vec3::new(x - 2.0, base, 351.0),
-            Vec3::new(x + 2.0, base + 28.0, 358.0),
-        ));
-    }
-    for x in [CENTER_X - WINDOW_OFFSET, CENTER_X + WINDOW_OFFSET] {
-        wood.push(box_at(
-            Vec3::new(x - 15.0, base + 17.0, 350.0),
-            Vec3::new(x + 15.0, base + 20.0, 367.0),
-        ));
-        wood.push(box_at(
-            Vec3::new(x - 15.0, base + 13.0, 361.0),
-            Vec3::new(x + 15.0, base + 19.0, 366.0),
-        ));
-        soil.push(box_at(
-            Vec3::new(x - 12.0, base + 17.0, 357.0),
-            Vec3::new(x + 12.0, base + 20.0, 362.0),
-        ));
-    }
-    wood.push(box_at(
-        Vec3::new(134.0, base + 15.0, 244.0),
-        Vec3::new(186.0, base + 19.0, 272.0),
-    ));
-    for x in [137.0, 180.0] {
-        for z in [247.0, 266.0] {
-            wood.push(box_at(
-                Vec3::new(x, base, z),
-                Vec3::new(x + 4.0, base + 15.0, z + 4.0),
-            ));
-        }
-    }
-    for z in [232.0, 279.0] {
-        wood.push(box_at(
-            Vec3::new(127.0, base + 9.0, z),
-            Vec3::new(194.0, base + 12.0, z + 10.0),
-        ));
-        for x in [134.0, 183.0] {
-            wood.push(box_at(
-                Vec3::new(x, base, z + 2.0),
-                Vec3::new(x + 5.0, base + 9.0, z + 8.0),
-            ));
-        }
-    }
-    // Lantern shelves and tiny shades. The exposed emissive cores are scanned by
-    // the existing voxel-emitter provider, so deleting a lamp also removes its light.
-    let mut lamps = Vec::new();
-    for (x, z) in [(118.0, 291.0), (233.0, 250.0)] {
-        wood.push(box_at(
-            Vec3::new(x - 5.0, base + 29.0, z - 5.0),
-            Vec3::new(x + 5.0, base + 31.0, z + 5.0),
-        ));
-        wood.push(box_at(
-            Vec3::new(x - 5.0, base + 37.0, z - 5.0),
-            Vec3::new(x + 5.0, base + 39.0, z + 5.0),
-        ));
-        lamps.push(box_at(
-            Vec3::new(x - 2.0, base + 31.0, z - 2.0),
-            Vec3::new(x + 2.0, base + 37.0, z + 2.0),
-        ));
-    }
-    edits.push(stamp_cuboids(wood, VOXEL_TYPE_OAK_WOOD)?);
-    edits.push(stamp_cuboids(soil, VOXEL_TYPE_DIRT)?);
-    let frames = [CENTER_X - WINDOW_OFFSET, CENTER_X + WINDOW_OFFSET]
-        .into_iter()
-        .map(|x| {
-            Torus::new(
-                Vec3::new(x, base + WINDOW_HEIGHT, 355.0),
-                WINDOW_RADIUS + 2.0,
-                2.0,
-            )
-        })
-        .collect();
-    edits.push(stamp_toruses(frames, VOXEL_TYPE_OAK_WOOD)?);
-    // Only the upper half of the door ring: keep the threshold completely clear.
-    let mut arch = Vec::new();
-    for i in 0..24 {
-        let t = i as f32 / 24.0 * std::f32::consts::PI;
-        let u = (i + 1) as f32 / 24.0 * std::f32::consts::PI;
-        arch.push(beam_between(
-            Vec3::new(
-                CENTER_X + 22.0 * t.cos(),
-                base + 28.0 + 22.0 * t.sin(),
-                355.0,
-            ),
-            Vec3::new(
-                CENTER_X + 22.0 * u.cos(),
-                base + 28.0 + 22.0 * u.sin(),
-                355.0,
-            ),
-            2.0,
-        ));
-    }
-    edits.push(stamp_cuboids(arch, VOXEL_TYPE_OAK_WOOD)?);
-    let panes = [CENTER_X - WINDOW_OFFSET, CENTER_X + WINDOW_OFFSET]
-        .into_iter()
-        .flat_map(|x| {
-            round_opening(
-                x,
-                base + WINDOW_HEIGHT - WINDOW_RADIUS,
-                WINDOW_RADIUS,
-                HOUSE_MAX_Z - WINDOW_PANE_THICKNESS,
-                HOUSE_MAX_Z,
-            )
-        })
-        .collect();
-    // Retain the isolated Glass encoding and its canonical empty state bits.
-    edits.push(stamp_cuboids(panes, VOXEL_TYPE_SAND)?);
-    edits.push(stamp_cuboids(lamps, VOXEL_TYPE_EMISSIVE)?);
-    add_ivy(&mut edits, base)?;
-    Ok(WorldEditTransaction::during_loading(edits))
-}
-
-fn add_ivy(edits: &mut Vec<VoxelEdit>, base: f32) -> Result<()> {
-    let mut stems = Vec::new();
-    let mut leaves = Vec::new();
-    let mut petals = Vec::new();
-    let mut hearts = Vec::new();
-    // Two climbing fans leave the doorway and both panes unobstructed.
-    for (root_x, direction) in [(104.0, 1.0), (248.0, -1.0)] {
-        for branch in 0..3 {
-            let mut previous = Vec3::new(root_x, base + 2.0, 358.0);
-            for i in 1..15 {
-                let h = i as f32 * 4.2;
-                let x = root_x
-                    + direction * (h * (0.1 + branch as f32 * 0.19) + (i as f32 * 0.8).sin() * 2.0);
-                let center = Vec3::new(x, base + h, 358.0 + branch as f32);
-                stems.push(beam_between(previous, center, 0.65));
-                previous = center;
-                for side in [-1.0, 1.0] {
-                    let leaf_center = center + Vec3::new(side * 2.8, 0.6, 1.0);
-                    // Overlapping tapered diamonds give each leaf a tip and a central vein.
-                    let angle = side * -0.55;
-                    leaves.push(Cuboid::new_oriented(
-                        leaf_center,
-                        Vec3::new(1.5, 3.1, 0.7),
-                        Quat::from_rotation_z(angle),
-                    ));
-                    leaves.push(Cuboid::new_oriented(
-                        leaf_center + Vec3::Y * 2.0,
-                        Vec3::new(0.8, 1.8, 0.6),
-                        Quat::from_rotation_z(angle),
-                    ));
-                }
-                if (i + branch) % 5 == 0 {
-                    let flower = center + Vec3::Z * 3.0;
-                    for petal in 0..5 {
-                        let angle = petal as f32 * std::f32::consts::TAU / 5.0;
-                        petals.push(Sphere::new(
-                            flower + Vec3::new(angle.cos(), angle.sin(), 0.0) * 2.2,
-                            1.6,
-                        ));
-                    }
-                    hearts.push(Sphere::new(flower + Vec3::Z, 1.0));
-                }
-            }
-        }
-    }
-    edits.push(stamp_cuboids(stems, VOXEL_TYPE_OAK_WOOD)?);
-    edits.push(stamp_cuboids(leaves, VOXEL_TYPE_IVY)?);
-    edits.push(stamp_spheres(petals, VOXEL_TYPE_PETAL)?);
-    edits.push(stamp_spheres(hearts, VOXEL_TYPE_STUCCO)?);
-    Ok(())
 }
 
 impl App {
     pub(super) fn apply_house_scene(&mut self) -> Result<()> {
-        // Morning light falls onto the facade; this only authors the isolated visit.
         self.set_manual_time_of_day(0.36);
-        let surface = sample_house_surface(&mut self.plain_builder)?;
-        self.execute_world_edit(house_plan(surface)?)?;
-        self.cottage_base_y = Some(house_base_y(surface));
+        let ground = sample_ground(&mut self.plain_builder)?;
+        let base = ground.max as f32 + 1.;
+        self.execute_world_edit(architecture::plan(
+            base,
+            ground.min as f32,
+            ground.approach as f32,
+        )?)?;
+        self.cottage_base_y = Some(base);
         self.plain_builder.mark_all_solid_workgroups_dirty();
-        log::info!("[HOUSE_SCENE] built cozy limestone cottage base_y={} natural_surface={}..{} room=132x60x120 door_clear_width=40 glass_panes=2 pane_thickness=2 soil_roof=true ivy_fans=2 lanterns=2 persistence=disabled", house_base_y(surface), surface.min_y, surface.max_y);
+        log::info!("[HOUSE_SCENE] built half_timber_flower_cottage base_y={base} natural_surface={}..{} storeys=2 roof=curved_terracotta dormer=true balcony=true windows=6 dedicated_glass=true pane_thickness=2 lanterns=3 persistence=disabled", ground.min, ground.max);
         Ok(())
     }
 
     pub(super) fn finish_house_garden(&mut self) -> Result<()> {
-        let base = self.cottage_base_y.context("missing cottage roof")?;
-        let roof_bound = crate::geom::UAabb3::new(
-            UVec3::new(82, (base + 48.0) as u32, 198),
-            UVec3::new(271, (base + 108.0) as u32, 369),
-        );
-        for (index, x) in [CENTER_X - 57.0, CENTER_X, CENTER_X + 57.0]
-            .into_iter()
-            .enumerate()
-        {
-            crate::app::world_ops::mesh_regenerate_flora_for_brush_edit(
-                &mut self.surface_builder,
-                super::VOXEL_DIM_PER_CHUNK,
-                roof_bound,
-                crate::app::world_ops::FloraBrushEdit {
-                    start: Vec3::new(x, roof_y(x, base) + 7.0, 210.0) / 256.0,
-                    end: Vec3::new(x, roof_y(x, base) + 7.0, 358.0) / 256.0,
-                    radius: 35.0 / 256.0,
-                    tick: self
-                        .world_clock
-                        .flora_tick()
-                        .wrapping_sub(super::FLORA_FULL_GROWTH_TICKS),
-                    spawn_time_ms: 0,
+        let base = self.cottage_base_y.context("missing cottage foundation")?;
+        let species = crate::garden_layout::FLOWER_KEYS.map(|key| {
+            crate::flora::species::species()
+                .iter()
+                .position(|s| s.key == key)
+                .expect("cottage flowers must come from the existing garden catalog")
+                as u32
+        });
+        // Ordinary meadow patches frame the building without painting its roof or
+        // upper flower boxes. The entrance keeps an actual mown approach.
+        for (x, z, radius) in [
+            (180., 467., 100.),
+            (360., 300., 105.),
+            (10., 300., 100.),
+            (180., 120., 100.),
+        ] {
+            let center = world(Vec3::new(x, base - 10., z));
+            self.seed_opening_grass(
+                crate::app::world_edits::TerrainBrushEdit {
+                    start: center,
+                    end: center,
+                    radius: radius / 256.,
                 },
-                crate::flora::species::FloraPaintSelection::Species(
-                    crate::flora::species::SHORT_GRASS_SPECIES_INDEX,
-                ),
-                index as u32,
-                crate::flora::species::GRASS_MIX_PAINT_BRUSH_SETTINGS,
+                7319,
             )?;
         }
-        log::info!("[HOUSE_SCENE][ROOF] living_grass=true brushes=3 surface_pipeline=occupancy");
+        self.apply_surface_flora_removal(crate::app::world_edits::TerrainBrushEdit {
+            start: world(Vec3::new(DOOR_X, base, FRONT_Z)),
+            end: world(Vec3::new(DOOR_X, base - 10., 510.)),
+            radius: 24. / 256.,
+        })?;
+        let mut batch = AuthoredFloraPlacementBatch::new();
+        let now = self.time_info.time_since_start_duration().as_millis() as u32;
+        let mut count = 0;
+        for (index, p) in PLANTERS.into_iter().enumerate() {
+            for z in (p.min_z + 2..p.max_z - 1).step_by(4) {
+                for x in (p.min_x + 2..p.max_x - 1).step_by(6) {
+                    let contact = world(Vec3::new(x as f32 + 0.5, base + p.top, z as f32 + 0.5));
+                    let anchor = self.resolve_plantable_contact(contact)?.with_context(|| {
+                        format!("cottage planter {index} has no exposed soil at {contact:?}")
+                    })?;
+                    let seed = crate::garden_layout::hash(x ^ (z << 12) ^ (index as u32 * 7919));
+                    ensure!(
+                        self.try_place_authored_flora(
+                            &mut batch,
+                            species[(count + index) % species.len()],
+                            anchor,
+                            255,
+                            now,
+                            seed
+                        ),
+                        "cottage flower root was rejected"
+                    );
+                    count += 1;
+                }
+            }
+        }
+        self.finish_authored_flora_placement(batch)?;
+        log::info!("[HOUSE_SCENE][GARDEN] authored_flowers={count} planters={} existing_species={:?} substrate_validated=true", PLANTERS.len(), crate::garden_layout::FLOWER_KEYS);
         self.verify_house_passage()?;
+        self.apply_house_camera(base);
         Ok(())
+    }
+
+    fn apply_house_camera(&mut self, base: f32) {
+        let name = self
+            .launch_owners
+            .snapshot_name()
+            .unwrap_or("cozy-home-arrival");
+        // Explicit user snapshots retain authority; only built-ins follow the foundation.
+        if !crate::app::camera_snapshots::is_house_camera_preset(name) {
+            return;
+        }
+        let (pose, fly) = match name {
+            "cozy-home-interior" => (
+                view(
+                    Vec3::new(178., base + 28., 333.),
+                    Vec3::new(205., base + 25., 276.),
+                    68.,
+                ),
+                true,
+            ),
+            "cozy-home-balcony" => (
+                view(
+                    Vec3::new(302., base + 104., 438.),
+                    Vec3::new(206., base + 90., 354.),
+                    56.,
+                ),
+                true,
+            ),
+            "cozy-home-exterior" | "house-overlook" => (
+                view(
+                    Vec3::new(380., base + 156., 680.),
+                    Vec3::new(180., base + 99., 304.),
+                    45.,
+                ),
+                true,
+            ),
+            _ => {
+                let xz = world(Vec3::new(335., 0., 660.));
+                let xz = glam::Vec2::new(xz.x, xz.z);
+                let y = self.query_terrain_height_cpu(xz) * 256. + 20.5;
+                (
+                    view(
+                        Vec3::new(335., y, 660.),
+                        Vec3::new(180., base + 94., 310.),
+                        52.,
+                    ),
+                    false,
+                )
+            }
+        };
+        self.tracer.apply_camera_pose(pose);
+        self.camera_control.apply_snapshot_mode(fly);
+        log::info!(
+            "[HOUSE_SCENE][CAMERA] preset={name} foundation_relative=true fly={fly} position={:?}",
+            pose.position
+        );
     }
 
     fn verify_house_passage(&mut self) -> Result<()> {
-        // Query the published collision terrain through the door at player height.
+        let base = self.cottage_base_y.context("missing cottage floor")?;
         let floor = self
-            .query_terrain_ray_cpu(
-                Vec3::new(
-                    CENTER_X / 256.0,
-                    self.cottage_base_y.context("missing cottage floor")? / 256.0 + 0.12,
-                    320.0 / 256.0,
-                ),
-                Vec3::NEG_Y,
-            )
+            .query_terrain_ray_cpu(world(Vec3::new(DOOR_X, base + 24., 320.)), Vec3::NEG_Y)
             .context("cottage has no interior floor")?;
         let eye = floor.position.y + 0.08;
         let hit = self
-            .query_terrain_ray_cpu(Vec3::new(CENTER_X / 256.0, eye, 390.0 / 256.0), Vec3::NEG_Z)
+            .query_terrain_ray_cpu(world(Vec3::new(DOOR_X, eye * 256., 410.)), Vec3::NEG_Z)
             .context("cottage has no back wall")?;
-        anyhow::ensure!(
-            hit.position.z < 340.0 / 256.0,
-            "cottage entrance is blocked: {:?}",
-            hit.position
+        ensure!(
+            hit.position.z < (340. + ORIGIN.z) / 256.,
+            "cottage entrance is blocked: {hit:?}"
         );
-        for x in [CENTER_X - WINDOW_OFFSET, CENTER_X + WINDOW_OFFSET] {
+        for w in WINDOWS {
+            let origin = world(Vec3::new(
+                w.x - w.width * 0.23,
+                base + w.bottom + w.height * 0.7,
+                w.z + 18.,
+            ));
             let glass = self
-                .query_terrain_ray_cpu(
-                    Vec3::new(
-                        x / 256.0,
-                        (self.cottage_base_y.unwrap() + WINDOW_HEIGHT) / 256.0,
-                        380.0 / 256.0,
-                    ),
-                    Vec3::NEG_Z,
-                )
-                .context("missing window collision")?;
-            anyhow::ensure!(
-                glass.voxel_type == VOXEL_TYPE_SAND && glass.position.z >= 352.0 / 256.0,
-                "cottage window collision differs from Glass pane: {glass:?}"
+                .query_terrain_ray_cpu(origin, Vec3::NEG_Z)
+                .context("missing cottage window")?;
+            ensure!(
+                glass.voxel_type == VOXEL_TYPE_GLASS,
+                "cottage pane is not dedicated Glass: {glass:?}"
             );
         }
-        log::info!("[HOUSE_SCENE][WINDOWS] glass_collision_panes=2 optical_mode=GlassExperiment");
         let walk = self.terrain_physics.move_player_capsule(
-            crate::gameplay::camera::PlayerWalkMovementRequest {
-                camera_position: Vec3::new(CENTER_X / 256.0, eye + 0.001, 360.0 / 256.0),
+            PlayerWalkMovementRequest {
+                camera_position: world(Vec3::new(DOOR_X, eye * 256. + 0.256, 360.)),
                 camera_height: 0.08,
-                desired_translation: Vec3::new(0.0, 0.0, -56.0 / 256.0),
+                desired_translation: Vec3::new(0., 0., -56. / 256.),
             },
             0.25,
         )?;
-        anyhow::ensure!(
-            walk.translation.z < -50.0 / 256.0,
+        ensure!(
+            walk.translation.z < -50. / 256.,
             "player capsule cannot enter cottage: {walk:?}"
         );
-        log::info!(
-            "[HOUSE_SCENE][WALK] production_capsule_translation={:?} grounded={}",
-            walk.translation,
-            walk.grounded
-        );
         let approach_ground = self
-            .query_terrain_ray_cpu(Vec3::new(CENTER_X / 256.0, 1.1, 420.0 / 256.0), Vec3::NEG_Y)
-            .context("missing cottage approach")?;
-        let mut approach = approach_ground.position + Vec3::Y * 0.081;
-        for _ in 0..120 {
+            .query_terrain_ray_cpu(world(Vec3::new(DOOR_X, 360., 490.)), Vec3::NEG_Y)
+            .context("missing cottage garden approach")?;
+        let mut position = approach_ground.position + Vec3::Y * 0.081;
+        for _ in 0..190 {
             let movement = self.terrain_physics.move_player_capsule(
-                crate::gameplay::camera::PlayerWalkMovementRequest {
-                    camera_position: approach,
+                PlayerWalkMovementRequest {
+                    camera_position: position,
                     camera_height: 0.08,
-                    desired_translation: Vec3::new(0.0, -0.05 / 60.0, -1.0 / 256.0),
+                    desired_translation: Vec3::new(0., -0.05 / 60., -1. / 256.),
                 },
-                1.0 / 60.0,
+                1. / 60.,
             )?;
-            approach += movement.translation;
+            position += movement.translation;
         }
-        anyhow::ensure!(
-            approach.z < 320.0 / 256.0,
-            "player cannot walk from the garden up the cottage steps: {approach:?}"
+        ensure!(
+            position.z < (320. + ORIGIN.z) / 256.,
+            "player cannot walk up cottage steps: {position:?}"
         );
-        log::info!("[HOUSE_SCENE][APPROACH] from_z=420 steps=120 final_voxels={:?} production_capsule=true", approach * 256.0);
-        log::info!("[HOUSE_SCENE][PASSAGE] player_eye_y={eye:.5} doorway_ray_hit_z={:.5} floor_material={} published_cpu_collision=true", hit.position.z, floor.voxel_type);
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cottage_materials_keep_solid_collision_and_opaque_light_transport() {
-        use crate::voxel_material::{material_for, VoxelMaterialMode, VoxelSurfaceClass};
-        for voxel_type in [VOXEL_TYPE_LIMESTONE, VOXEL_TYPE_IVY, VOXEL_TYPE_PETAL] {
-            let material = material_for(voxel_type, VoxelMaterialMode::GlassExperiment);
-            assert_eq!(
-                material,
-                material_for(voxel_type, VoxelMaterialMode::Standard)
-            );
-            assert_eq!(material.surface_class, VoxelSurfaceClass::Opaque);
-            assert!(material.collision_solid && material.water_solid && material.terrain_support);
-            assert!(material.blocks_ddgi_visibility && material.probe_relocation_solid);
-            assert!(!material.soil_state_allowed);
-            assert!(voxel_type < crate::builder::EDIT_STATS_VOXEL_TYPE_COUNT as u32);
+        log::info!("[HOUSE_SCENE][PASSAGE] published_cpu_collision=true dedicated_glass_front_panes=4 capsule_entered=true garden_approach_final_voxels={:?}", position * 256.);
+        // Walk the ordinary collision capsule up every tread, not a teleported
+        // upper-floor probe. This catches blocked stairwells and wrong risers.
+        let mut upstairs = world(Vec3::new(104., base + 20.8, 246.));
+        for _ in 0..151 {
+            let movement = self.terrain_physics.move_player_capsule(
+                PlayerWalkMovementRequest {
+                    camera_position: upstairs,
+                    camera_height: 0.08,
+                    desired_translation: Vec3::new(1. / 256., -0.05 / 60., 0.),
+                },
+                1. / 60.,
+            )?;
+            upstairs += movement.translation;
         }
-    }
-
-    #[test]
-    fn cottage_keeps_two_thin_glass_panes_and_a_clear_threshold() {
-        let surface = SurfaceSampleReport {
-            median_y: 100,
-            min_y: 96,
-            max_y: 104,
-            facade_center_y: 96,
-        };
-        let plan = house_plan(surface).unwrap();
-        let panes = plan
-            .voxel_edits()
-            .iter()
-            .find_map(|edit| match edit {
-                VoxelEdit::StampCuboids {
-                    cuboids,
-                    voxel_type: VOXEL_TYPE_SAND,
-                    atlas_state_write,
-                    ..
-                } => {
-                    assert_eq!(*atlas_state_write, Default::default());
-                    Some(cuboids)
-                }
-                _ => None,
-            })
-            .unwrap();
-        assert_eq!(panes.len(), WINDOW_RADIUS as usize * 4);
-        assert!(panes
-            .iter()
-            .all(|pane| pane.min().z == HOUSE_MAX_Z - 2.0 && pane.max().z == HOUSE_MAX_Z));
-        assert!(panes
-            .iter()
-            .all(|pane| (pane.center().x - CENTER_X).abs() > DOOR_RADIUS));
-        let carved = plan
-            .voxel_edits()
-            .iter()
-            .find_map(|edit| match edit {
-                VoxelEdit::StampCuboids {
-                    cuboids,
-                    voxel_type: VOXEL_TYPE_EMPTY,
-                    ..
-                } => Some(cuboids),
-                _ => None,
-            })
-            .unwrap();
-        let base = house_base_y(surface);
-        assert!(carved.iter().any(|cut| cut.min().y == base
-            && cut.min().x == CENTER_X - DOOR_RADIUS
-            && cut.max().x == CENTER_X + DOOR_RADIUS
-            && cut.min().z < HOUSE_MAX_Z - WALL_THICKNESS
-            && cut.max().z > HOUSE_MAX_Z));
+        ensure!(
+            upstairs.y * 256. >= base + architecture::FLOOR_HEIGHT + 19.
+                && upstairs.x * 256. > ORIGIN.x + 249.,
+            "player cannot reach cottage upper floor: {upstairs:?}"
+        );
+        log::info!("[HOUSE_SCENE][STAIRS] production_capsule=true upper_floor_reached=true final_voxels={:?}", upstairs * 256.);
+        Ok(())
     }
 }

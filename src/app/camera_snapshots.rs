@@ -9,6 +9,20 @@ use std::path::{Path, PathBuf};
 pub(crate) const DEFAULT_CAMERA_SNAPSHOT_PATH: &str = "config/camera_snapshots.toml";
 pub(crate) const PLAYER_DEFAULT_SNAPSHOT_NAME: &str = "player-default";
 
+/// Scene-owned views resolve their height after the cottage foundation is built.
+/// They do not depend on the player's disposable snapshot library.
+pub(crate) const HOUSE_CAMERA_PRESETS: &[&str] = &[
+    "cozy-home-arrival",
+    "cozy-home-exterior",
+    "cozy-home-interior",
+    "cozy-home-balcony",
+    "house-overlook",
+];
+
+pub(crate) fn is_house_camera_preset(name: &str) -> bool {
+    HOUSE_CAMERA_PRESETS.contains(&name)
+}
+
 /// Authored startup view, independent of disposable user snapshots and camera mode.
 pub(crate) fn player_default_camera_pose() -> CameraPose {
     CameraPose {
