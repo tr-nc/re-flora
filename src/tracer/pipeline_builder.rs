@@ -1180,6 +1180,8 @@ impl PipelineBuilder {
                         contree_builder_resources,
                         scene_accel_resources,
                         plain_builder_resources,
+                        ddgi_volume,
+                        ddgi_voxel_visibility,
                     ],
                 )
             });
@@ -2020,26 +2022,32 @@ pub struct PipelineTopology {
 }
 
 macro_rules! declare_ddgi_consumer_registry {
-    ($( $key:ident => $kind:ident($($path:ident).+) ),+ $(,)?) => {
+    (required: [$( $key:ident => $kind:ident($($path:ident).+) ),+ $(,)?],
+     optional: [$( $optional_key:ident => $optional_kind:ident($($optional_path:ident).+) ),* $(,)?]) => {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         #[repr(usize)]
         enum PipelineKey {
             $( $key, )+
+            $( $optional_key, )*
             Count,
         }
 
         impl PipelineKey {
             const COUNT: usize = Self::Count as usize;
-            const ALL: [Self; Self::COUNT] = [$( Self::$key, )+];
+            const ALL: [Self; Self::COUNT] = [$( Self::$key, )+ $( Self::$optional_key, )*];
         }
 
         impl PipelineTopology {
-            fn ddgi_consumer(&self, key: PipelineKey) -> DdgiConsumerPipeline<'_> {
+            fn ddgi_consumer(&self, key: PipelineKey) -> Option<DdgiConsumerPipeline<'_>> {
                 match key {
                     $(
                         PipelineKey::$key =>
-                            DdgiConsumerPipeline::$kind(key, &self.$($path).+),
+                            Some(DdgiConsumerPipeline::$kind(key, &self.$($path).+)),
                     )+
+                    $(
+                        PipelineKey::$optional_key => self.$($optional_path).+.as_ref()
+                            .map(|pipeline| DdgiConsumerPipeline::$optional_kind(key, pipeline)),
+                    )*
                     PipelineKey::Count =>
                         unreachable!("registry sentinel is not a DDGI consumer"),
                 }
@@ -2049,32 +2057,37 @@ macro_rules! declare_ddgi_consumer_registry {
 }
 
 declare_ddgi_consumer_registry! {
-    Tracer => Compute(compute.tracer_ppl),
-    ButterflyTiles => Graphics(graphics.butterfly_tile_ppl),
-    AppleTreeTiles => Graphics(graphics.apple_pixel_tree_ppl),
-    FlowerTiles => Graphics(graphics.flower_pixel_ppl),
-    FlowerStemPreparation => Compute(compute.flower_stem_bands_ppl),
-    GrassBands => Graphics(graphics.grass_band_ppl),
-    DynamicFruit => Graphics(graphics.dynamic_fruit_ppl),
-    CpuStemBands => Graphics(graphics.cpu_stem_band_ppl),
-    AppleDynamicTiles => Graphics(graphics.apple_pixel_dynamic_ppl),
-    ToolModels => Graphics(graphics.tool_model_ppl),
-    FloraLightingCache => Compute(compute.flora_lighting_cache_ppl),
-    GrassBandPreparation => Compute(compute.flora_lighting_band_cache_ppl),
-    TreeLeafLightingCache => Compute(compute.tree_leaf_lighting_cache_ppl),
-    Leaves => Graphics(graphics.leaves_ppl),
-    LeavesLod => Graphics(graphics.leaves_lod_ppl),
-    Sprinkler => Graphics(graphics.sprinkler_ppl),
-    SprinklerMist => Compute(compute.sprinkler_mist_ppl),
-    SprinklerMistPreparation => Compute(compute.sprinkler_mist_prepare_ppl),
-    SprinklerAirSplat => Compute(compute.sprinkler_air_splat_ppl),
-    RasterTree => Graphics(graphics.raster_tree_ppl),
-    RasterTreeLighting => Compute(compute.raster_tree_lighting_ppl),
-    DdgiResponseSample => Compute(compute.ddgi_response_sample_ppl),
-    Particle => Graphics(graphics.particle_ppl),
-    WaterDroplet => Graphics(graphics.water_droplet_ppl),
-    EnvironmentProbeDepth => Graphics(graphics.environment_probe_visualization_depth_ppl),
-    EnvironmentProbeOverlay => Graphics(graphics.environment_probe_visualization_overlay_ppl),
+    required: [
+        Tracer => Compute(compute.tracer_ppl),
+        ButterflyTiles => Graphics(graphics.butterfly_tile_ppl),
+        AppleTreeTiles => Graphics(graphics.apple_pixel_tree_ppl),
+        FlowerTiles => Graphics(graphics.flower_pixel_ppl),
+        FlowerStemPreparation => Compute(compute.flower_stem_bands_ppl),
+        GrassBands => Graphics(graphics.grass_band_ppl),
+        DynamicFruit => Graphics(graphics.dynamic_fruit_ppl),
+        CpuStemBands => Graphics(graphics.cpu_stem_band_ppl),
+        AppleDynamicTiles => Graphics(graphics.apple_pixel_dynamic_ppl),
+        ToolModels => Graphics(graphics.tool_model_ppl),
+        FloraLightingCache => Compute(compute.flora_lighting_cache_ppl),
+        GrassBandPreparation => Compute(compute.flora_lighting_band_cache_ppl),
+        TreeLeafLightingCache => Compute(compute.tree_leaf_lighting_cache_ppl),
+        Leaves => Graphics(graphics.leaves_ppl),
+        LeavesLod => Graphics(graphics.leaves_lod_ppl),
+        Sprinkler => Graphics(graphics.sprinkler_ppl),
+        SprinklerMist => Compute(compute.sprinkler_mist_ppl),
+        SprinklerMistPreparation => Compute(compute.sprinkler_mist_prepare_ppl),
+        SprinklerAirSplat => Compute(compute.sprinkler_air_splat_ppl),
+        RasterTree => Graphics(graphics.raster_tree_ppl),
+        RasterTreeLighting => Compute(compute.raster_tree_lighting_ppl),
+        DdgiResponseSample => Compute(compute.ddgi_response_sample_ppl),
+        Particle => Graphics(graphics.particle_ppl),
+        WaterDroplet => Graphics(graphics.water_droplet_ppl),
+        EnvironmentProbeDepth => Graphics(graphics.environment_probe_visualization_depth_ppl),
+        EnvironmentProbeOverlay => Graphics(graphics.environment_probe_visualization_overlay_ppl),
+    ],
+    optional: [
+        GlassResolve => Compute(compute.glass_resolve_ppl),
+    ]
 }
 
 fn validate_ddgi_consumer_registry(keys: &[PipelineKey]) -> Result<()> {
@@ -2841,7 +2854,7 @@ impl PipelineTopology {
         validate_ddgi_consumer_registry(&PipelineKey::ALL)?;
         Ok(PipelineKey::ALL
             .into_iter()
-            .map(|key| self.ddgi_consumer(key))
+            .filter_map(|key| self.ddgi_consumer(key))
             .collect())
     }
 

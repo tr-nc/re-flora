@@ -874,6 +874,28 @@ mod glass_voxel_cache_contract_tests {
     }
 
     #[test]
+    fn glass_secondary_terrain_uses_the_primary_lighting_sources() {
+        let shader = include_str!("../../shader/slang/glass_resolve.slang");
+        let fallback = shader
+            .split_once("float3 glassVoxelFallback(")
+            .unwrap()
+            .1
+            .split_once("float glassCameraDepthFromNdc(")
+            .unwrap()
+            .0;
+        assert!(fallback.contains("terrainDirectIrradiance("));
+        assert!(fallback.contains("sampleDdgiTerrainSmoothEnvironment("));
+        assert!(fallback.contains("applyTerrainMoisture("));
+        assert!(fallback.contains("voxelSurfaceEmission("));
+        assert!(!fallback.contains("sky_light_strength"));
+        assert!(!fallback.contains("sun_luminance"));
+        // Stored appearance normals may steer valid reflections, never the
+        // geometric medium boundary used by Snell/Fresnel or cell offsets.
+        assert!(shader.contains("scatterGlassInterface("));
+        assert!(shader.contains("event.incident_face_normal = cameraInsideGlass ? -float3(outwardStep) : float3(outwardStep)"));
+    }
+
+    #[test]
     fn raster_secondary_visibility_keeps_reflections_and_switches_only_refraction_fallback() {
         let shader = include_str!("../../shader/slang/glass_resolve.slang");
 
@@ -896,7 +918,9 @@ mod glass_voxel_cache_contract_tests {
             "Fresnel reflection must always retain raster visibility",
         );
         assert!(
-            shader.contains("transmittedDirection = path.direction;"),
+            shader.split_whitespace().collect::<String>().contains(
+                "float3transmittedDirection=glassRefractionEnabled()?scatter.transmitted:path.direction;"
+            ),
             "disabled refraction must keep transmission straight",
         );
         assert!(

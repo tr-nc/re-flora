@@ -3,6 +3,14 @@ import composition_camera_effects;
 import composition_sky;
 import composition_types;
 import contree_node;
+import ddgi_query;
+import glass_optics;
+import glass_surface_sampling;
+import terrain_direct_lighting;
+import terrain_ray_origin;
+import tracer_shadowing;
+import local_lighting;
+import voxel_data;
 import packer;
 import projection;
 import ray;
@@ -51,9 +59,12 @@ RWStructuredBuffer<uint> glass_voxel_cache_active_slots;
 RWStructuredBuffer<uint> glass_voxel_cache_active_count;
 [[vk::binding(21, 0)]] StructuredBuffer<ContreeNode> contree_node_data;
 [[vk::binding(22, 0)]] StructuredBuffer<uint> contree_leaf_data;
-[[vk::binding(23, 0)]] [[vk::image_format("rg32ui")]]
+[[vk::binding(60, 0)]] [[vk::image_format("rg32ui")]]
 readonly RWTexture3D<uint2> scene_tex;
-[[vk::binding(24, 0)]] ConstantBuffer<U_GuiInput> gui_input;
+[[vk::binding(61, 0)]] ConstantBuffer<U_GuiInput> gui_input;
+[[vk::binding(62, 0)]] ConstantBuffer<U_ShadowCameraInfo> shadow_camera_info;
+[[vk::binding(42, 0)]] ConstantBuffer<U_LocalLightInfo> local_light_info;
+[[vk::binding(43, 0)]] StructuredBuffer<U_LightGpu> local_lights;
 
 struct GlassVoxelCachePushConstants
 {
@@ -100,8 +111,6 @@ static const uint GLASS_VOXEL_CACHE_MASK = GLASS_VOXEL_CACHE_CAPACITY - 1u;
 static const uint GLASS_VOXEL_CACHE_MAX_PROBES = 32u;
 static const uint GLASS_VOXEL_COORD_BITS = 10u;
 static const uint GLASS_VOXEL_COORD_MASK = (1u << GLASS_VOXEL_COORD_BITS) - 1u;
-// Symmetric two-point prefilter positions along a voxel-face diagonal.
-static const float GLASS_VOXEL_FACE_SAMPLE_OFFSET = 0.2886751346 / 256.0;
 static const float GLASS_VOXEL_FACE_HALF_EXTENT = 0.5 / 256.0;
 
 struct GlassActivePath
@@ -255,16 +264,25 @@ float3 glassSky(float3 direction)
         starlight_info, sun_sprite_tex);
 }
 
-float3 glassVoxelFallback(SceneQueryEvent event)
+float3 glassVoxelFallback(SceneQueryEvent event, uint localInvocationIndex)
 {
+    float3 center = (float3(event.to_cell) + 0.5) / 256.0;
+    uint atlasData = chunk_atlas[event.to_cell];
     float3 albedo = terrainColorAtVoxel(voxel_colors, event.to_voxel_type,
-                                        (float3(event.to_cell) + 0.5) / 256.0,
-                                        chunk_atlas[event.to_cell]);
-    float cosine = max(0.0, dot(normalize(event.incident_face_normal),
-                                normalize(sun_info.sun_dir)));
-    float3 ambient = albedo * (0.18 * sun_info.sky_light_strength);
-    float3 direct = albedo * sun_info.sun_color * sun_info.sun_luminance * cosine;
-    return ambient + direct + voxelSurfaceEmission(voxel_colors, event.to_voxel_type);
+                                        center, atlasData);
+    albedo = applyTerrainMoisture(albedo, event.to_voxel_type,
+                                  voxelMoistureFromAtlasData(atlasData));
+    float3 normal = normalize(event.incident_face_normal);
+    DirectSunShadowTransmittances shadow;
+    float3 direct = terrainDirectIrradiance(
+        gui_input, sun_info, shadow_camera_info, local_light_info, local_lights,
+        contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
+        center, normal, true, localInvocationIndex, shadow);
+    float3 receiver = terrainVoxelSurfacePositionAlongNormal(center, normal);
+    float3 environment = sampleDdgiTerrainSmoothEnvironment(
+        shading_info, receiver, event.position, normal).irradiance;
+    return albedo * (environment + direct) +
+        voxelSurfaceEmission(voxel_colors, event.to_voxel_type);
 }
 
 float glassCameraDepthFromNdc(float depth)
@@ -449,16 +467,16 @@ bool traceGlassOpaqueScreenSegment(
 }
 
 float3 sampleGlassPathFallback(
-    SceneQueryEvent event, float3 segmentDirection)
+    SceneQueryEvent event, float3 segmentDirection, uint localInvocationIndex)
 {
     return event.kind == SCENE_QUERY_EVENT_OPAQUE
-        ? glassVoxelFallback(event)
+        ? glassVoxelFallback(event, localInvocationIndex)
         : glassSky(segmentDirection);
 }
 
 float3 sampleGlassUnrefractedRaster(
     float2 sourceScreenUv, SceneQueryEvent event, float3 segmentDirection,
-    out uint sourceProvenance)
+    uint localInvocationIndex, out uint sourceProvenance)
 {
     uint width;
     uint height;
@@ -478,7 +496,7 @@ float3 sampleGlassUnrefractedRaster(
         return unified_opaque_hdr_tex.Load(int3(coordinate, 0)).rgb;
     }
     sourceProvenance = 0u;
-    return sampleGlassPathFallback(event, segmentDirection);
+    return sampleGlassPathFallback(event, segmentDirection, localInvocationIndex);
 }
 
 bool glassUnrefractedRasterFallbackEnabled(uint screenQueryMode)
@@ -495,19 +513,19 @@ bool glassRefractionEnabled()
 float3 sampleGlassConfiguredTerminalFallback(
     uint screenQueryMode, float2 sourceScreenUv,
     SceneQueryEvent event, float3 segmentDirection,
-    out uint terminalProvenance)
+    uint localInvocationIndex, out uint terminalProvenance)
 {
     if (glassUnrefractedRasterFallbackEnabled(screenQueryMode))
         return sampleGlassUnrefractedRaster(
-            sourceScreenUv, event, segmentDirection, terminalProvenance);
+            sourceScreenUv, event, segmentDirection, localInvocationIndex, terminalProvenance);
     terminalProvenance = 0u;
-    return sampleGlassPathFallback(event, segmentDirection);
+    return sampleGlassPathFallback(event, segmentDirection, localInvocationIndex);
 }
 
 float3 sampleGlassTerminalRadiance(
     SceneQueryEvent event, uint screenQueryMode, float2 sourceScreenUv,
     float3 segmentOrigin, float3 segmentDirection,
-    out uint fallbackReason, out uint terminalProvenance)
+    uint localInvocationIndex, out uint fallbackReason, out uint terminalProvenance)
 {
     bool opaqueTerminal = event.kind == SCENE_QUERY_EVENT_OPAQUE;
     fallbackReason = opaqueTerminal
@@ -517,13 +535,13 @@ float3 sampleGlassTerminalRadiance(
     if (screenQueryMode == GLASS_SCREEN_QUERY_UNREFRACTED)
     {
         float3 terminal = sampleGlassUnrefractedRaster(
-            sourceScreenUv, event, segmentDirection, terminalProvenance);
+            sourceScreenUv, event, segmentDirection, localInvocationIndex, terminalProvenance);
         if (terminalProvenance != 0u)
             fallbackReason = GLASS_FALLBACK_SCREEN_HIT;
         return terminal;
     }
     if (screenQueryMode == GLASS_SCREEN_QUERY_NONE)
-        return sampleGlassPathFallback(event, segmentDirection);
+        return sampleGlassPathFallback(event, segmentDirection, localInvocationIndex);
 
     uint width;
     uint height;
@@ -543,7 +561,7 @@ float3 sampleGlassTerminalRadiance(
         {
             uint sourceProvenance;
             float3 sourceColor = sampleGlassUnrefractedRaster(
-                sourceScreenUv, event, segmentDirection, sourceProvenance);
+                sourceScreenUv, event, segmentDirection, localInvocationIndex, sourceProvenance);
             // Raster-only producers are absent from the voxel SceneQuery. If refraction found
             // no raster surface, preserve one that is authoritatively visible behind this
             // Glass pixel instead of erasing it with the voxel terminal.
@@ -568,13 +586,13 @@ float3 sampleGlassTerminalRadiance(
         fallbackReason = GLASS_FALLBACK_OFFSCREEN;
         return sampleGlassConfiguredTerminalFallback(
             screenQueryMode, sourceScreenUv, event, segmentDirection,
-            terminalProvenance);
+            localInvocationIndex, terminalProvenance);
     }
 
     if (!opaqueTerminal)
         return sampleGlassConfiguredTerminalFallback(
             screenQueryMode, sourceScreenUv, event, segmentDirection,
-            terminalProvenance);
+            localInvocationIndex, terminalProvenance);
 
     int2 coordinate = int2(uv * float2(width, height));
     uint provenance;
@@ -588,7 +606,7 @@ float3 sampleGlassTerminalRadiance(
         {
             uint sourceProvenance;
             float3 sourceColor = sampleGlassUnrefractedRaster(
-                sourceScreenUv, event, segmentDirection, sourceProvenance);
+                sourceScreenUv, event, segmentDirection, localInvocationIndex, sourceProvenance);
             if (sourceProvenance == OPAQUE_PROVENANCE_RASTER)
             {
                 terminalProvenance = sourceProvenance;
@@ -601,7 +619,7 @@ float3 sampleGlassTerminalRadiance(
     fallbackReason = rejectionReason;
     return sampleGlassConfiguredTerminalFallback(
         screenQueryMode, sourceScreenUv, event, segmentDirection,
-        terminalProvenance);
+        localInvocationIndex, terminalProvenance);
 }
 
 void insertGlassPath(inout GlassActivePath paths[SCENE_QUERY_MAX_ACTIVE_PATHS],
@@ -713,7 +731,7 @@ SceneQueryEvent unpackGlassFrontEvent(uint packed, float2 screenUv,
 }
 
 void spawnGlassInterfacePaths(
-    SceneQueryEvent event, GlassActivePath path,
+    SceneQueryEvent event, GlassActivePath path, float3 appearanceNormal,
     inout GlassActivePath paths[SCENE_QUERY_MAX_ACTIVE_PATHS],
     inout GlassResolveResult result, inout uint nextSerial)
 {
@@ -726,31 +744,21 @@ void spawnGlassInterfacePaths(
     }
     VoxelMaterial fromMaterial = voxelMaterial(event.from_voxel_type, shading_info.glass_experiment_enabled != 0u);
     VoxelMaterial toMaterial = voxelMaterial(event.to_voxel_type, shading_info.glass_experiment_enabled != 0u);
-    float fresnel = sceneQueryDielectricFresnel(
-        path.direction, event.incident_face_normal,
+    GlassInterfaceScatter scatter = scatterGlassInterface(
+        path.direction, event.incident_face_normal, appearanceNormal,
         fromMaterial.ior, toMaterial.ior);
-    float3 reflectedDirection = normalize(reflect(
-        path.direction, event.incident_face_normal));
+    float fresnel = scatter.fresnel;
     GlassActivePath reflected = emptyGlassPath();
     reflected.origin = sceneQueryOffsetAcrossInterface(event, false, 256.0);
-    reflected.direction = reflectedDirection;
+    reflected.direction = scatter.reflected;
     reflected.throughput = path.throughput * fresnel;
     reflected.serial = nextSerial++;
     reflected.active = 1u;
     reflected.screen_query_mode = GLASS_SCREEN_QUERY_REFLECTION;
 
-    float3 transmittedDirection;
-    bool hasTransmission = true;
-    if (glassRefractionEnabled())
-    {
-        hasTransmission = sceneQueryRefractDielectric(
-            path.direction, event.incident_face_normal,
-            fromMaterial.ior, toMaterial.ior, transmittedDirection);
-    }
-    else
-    {
-        transmittedDirection = path.direction;
-    }
+    bool hasTransmission = !glassRefractionEnabled() || scatter.has_transmission;
+    float3 transmittedDirection = glassRefractionEnabled()
+        ? scatter.transmitted : path.direction;
     if (hasTransmission)
     {
         GlassActivePath transmitted = emptyGlassPath();
@@ -772,7 +780,7 @@ void spawnGlassInterfacePaths(
 
 void spawnGlassThinSheetFront(
     SceneQueryEvent event, GlassActivePath path, float2 sourceScreenUv,
-    inout GlassActivePath paths[SCENE_QUERY_MAX_ACTIVE_PATHS],
+    float3 appearanceNormal, uint localInvocationIndex, inout GlassActivePath paths[SCENE_QUERY_MAX_ACTIVE_PATHS],
     inout GlassResolveResult result, inout uint nextSerial)
 {
     result.interfaces += 1u;
@@ -784,20 +792,21 @@ void spawnGlassThinSheetFront(
         // bounded straight-through volume path instead of inventing an outside surface.
         result.interfaces -= 1u;
         spawnGlassInterfacePaths(
-            event, path, paths, result, nextSerial);
+            event, path, appearanceNormal, paths, result, nextSerial);
         return;
     }
 
-    float fresnel = sceneQueryDielectricFresnel(
-        path.direction, event.incident_face_normal,
+    GlassInterfaceScatter scatter = scatterGlassInterface(
+        path.direction, event.incident_face_normal, appearanceNormal,
         fromMaterial.ior, toMaterial.ior);
+    float fresnel = scatter.fresnel;
     // Incoherent lossless two-interface sheet. This folds the omitted back face and its internal
     // reflections into one energy-conserving surface without tracing a refracted volume path.
     float reflectionWeight = 2.0 * fresnel / (1.0 + fresnel);
     float transmissionWeight = 1.0 - reflectionWeight;
     uint terminalProvenance;
     float3 terminal = sampleGlassUnrefractedRaster(
-        sourceScreenUv, event, path.direction, terminalProvenance);
+        sourceScreenUv, event, path.direction, localInvocationIndex, terminalProvenance);
     result.radiance += path.throughput * transmissionWeight * terminal;
     result.fallback_reason = terminalProvenance != 0u
         ? GLASS_FALLBACK_SCREEN_HIT
@@ -807,8 +816,7 @@ void spawnGlassThinSheetFront(
 
     GlassActivePath reflected = emptyGlassPath();
     reflected.origin = sceneQueryOffsetAcrossInterface(event, false, 256.0);
-    reflected.direction = normalize(reflect(
-        path.direction, event.incident_face_normal));
+    reflected.direction = scatter.reflected;
     reflected.throughput = path.throughput * reflectionWeight;
     reflected.serial = nextSerial++;
     reflected.active = 1u;
@@ -818,7 +826,7 @@ void spawnGlassThinSheetFront(
 
 GlassResolveResult traceGlassRadianceFromFrontEvent(
     Ray cameraRay, float2 screenUv, float glassFrontDepth,
-    SceneQueryEvent frontEvent, uint localInvocationIndex)
+    SceneQueryEvent frontEvent, float3 appearanceNormal, uint localInvocationIndex)
 {
     GlassResolveResult result = emptyGlassResolveResult();
     GlassActivePath paths[SCENE_QUERY_MAX_ACTIVE_PATHS];
@@ -849,12 +857,13 @@ GlassResolveResult traceGlassRadianceFromFrontEvent(
     if (glassRefractionEnabled())
     {
         spawnGlassInterfacePaths(
-            frontEvent, cameraPath, paths, result, nextSerial);
+            frontEvent, cameraPath, appearanceNormal, paths, result, nextSerial);
     }
     else
     {
         spawnGlassThinSheetFront(
-            frontEvent, cameraPath, screenUv, paths, result, nextSerial);
+            frontEvent, cameraPath, screenUv, appearanceNormal,
+            localInvocationIndex, paths, result, nextSerial);
     }
 
     for (uint queryIndex = 1u; queryIndex < SCENE_QUERY_MAX_SCENE_QUERIES; ++queryIndex)
@@ -906,7 +915,7 @@ GlassResolveResult traceGlassRadianceFromFrontEvent(
             float3 terminal = sampleGlassTerminalRadiance(
                 event, path.screen_query_mode, screenUv,
                 path.origin, path.direction,
-                fallbackReason, terminalProvenance);
+                localInvocationIndex, fallbackReason, terminalProvenance);
             result.radiance += path.throughput * terminal;
             if (terminalProvenance == OPAQUE_PROVENANCE_RASTER)
                 result.raster_screen_hits += 1u;
@@ -923,7 +932,7 @@ GlassResolveResult traceGlassRadianceFromFrontEvent(
         }
 
         spawnGlassInterfacePaths(
-            event, path, paths, result, nextSerial);
+            event, path, event.incident_face_normal, paths, result, nextSerial);
     }
 
     // The fixed query cap has a defined, world-safe residual fallback. True DDA/interface
@@ -1010,17 +1019,8 @@ uint glassVoxelTypeAtCell(int3 cell)
     return sceneQueryVoxelTypeAtWorld(chunk_atlas, cellCenter, 256.0);
 }
 
-bool glassCellsShareMedium(uint glassVoxelType, uint neighborVoxelType)
-{
-    VoxelMaterial glassMaterial = voxelMaterial(glassVoxelType, shading_info.glass_experiment_enabled != 0u);
-    VoxelMaterial neighborMaterial = voxelMaterial(neighborVoxelType, shading_info.glass_experiment_enabled != 0u);
-    return glassMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC &&
-        neighborMaterial.surface_class == VOXEL_SURFACE_CLASS_DIELECTRIC &&
-        glassVoxelType == neighborVoxelType;
-}
-
 SceneQueryEvent canonicalGlassFrontEvent(
-    int3 glassCell, uint packedStoredVoxelNormal)
+    int3 glassCell, uint packedStoredVoxelNormal, out float3 appearanceNormal)
 {
     float3 cellCenter = (float3(glassCell) + 0.5) / 256.0;
     float3 direction = cellCenter - camera_info.pos.xyz;
@@ -1057,7 +1057,8 @@ SceneQueryEvent canonicalGlassFrontEvent(
             candidateStep[axis] = side;
             uint neighborVoxelType = glassVoxelTypeAtCell(
                 glassCell + candidateStep);
-            if (glassCellsShareMedium(glassVoxelType, neighborVoxelType)) continue;
+            if (!glassHasOpticalBoundary(glassVoxelType, neighborVoxelType,
+                    shading_info.glass_experiment_enabled != 0u)) continue;
             float facing = dot(float3(candidateStep), preferredOutward);
             if (facing > bestFacing)
             {
@@ -1077,14 +1078,13 @@ SceneQueryEvent canonicalGlassFrontEvent(
 
     if (dot(storedVoxelNormal, float3(outwardStep)) < 0.0)
         storedVoxelNormal = -storedVoxelNormal;
-    float3 outwardNormal = useStoredVoxelNormal
-        ? storedVoxelNormal
-        : float3(outwardStep);
-    float3 incidentNormal = cameraInsideGlass ? -outwardNormal : outwardNormal;
+    float3 outwardAppearanceNormal = useStoredVoxelNormal
+        ? storedVoxelNormal : float3(outwardStep);
+    appearanceNormal = cameraInsideGlass ? -outwardAppearanceNormal : outwardAppearanceNormal;
 
     SceneQueryEvent event;
     event.kind = SCENE_QUERY_EVENT_INTERFACE;
-    event.incident_face_normal = incidentNormal;
+    event.incident_face_normal = cameraInsideGlass ? -float3(outwardStep) : float3(outwardStep);
     event.from_cell = cameraInsideGlass ? glassCell : glassCell + outwardStep;
     event.to_cell = cameraInsideGlass ? glassCell + outwardStep : glassCell;
     event.from_voxel_type = glassVoxelTypeAtCell(event.from_cell);
@@ -1117,7 +1117,7 @@ void glassInterfaceFaceFrame(
 
 GlassResolveResult traceGlassFrontSample(
     float3 samplePosition, SceneQueryEvent frontEvent,
-    uint localInvocationIndex)
+    float3 appearanceNormal, uint localInvocationIndex)
 {
     Ray sampleRay;
     sampleRay.origin = camera_info.pos.xyz;
@@ -1137,7 +1137,7 @@ GlassResolveResult traceGlassFrontSample(
     float2 screenUv = clip.xy / clip.w * 0.5 + 0.5;
     float frontDepth = clip.z / clip.w;
     return traceGlassRadianceFromFrontEvent(
-        sampleRay, screenUv, frontDepth, frontEvent, localInvocationIndex);
+        sampleRay, screenUv, frontDepth, frontEvent, appearanceNormal, localInvocationIndex);
 }
 
 float3 glassFrontDebugColor(uint packed)
@@ -1215,29 +1215,28 @@ GlassResolveResult traceGlassVoxelCellRadiance(
 {
     // Visibility was already established by GlassFront. Reconstruct the cell-owned surface
     // directly instead of retracing the world toward a center that an unrelated occluder may hide.
+    float3 appearanceNormal;
     SceneQueryEvent frontEvent = canonicalGlassFrontEvent(
-        glassCell, packedStoredVoxelNormal);
+        glassCell, packedStoredVoxelNormal, appearanceNormal);
     GlassResolveResult result = emptyGlassResolveResult();
     float3 faceCenter;
     float3 tangentU;
     float3 tangentV;
     glassInterfaceFaceFrame(
         glassCell, frontEvent, faceCenter, tangentU, tangentV);
-    // Every visible pixel of this cell receives the mean of the same two deterministic surface
-    // samples, preserving one selected normal and one complete transport color per voxel.
-    [unroll]
-    for (uint sampleIndex = 0u; sampleIndex < 2u; ++sampleIndex)
+    // Integrate both face diagonals without screen/frame jitter. Every covered
+    // pixel still receives one complete, cell-owned transport color.
+    [loop]
+    for (uint sampleIndex = 0u; sampleIndex < GLASS_VOXEL_FACE_SAMPLE_COUNT; ++sampleIndex)
     {
-        float u = sampleIndex != 0u ? 1.0 : -1.0;
-        float v = u;
+        float2 offset = glassVoxelFaceSampleOffset(sampleIndex) / 256.0;
         float3 samplePosition = faceCenter +
-            (tangentU * u + tangentV * v) *
-            GLASS_VOXEL_FACE_SAMPLE_OFFSET;
+            tangentU * offset.x + tangentV * offset.y;
         GlassResolveResult sample = traceGlassFrontSample(
-            samplePosition, frontEvent, localInvocationIndex);
+            samplePosition, frontEvent, appearanceNormal, localInvocationIndex);
         accumulateGlassResolveSample(sample, result);
     }
-    averageGlassResolveSamples(2u, result);
+    averageGlassResolveSamples(GLASS_VOXEL_FACE_SAMPLE_COUNT, result);
 
     // Camera effects are part of the cell-owned final color. Applying them later with each
     // covered pixel's UV would reintroduce per-pixel variation after the voxel cache resolve.

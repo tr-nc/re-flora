@@ -13,6 +13,7 @@ import raster_tree_lookup;
 import skylight;
 import surface_irradiance;
 import terrain_edit_preview;
+import terrain_direct_lighting;
 import terrain_ray_origin;
 import tracer_material;
 import tracer_shadowing;
@@ -208,24 +209,11 @@ float3 directLighting(float3 albedo, float3 normal, float3 voxelCenter,
                       uint localInvocationIndex,
                       out DirectSunShadowTransmittances shadow)
 {
-    float3 sunDirection = normalize(sun_info.sun_dir);
-    float cosine = max(0.0, dot(sunDirection, normal));
-    shadow.terrain = 1.0;
-    shadow.leaf = 1.0;
-    shadow.combined = 1.0;
-    float3 sunIrradiance = float3(0.0);
-    if (cosine > 0.0)
-    {
-        DirectSunShadowReceiver receiver = voxelSunShadowReceiver(
-            voxelCenter, normal, gui_input.terrain_ray_origin_offset_world);
-        sunIrradiance = shadowRayColor(receiver, shadow) * cosine;
-    }
-    // Like sun visibility, a terrain voxel owns one local-light response. Using
-    // the camera-ray hit here drew lighting/shadow boundaries inside one voxel.
-    float3 localReceiver = terrainVoxelSurfacePositionAlongNormal(voxelCenter, normal);
-    float3 localIrradiance = tracerVisibleLocalLightIrradiance(
-        localReceiver, normal, localInvocationIndex);
-    return (sunIrradiance + localIrradiance) * albedo;
+    return albedo * terrainDirectIrradiance(
+        gui_input, sun_info, shadow_camera_info, local_light_info, local_lights,
+        contree_node_data, contree_leaf_data, scene_tex, chunk_atlas,
+        voxelCenter, normal, RE_FLORA_GLASS_PRIMARY != 0,
+        localInvocationIndex, shadow);
 }
 
 struct TerrainSurfaceLighting

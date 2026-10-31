@@ -38,7 +38,12 @@ maps. CPU Slang tests exercise actual constructors and the shared per-tap depth
 gate. `terrain_moisture_sun.slang` owns soil's exposure plan: night/backface rejection
 and exact terrain-ray fallback outside/unready VSM coverage. Exhaustive mask/coverage
 tests cover its decisions; `terrain_moisture_dry.slang` performs the ray/map queries.
-DDGI transport and the path-tracing reference remain independent of visual shadows.
+`terrain_direct_lighting.slang` wires that same voxel receiver, daylight query,
+and visible local lights for primary terrain and secondary Glass hits. Screen
+reprojection failure must not select an unshadowed/constant-ambient material.
+Glass is an optional DDGI consumer and participates in the same fence-safe volume
+publication as primary terrain. DDGI transport and the path-tracing reference
+remain independent of visual shadows.
 
 The host's `Tracer::direct_sun_shadow_resources` is an opaque `ResourceContainer`.
 The soil builder resolves reflected dependencies from it plus geometry providers.
@@ -52,6 +57,10 @@ Scene/glass-scene composition does not enumerate effect textures.
 `computeSkyWithSunAndStars` is the directional query used for actual reflected
 rays; never reuse a camera-screen sample for a reflected direction. The active
 voxel-glass path is `glass_resolve.slang`, not the legacy terrarium helper.
+Its geometric medium boundary owns Snell/Fresnel and ray offsets; stored appearance
+normals may steer reflections only within the incident hemisphere. They must not
+turn a parallel pane into a refractive wedge. Face filtering integrates both
+voxel-face diagonals without pixel/frame jitter and preserves one color per cell.
 
 `PipelineTopology` retains fence-safe descriptor generations and extent retirement.
 God-ray/lens-flare histories still reset on resize and camera cut. Direct-sun terrain

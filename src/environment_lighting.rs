@@ -1606,13 +1606,15 @@ mod tests {
         assert!(tracer.contains(
             "directLight = directLighting(albedo, result.normal,\n                                     result.center_position,"
         ));
-        assert!(tracer.contains(
-            "float3 localReceiver = terrainVoxelSurfacePositionAlongNormal(voxelCenter, normal)"
+        let direct = include_str!("../shader/slang/terrain_direct_lighting.slang")
+            .split_whitespace()
+            .collect::<String>();
+        assert!(direct.contains("terrainVoxelSurfacePositionAlongNormal(voxelCenter,normal)"));
+        assert!(direct.contains(
+            "voxelSunShadowReceiver(voxelCenter,normal,gui.terrain_ray_origin_offset_world)"
         ));
+        assert!(tracer.contains("return albedo * terrainDirectIrradiance("));
         let compact = tracer.split_whitespace().collect::<String>();
-        assert!(compact.contains(
-            "voxelSunShadowReceiver(voxelCenter,normal,gui_input.terrain_ray_origin_offset_world)"
-        ));
         assert!(compact.contains("sampleDirectSunShadow(receiver,gui_input,shadow_camera_info)"));
         // The exposed-face integral has an actual surface point, not a center.
         // Reusing the voxel constructor here silently adds a second half voxel.
