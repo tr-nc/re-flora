@@ -1,0 +1,307 @@
+{
+  "source": "Re:Flora native Vulkan renderer, local development captures",
+  "final_commit": "9e64b05f",
+  "final_binary_sha256": "906ee883b08909c634ef8df95a8d6517ba8ecc4b76f404b1d69640a5cd7c406f",
+  "ai_generation": "none",
+  "rights": "Internal project research screenshots. Underlying game assets retain their existing rights; this bundle grants no separate redistribution license.",
+  "capture_commands": "Release --cozy-home --hidden --mute, isolated RE_FLORA_ROOT; fixed camera poses in ../data.json. Performance: --perf --screenshot window-low scene.png --screenshot-delay 20 --auto-exit 21. Motion: --denoiser-bench window-low motion.toml --denoiser-bench-warmup-frames 180 --denoiser-bench-frames 24 --denoiser-bench-camera-motion --auto-exit 20. 4K: --windowed, X11 WINIT_X11_SCALE_FACTOR=3, WAYLAND_DISPLAY/WAYLAND_SOCKET removed. GUI experiments: glass_reduced_sampling=false for quad; true with glass_sampling_pattern=0/1/2/3 for center/view/screen-pair/diagonal-pair.",
+  "raw_capture_binary_sha256": "Not archived for the temporary readback-instrumented build; final uninstrumented build is hashed above. Shader sampling/transport sources were unchanged during probe removal.",
+  "files": [
+    {
+      "file": "assets/front-quad.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-quad-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "1129e6e275dba81527728d5b8403f074ef8c451273606449e09ecafe7c20664d",
+      "sha256": "ea380f6ed08ab677fbfe3db95552538faf35cfbd36183e607ce1370849f90df6",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/front-center.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-center-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "e38d13254e1a7efe5dd45c87cf1d2632fd029fd7040df0530fda69190e57ddd1",
+      "sha256": "6e96622af993018c02a37a68fadc3ce8f4eca51defe3f4a4f6a3869726d02d82",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/front-view.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-view-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "a20036a8d26065e1a4a8a3907e01c498924889b002d9bbe21ab64dd82180be65",
+      "sha256": "fbdfdb39129bacb774a60281e855d2709a7b4c2eb0c0cb5372e9f1bc42aee32b",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/front-screen-pair.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-screen-pair-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "da5cfdc4792e82ab4e3d30fc5c5c8d5a7223b8ea3e63ab5a9ecc090508933ec2",
+      "sha256": "3486a4e51e7ae2a20751ee02bcc94ba0d65260a66b2a86488500fc076a9dce87",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/front-diagonal-pair.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-diagonal-pair-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "4744a0712cb9c6c5e60fecfdb6fa9d266a55e20b4d1394c85e454e62d370f406",
+      "sha256": "a3e603b0ed6b89d55bc5cc7a1e452c5ae7ee820aa32814c318b8a3d64ea015dd",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/side-quad.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-side-quad-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "c40718f448fefeb9fba76a9767c9912426964b57a9f5b2192d9e40ffa86c911e",
+      "sha256": "f7f66dedd5b32b36e859fde48b2f951a30b74b56146d13bd51a804b32fef5160",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/side-center.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-side-center-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "1eed5d3d0badb83b6b0f0a6f694b2aa254a48f822cc63f0163716d658eec16dd",
+      "sha256": "f7a295206592861854d36232dda3b409a039099b931577d8e0c7b60c66e598f8",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/side-view.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-side-view-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "5e436ece19b7266e0d04c261d4242a1b86153e7e7a571e02f12e4868f4763368",
+      "sha256": "6401ff4f1802d7467d8b3607f70902f48a48acec5ab76dd0d46bbc627976177c",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/side-screen-pair.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-side-screen-pair-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "bb0f032dcf052199373bb1b6bb1ade0eaabb275bc75e6d25e7dcd99c707ebae1",
+      "sha256": "7b121bcce838f39af624dc218809853b852687d721250183c39ad9d7695d5e46",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/side-diagonal-pair.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-side-diagonal-pair-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "cb20b3c02eadfeb12ac6dbdad1d7da6bef6177c67dc5e1624113545f164ee895",
+      "sha256": "4c243526d39926ab585ce4622ae98528a373956cf0fde01bc1920fc7aa45e817",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/level-quad.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-level-quad-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "930af6a81ffa10b1385eecdb1cbc11e371cf599dcea9dbf11f972cf4ada561cd",
+      "sha256": "da8177899c5ff8fb92e4ee4af12da80a8a673d9c8931e7360594634a72e01939",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/level-center.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-level-center-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "cd63c5a4d310b274e8469dfdc80e5b01c5e69d5c6a57657f5dd1d00696c976cd",
+      "sha256": "af65f3be664e73a7edaab97657934f1e60ef29397ef66781b9013a7650c9e835",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/level-view.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-level-view-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "e7e44a0a1759543ee1de02f34442bbe7ad99d985e8fc036728a5ee94c63dd2dc",
+      "sha256": "f7ff0b9f543086a7aa5412526ecbea3b7825e0b319a9be4ecb64192a335a9a51",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/level-screen-pair.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-level-screen-pair-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "9b16262812d61cef49879f65a4f3d8b6dcec2438e0dd528c6b38140ed2aa9d9d",
+      "sha256": "67d65610ce9eb50542457efe3ae16cef10cc769494eb13ca090311d89008a30f",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/level-diagonal-pair.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-level-diagonal-pair-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "63cf7b8fb24126654618c6d266a4431cd87b070af6b1dac3cee9a68f0287ec8a",
+      "sha256": "2178b3eb378d2a6851de2e415912a30c181eefaa185b49ea5ff27001b8640e82",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/inside-quad.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-inside-quad-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "33bdd401b3341f2c449ae6bf56a5e78146653d1bae004b9ea447410d9b1f2be0",
+      "sha256": "2660be9f43674b7e17ab80b1783e91ec049a033821142a71b6e0379d3c5d63ac",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/inside-center.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-inside-center-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "39ee56dbe731c268d578c5c350a6e5acc697a277a9aada942f464c5f7260a539",
+      "sha256": "4fba28d701ca36b05972f6eaad1ceebb29b662873bc56a4e48cb390c0ef17da7",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/inside-view.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-inside-view-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "3051b4995d8c80997b97e2a61cc4c972e390d1bd85b254e768851219b14023ec",
+      "sha256": "299bf1f72d60ff58d991bfe929528669c7955374ec2e86e4527ed6bb3854d04b",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/inside-screen-pair.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-inside-screen-pair-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "d8985a270cd40ecb7055f91d5637968db0e3981358e8496559c66adab3443467",
+      "sha256": "047bac9796fc563c400077fb3ef4bc1956557b8a912da331e48f34de02126b81",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/inside-diagonal-pair.png",
+      "role": "lossless 24-frame world-cell HDR review sprite, not a game screenshot",
+      "source": "target/glass-flower-evidence/sampling-inside-diagonal-pair-motion/cells",
+      "source_digest_order": "sorted metadata then radiance, frame by frame",
+      "source_sha256": "3684f308c14ae3fdb3b9c517d87a9175369c1549d1ef3dc312c5f3317c1b62c3",
+      "sha256": "f8c819f01b06d7c98676ba56c24a418f50c91343cd87519f2e16274e8ce73d23",
+      "dimensions": [
+        48,
+        696
+      ],
+      "mapping": "x=522..569; y=209..181 descending; fixed z=593 outside / 592 inside; 24 vertical frames; RGB Reinhard(v/(1+v)) then IEC sRGB; absent cells alpha=0; no temporal/spatial filtering"
+    },
+    {
+      "file": "assets/window-quad.jpg",
+      "role": "cropped game screenshot for spatial appearance, not a temporal-stability measurement",
+      "source": "target/glass-flower-evidence/sampling-final-4k-quad/scene.png",
+      "source_sha256": "fbc498f0123363e4fc3440f000b8dec3e8604d5e3736084ec0a1d218dee9b5a6",
+      "sha256": "48d09db3cef6e8ce2d6fad47ab247984b5aac5fcf1143651c846b1d3c9cc8696",
+      "dimensions": [
+        1152,
+        648
+      ],
+      "processing": "ffmpeg -i SOURCE -vf 'crop=1728:972:1152:540,scale=1152:648:flags=lanczos' -frames:v 1 -q:v 2 OUTPUT"
+    },
+    {
+      "file": "assets/window-center.jpg",
+      "role": "cropped game screenshot for spatial appearance, not a temporal-stability measurement",
+      "source": "target/glass-flower-evidence/sampling-final-4k-center/scene.png",
+      "source_sha256": "6ab92fcfc2aa472a584516e162032fa1bc036b0bd3a0a976f036bf3cdf077698",
+      "sha256": "9c45969a41ef28c47ea247ec1e8e01ff7fbd13502a24a3ef13bb8a1c7beb0381",
+      "dimensions": [
+        1152,
+        648
+      ],
+      "processing": "ffmpeg -i SOURCE -vf 'crop=1728:972:1152:540,scale=1152:648:flags=lanczos' -frames:v 1 -q:v 2 OUTPUT"
+    },
+    {
+      "file": "assets/window-screen-pair.jpg",
+      "role": "cropped game screenshot for spatial appearance, not a temporal-stability measurement",
+      "source": "target/glass-flower-evidence/sampling-final-4k-screen-pair/scene.png",
+      "source_sha256": "3ad49b7704ec44b805c8786fac22cd2918018611036e9c2cd1f548d56a821328",
+      "sha256": "8fa96dafd4ef84dd988bdeb4e5235cd1a8867b16f2ee2b197b065aff8df3c982",
+      "dimensions": [
+        1152,
+        648
+      ],
+      "processing": "ffmpeg -i SOURCE -vf 'crop=1728:972:1152:540,scale=1152:648:flags=lanczos' -frames:v 1 -q:v 2 OUTPUT"
+    }
+  ]
+}
