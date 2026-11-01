@@ -1,3 +1,5 @@
+mod block_export;
+
 use glam::{IVec3, UVec3, Vec3};
 use std::{
     cmp::Ordering,
@@ -238,9 +240,8 @@ fn checked_world_voxel(
 
 /// Samples a dense x-fastest voxel block from immutable Contree CPU caches.
 ///
-/// This lives in the release-optimized terrain-collider crate because full-world collider import
-/// executes the sampling loop for every world voxel, even when the application uses its dev
-/// profile.
+/// Allocated nodes are clipped to the requested block, skipping empty subtrees. The original
+/// point sampler remains the compatibility path for non-base-four or malformed caches.
 pub fn export_contree_voxel_types(
     chunk_dim: UVec3,
     voxel_dim_per_chunk: UVec3,
@@ -250,6 +251,11 @@ pub fn export_contree_voxel_types(
     dim: UVec3,
     voxel_type_mask: u32,
 ) -> Vec<u8> {
+    if let Some(bytes) = block_export::try_export(
+        chunk_dim, voxel_dim_per_chunk, scene_chunks, chunk_caches, voxel_min, dim, voxel_type_mask,
+    ) {
+        return bytes;
+    }
     let voxel_max = voxel_min + dim;
     let element_count = dim.x as usize * dim.y as usize * dim.z as usize;
     let chunk_min = voxel_min / voxel_dim_per_chunk;
@@ -660,6 +666,122 @@ mod tests {
         assert_eq!(
             checked_world_voxel(UVec3::new(u32::MAX, 0, 0), UVec3::X),
             Err(ContreeSparseVoxelError::CoordinateOverflow)
+        );
+    }
+
+    #[test]
+    fn block_traversal_matches_center_sampling_for_clipping_masks_and_chunk_boundaries() {
+        for voxel_dim in [4, 256] {
+            let mut cache = if voxel_dim == 4 {
+                multi_leaf_root_contree()
+            } else {
+                one_voxel_contree(UVec3::new(129, 34, 255), 0xe8)
+            };
+            cache.chunk_idx = UVec3::ZERO;
+            let other = ContreeCpuChunkCache {
+                chunk_idx: UVec3::X,
+                ..cache.clone()
+            };
+            let caches =
+                HashMap::from([(UVec3::ZERO, Arc::new(cache)), (UVec3::X, Arc::new(other))]);
+            let scenes = [Some(UVec3::ZERO), Some(UVec3::X), None];
+            let vd = UVec3::splat(voxel_dim);
+            let occupied = if voxel_dim == 4 {
+                UVec3::ZERO
+            } else {
+                UVec3::new(129, 34, 255)
+            };
+            for (min, dim) in [
+                (occupied, UVec3::ONE),
+                (UVec3::ZERO, UVec3::splat(4)),
+                (UVec3::new(voxel_dim - 2, 0, 0), UVec3::splat(4)),
+                (UVec3::new(voxel_dim * 2 - 2, 0, 0), UVec3::splat(4)),
+            ] {
+                for mask in [0x0f, 0xff] {
+                    let mut oracle = Vec::new();
+                    for z in min.z..min.z + dim.z {
+                        for y in min.y..min.y + dim.y {
+                            for x in min.x..min.x + dim.x {
+                                let p = UVec3::new(x, y, z);
+                                let chunk = p / vd;
+                                oracle.push(caches.get(&chunk).map_or(0, |cache| {
+                                    cache.voxel_type_at(
+                                        chunk.as_vec3()
+                                            + ((p % vd).as_vec3() + Vec3::splat(0.5))
+                                                / vd.as_vec3(),
+                                        mask,
+                                    )
+                                }));
+                            }
+                        }
+                    }
+                    let fast = block_export::try_export(
+                        UVec3::new(3, 1, 1),
+                        vd,
+                        &scenes,
+                        &caches,
+                        min,
+                        dim,
+                        mask,
+                    )
+                    .unwrap();
+                    assert_eq!(fast, oracle);
+                    assert_eq!(
+                        export_contree_voxel_types(
+                            UVec3::new(3, 1, 1),
+                            vd,
+                            &scenes,
+                            &caches,
+                            min,
+                            dim,
+                            mask
+                        ),
+                        oracle
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_block_traversal_falls_back_to_the_existing_point_sampler() {
+        let mut cache = multi_leaf_root_contree();
+        cache.chunk_idx = UVec3::ZERO;
+        cache.leaves.truncate(3);
+        let cache = Arc::new(cache);
+        let caches = HashMap::from([(UVec3::ZERO, cache.clone())]);
+        assert!(block_export::try_export(
+            UVec3::ONE,
+            UVec3::splat(4),
+            &[Some(UVec3::ZERO)],
+            &caches,
+            UVec3::ZERO,
+            UVec3::splat(4),
+            15
+        )
+        .is_none());
+        let mut oracle = Vec::new();
+        for z in 0..4 {
+            for y in 0..4 {
+                for x in 0..4 {
+                    oracle.push(cache.voxel_type_at(
+                        (Vec3::new(x as f32, y as f32, z as f32) + Vec3::splat(0.5)) / 4.,
+                        15,
+                    ));
+                }
+            }
+        }
+        assert_eq!(
+            export_contree_voxel_types(
+                UVec3::ONE,
+                UVec3::splat(4),
+                &[Some(UVec3::ZERO)],
+                &caches,
+                UVec3::ZERO,
+                UVec3::splat(4),
+                15
+            ),
+            oracle
         );
     }
 
