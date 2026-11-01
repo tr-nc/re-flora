@@ -100,7 +100,18 @@ impl RasterTreeMesh {
                     .materials
                     .iter()
                     .zip(bytes)
-                    .all(|(old, new)| *old == super::surface_material(*new))
+                    .enumerate()
+                    .all(|(i, (old, new))| {
+                        if *old == super::surface_material(*new) {
+                            return true;
+                        }
+                        let i = i as u32;
+                        let cell =
+                            origin + UVec3::new(i % dim.x, (i / dim.x) % dim.y, i / dim.x / dim.y);
+                        // Use the same conservative cone + radius-two support as
+                        // terrain invalidation, including presently absent wood.
+                        !cached.mesh.dependencies.contains_voxel(cell)
+                    })
         });
         let hit = previous_fragment.is_some();
         let fragment = match previous_fragment {
@@ -310,6 +321,78 @@ mod tests {
         let (_, hit) = cached(&replacement, &bytes, &normal);
         assert!(!hit);
     }
+    #[test]
+    fn material_changes_between_branches_reuse_but_cuts_refills_and_halos_rebuild() {
+        let mut desc = crate::tree_gen::TreeDesc::default();
+        desc.size = 2.;
+        desc.branching.iterations = 1;
+        let tree = Arc::new(Tree::new(desc));
+        let position = Vec3::new(16., 4., 16.) / 256.;
+        let cones = tree.world_trunks(position);
+        let wood = RoundConeClearanceIndex::new(&cones);
+        let dim = UVec3::splat(32);
+        let mut bytes = vec![0; 32 * 32 * 32];
+        let index = |p: UVec3| (p.x + 32 * (p.y + 32 * p.z)) as usize;
+        for z in 0..32 {
+            for y in 0..32 {
+                for x in 0..32 {
+                    let p = UVec3::new(x, y, z);
+                    if wood.contains_point(p.as_vec3() + Vec3::splat(0.5)) {
+                        bytes[index(p)] = 5;
+                    }
+                }
+            }
+        }
+        let compile = |bytes: &[u8], previous: &RasterTreeMesh, use_cache| {
+            let mut mesh = RasterTreeMesh::default();
+            let hit = if use_cache {
+                mesh.append_cached_tree_region(
+                    TreeSurfaceRegion {
+                        id: 2,
+                        tree: &tree,
+                        tree_origin: position,
+                        origin: UVec3::ZERO,
+                        dim,
+                        bytes,
+                        cones: &cones,
+                    },
+                    previous,
+                )
+                .unwrap()
+            } else {
+                mesh.append_region(UVec3::ZERO, dim, bytes, &cones).unwrap();
+                false
+            };
+            mesh.finish().unwrap();
+            if use_cache {
+                mesh.bind_compiled_fragments().unwrap();
+            } else {
+                mesh.bind_tree(2, position, &tree, None).unwrap();
+            }
+            (mesh, hit)
+        };
+        let (before, _) = compile(&bytes, &RasterTreeMesh::default(), true);
+        assert!(!before.cells.is_empty());
+        bytes[0] = 5; // A different tree in empty space within the broad readback box.
+        let (unrelated, hit) = compile(&bytes, &before, true);
+        assert!(hit);
+        assert!(unrelated.same_surface(&compile(&bytes, &before, false).0));
+        let cell = UVec3::from_array(*before.cells.keys().next().unwrap());
+        let i = index(cell);
+        bytes[i] = 0;
+        let (cut, hit) = compile(&bytes, &unrelated, true);
+        assert!(!hit);
+        assert!(cut.same_surface(&compile(&bytes, &before, false).0));
+        bytes[i] = 5; // Currently absent wood still belongs to the dependency support.
+        let (refill, hit) = compile(&bytes, &cut, true);
+        assert!(!hit);
+        assert!(refill.same_surface(&compile(&bytes, &before, false).0));
+        bytes[index(cell + UVec3::splat(2))] = 2; // Diagonal radius-two normal sample.
+        let (halo, hit) = compile(&bytes, &refill, true);
+        assert!(!hit);
+        assert!(halo.same_surface(&compile(&bytes, &before, false).0));
+    }
+
     #[test]
     fn cache_budget_is_optional_and_cannot_drop_or_reject_valid_geometry() {
         let (tree, bytes) = fixture();

@@ -40,6 +40,10 @@ impl TreeSurfaceDependencies {
         }
     }
 
+    pub(super) fn contains_voxel(&self, voxel: UVec3) -> bool {
+        self.intersects(UAabb3::new(voxel, voxel))
+    }
+
     fn intersects(&self, affected: UAabb3) -> bool {
         // Voxel edit bounds may be inclusive (including a single voxel). Do not
         // use geometric positive-volume intersection, which drops boundary cells.
