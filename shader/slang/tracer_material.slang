@@ -42,8 +42,9 @@ public float3 voxelColorByType(U_VoxelColors colors, uint voxelType)
 float3 applyAuthoredFinish(float3 baseColor, uint voxelType, uint atlasData)
 {
     if (voxelType == VOXEL_TYPE_STUCCO &&
-        (atlasData & VOXEL_CINNABAR_FINISH_BIT) != 0u)
-        return srgbToLinear(float3(0.66, 0.12, 0.085));
+        (atlasData & VOXEL_IRON_RED_FINISH_BIT) != 0u)
+        // Authored earthy iron red (#884638), not a calibrated pigment sample.
+        return srgbToLinear(float3(0.5333, 0.2745, 0.2196));
     return baseColor;
 }
 

@@ -137,7 +137,7 @@ impl App {
         // loading publication builds CPU picking, rendering and colliders once.
         let mut edits = Vec::new();
         for (triangles, material) in [
-            (plaster, crate::builder::VOXEL_MATERIAL_CINNABAR),
+            (plaster, crate::builder::VOXEL_MATERIAL_IRON_RED),
             (tiles, crate::builder::VOXEL_TYPE_ASPHALT),
         ] {
             // Bound each upload independently of world size / staging capacity.

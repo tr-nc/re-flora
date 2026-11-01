@@ -56,8 +56,8 @@ pub const VOXEL_TYPE_MASK: u8 = 0x0f;
 pub const VOXEL_FIXED_SCENE_BIT: u8 = 0x80;
 /// Derived ordinary-grass coverage on Dirt only; does not change its material.
 pub const VOXEL_GRASS_COVER_BIT: u8 = 0x40;
-/// On Stucco only, bit 6 selects cinnabar plaster; Dirt keeps grass semantics.
-pub const VOXEL_MATERIAL_CINNABAR: u32 = VOXEL_TYPE_STUCCO | 0x40;
+/// On Stucco only, bit 6 selects iron-red plaster; Dirt keeps grass semantics.
+pub const VOXEL_MATERIAL_IRON_RED: u32 = VOXEL_TYPE_STUCCO | 0x40;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TerrainGeneration {

@@ -172,7 +172,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     {
         uint material = model_voxelize_info.fill_voxel_type;
         uint finish = (material & VOXEL_TYPE_MASK) == VOXEL_TYPE_STUCCO
-            ? material & VOXEL_CINNABAR_FINISH_BIT : 0u;
+            ? material & VOXEL_IRON_RED_FINISH_BIT : 0u;
         chunk_atlas[worldVoxelPosition] = packVoxelAtlasTypeClearState(material) | finish;
         if (model_voxelize_info.fill_voxel_type != VOXEL_TYPE_EMPTY)
         {

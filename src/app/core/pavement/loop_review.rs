@@ -158,7 +158,7 @@ impl App {
                     LowWallKind::Earth => VOXEL_TYPE_DIRT,
                     LowWallKind::Stone => VOXEL_TYPE_ROCK,
                     LowWallKind::Brick => VOXEL_TYPE_TERRACOTTA,
-                    LowWallKind::Chinese => crate::builder::VOXEL_MATERIAL_CINNABAR,
+                    LowWallKind::Chinese => crate::builder::VOXEL_MATERIAL_IRON_RED,
                 };
                 for row in rows {
                     for slice in wall.pieces(row) {

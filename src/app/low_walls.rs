@@ -69,7 +69,7 @@ impl LowWallRecipe {
     }
     pub(super) fn layers(self) -> usize {
         if self.kind == LowWallKind::Chinese {
-            return 8; // Plastered body, closed roof bed and six pitched tile strips.
+            return 30; // Body + roof bed + 24 pan/cover panels + four ridge panels.
         }
         if self.kind == LowWallKind::Earth {
             1
@@ -196,17 +196,18 @@ impl LowWallRecipe {
     fn chinese_pieces(self, row: PathSample, raw: PathCell) -> Vec<WallSlice> {
         let cap = (self.width * 0.32).min(self.height * 0.45);
         let body_top = self.height - cap;
-        let footprint = |a: f32, b: f32| {
-            [
-                row.entry.point(a * self.width * 0.5),
-                row.entry.point(b * self.width * 0.5),
-                row.exit.point(b * self.width * 0.5),
-                row.exit.point(a * self.width * 0.5),
-            ]
+        // t follows the wall; u runs downhill across the two roof slopes.
+        let point = |t: f32, u: f32| {
+            row.entry
+                .point(u * self.width * 0.5)
+                .lerp(row.exit.point(u * self.width * 0.5), t)
         };
+        let footprint =
+            |t0, t1, u0, u1| [point(t0, u0), point(t0, u1), point(t1, u1), point(t1, u0)];
+        let relief = cap * 0.22;
         let mut pieces = vec![WallSlice {
             cell: PathCell {
-                footprint: footprint(-0.78, 0.78),
+                footprint: footprint(0., 1., -0.76, 0.76),
                 ..raw
             },
             layer: 0,
@@ -221,31 +222,76 @@ impl LowWallRecipe {
             cell: raw,
             layer: 1,
             lower: body_top - VOXEL_SIZE * 0.25,
-            upper: body_top + cap * 0.35,
+            upper: body_top + cap * 0.20,
             top_scale: 1.,
             top_offsets: [0.; 4],
         });
-        for strip in 0..6 {
-            let a = -1. + strip as f32 / 3.;
-            let b = a + 1. / 3.;
-            // Real recessed joints between tile courses, within the shared band.
-            let Some(foot) = inset_quad_edges(
-                footprint(a, b),
-                [VOXEL_SIZE * 1.25, 0., VOXEL_SIZE * 1.25, 0.],
-            ) else {
-                return vec![];
-            };
-            let profile = |u: f32| -cap * 0.65 * u.abs().powf(0.75);
+        // Concave pans drain across the wall. Rounded cover rolls bridge the
+        // joints between lanes, rather than engraving lines on a flat grey cap.
+        let stations = [
+            (0., 0.95),
+            (0.10, 0.72),
+            (0.25, 0.08),
+            (0.50, 0.),
+            (0.75, 0.08),
+            (0.90, 0.72),
+            (1., 0.95),
+        ];
+        let roof = |u: f32| body_top + cap * (0.26 + 0.49 * (1. - u.abs()).powf(0.85));
+        for side in [-1., 1.] {
+            for course in 0..2 {
+                // The upper course overlaps the lower one, leaving a proud lip.
+                let near = course as f32 * 0.45;
+                let far = (near + 0.55).min(1.);
+                let (u0, u1) = if side < 0. {
+                    (-far, -near)
+                } else {
+                    (near, far)
+                };
+                let lip = if course == 0 { cap * 0.035 } else { 0. };
+                for pair in stations.windows(2) {
+                    let [(t0, roll0), (t1, roll1)] = [pair[0], pair[1]];
+                    let height = |u, roll| roof(u) + relief * roll + lip;
+                    pieces.push(WallSlice {
+                        cell: PathCell {
+                            footprint: footprint(t0, t1, u0, u1),
+                            ..raw
+                        },
+                        layer: pieces.len(),
+                        lower: body_top - VOXEL_SIZE * 0.25,
+                        upper: self.height,
+                        top_scale: 1.,
+                        top_offsets: [
+                            height(u0, roll0),
+                            height(u1, roll0),
+                            height(u1, roll1),
+                            height(u0, roll1),
+                        ]
+                        .map(|h| h - self.height),
+                    });
+                }
+            }
+        }
+        // Four facets read as a round ridge tile even at the native voxel scale.
+        let ridge = [
+            (-0.20, 0.80),
+            (-0.12, 0.95),
+            (0., 1.),
+            (0.12, 0.95),
+            (0.20, 0.80),
+        ];
+        for pair in ridge.windows(2) {
+            let [(a, ha), (b, hb)] = [pair[0], pair[1]];
             pieces.push(WallSlice {
                 cell: PathCell {
-                    footprint: foot,
+                    footprint: footprint(0., 1., a, b),
                     ..raw
                 },
-                layer: strip + 2,
-                lower: body_top - VOXEL_SIZE * 0.25,
+                layer: pieces.len(),
+                lower: body_top + cap * 0.55,
                 upper: self.height,
                 top_scale: 1.,
-                top_offsets: [profile(a), profile(b), profile(b), profile(a)],
+                top_offsets: [ha, hb, hb, ha].map(|h| cap * (h - 1.)),
             });
         }
         pieces
@@ -280,7 +326,7 @@ impl WallSlice {
             LowWallKind::Earth => VOXEL_TYPE_DIRT,
             LowWallKind::Stone => VOXEL_TYPE_ROCK,
             LowWallKind::Brick => VOXEL_TYPE_TERRACOTTA,
-            LowWallKind::Chinese if self.layer == 0 => VOXEL_MATERIAL_CINNABAR,
+            LowWallKind::Chinese if self.layer == 0 => VOXEL_MATERIAL_IRON_RED,
             LowWallKind::Chinese => VOXEL_TYPE_ASPHALT,
         }
     }
@@ -457,18 +503,23 @@ mod tests {
         assert_eq!(pieces.len(), wall.layers());
         assert_eq!(
             pieces[0].material(wall.kind),
-            crate::builder::VOXEL_MATERIAL_CINNABAR
+            crate::builder::VOXEL_MATERIAL_IRON_RED
         );
         assert!(pieces[1..]
             .iter()
             .all(|p| p.material(wall.kind) == crate::builder::VOXEL_TYPE_ASPHALT));
         let body = pieces[0].solid([1.; 4]);
         let bed = pieces[1].solid([1.; 4]);
-        let eave = pieces[2].solid([1.; 4]);
-        let ridge = pieces[4].solid([1.; 4]);
-        assert!(bed.positions[4].y >= eave.positions[4].y - 1e-6);
+        let eave = pieces[8].solid([1.; 4]);
+        let ridge = pieces[27].solid([1.; 4]);
+        assert!(bed.positions[4].y < eave.positions[4].y);
         assert!(eave.positions[4].y < ridge.positions[5].y);
         assert!((ridge.positions[5].y - 1.2).abs() < 1e-6);
+        let pan = pieces[10].solid([1.; 4]);
+        assert!(
+            eave.positions[4].y > pan.positions[7].y,
+            "rounded cover must stand above the concave pan at the eave"
+        );
         assert!(body.positions[0].z < eave.positions[0].z);
         assert!(eave.positions[5].y > body.positions[5].y);
     }
