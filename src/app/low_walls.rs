@@ -194,7 +194,7 @@ impl LowWallRecipe {
     }
 
     fn chinese_pieces(self, row: PathSample, raw: PathCell) -> Vec<WallSlice> {
-        let cap = (self.width * 0.32).min(self.height * 0.45);
+        let cap = (self.width * 0.50).min(self.height * 0.45);
         let body_top = self.height - cap;
         // t follows the wall; u runs downhill across the two roof slopes.
         let point = |t: f32, u: f32| {
@@ -204,7 +204,7 @@ impl LowWallRecipe {
         };
         let footprint =
             |t0, t1, u0, u1| [point(t0, u0), point(t0, u1), point(t1, u1), point(t1, u0)];
-        let relief = cap * 0.22;
+        let relief = cap * 0.32;
         let mut pieces = vec![WallSlice {
             cell: PathCell {
                 footprint: footprint(0., 1., -0.76, 0.76),
@@ -222,7 +222,7 @@ impl LowWallRecipe {
             cell: raw,
             layer: 1,
             lower: body_top - VOXEL_SIZE * 0.25,
-            upper: body_top + cap * 0.20,
+            upper: body_top + cap * 0.10,
             top_scale: 1.,
             top_offsets: [0.; 4],
         });
@@ -237,7 +237,7 @@ impl LowWallRecipe {
             (0.90, 0.72),
             (1., 0.95),
         ];
-        let roof = |u: f32| body_top + cap * (0.26 + 0.49 * (1. - u.abs()).powf(0.85));
+        let roof = |u: f32| body_top + cap * (0.18 + 0.44 * (1. - u.abs()).powf(0.85));
         for side in [-1., 1.] {
             for course in 0..2 {
                 // The upper course overlaps the lower one, leaving a proud lip.
@@ -248,7 +248,7 @@ impl LowWallRecipe {
                 } else {
                     (near, far)
                 };
-                let lip = if course == 0 { cap * 0.035 } else { 0. };
+                let lip = if course == 0 { cap * 0.07 } else { 0. };
                 for pair in stations.windows(2) {
                     let [(t0, roll0), (t1, roll1)] = [pair[0], pair[1]];
                     let height = |u, roll| roof(u) + relief * roll + lip;
