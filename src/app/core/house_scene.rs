@@ -5,7 +5,7 @@ use super::{planting::AuthoredFloraPlacementBatch, App};
 use crate::{
     builder::{
         voxel_type_from_atlas_byte, PlainBuilder, VOXEL_TYPE_DIRT, VOXEL_TYPE_GLASS,
-        VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND,
+        VOXEL_TYPE_OAK_WOOD, VOXEL_TYPE_ROCK, VOXEL_TYPE_SAND,
     },
     gameplay::{camera::PlayerWalkMovementRequest, CameraPose},
 };
@@ -149,6 +149,7 @@ impl App {
         self.finish_authored_flora_placement(batch)?;
         log::info!("[HOUSE_SCENE][GARDEN] authored_flowers={count} planters={} existing_species={:?} substrate_validated=true", PLANTERS.len(), crate::garden_layout::FLOWER_KEYS);
         self.verify_house_passage()?;
+        self.verify_house_window_frames(base)?;
         self.apply_house_camera(base);
         Ok(())
     }
@@ -207,6 +208,68 @@ impl App {
             "[HOUSE_SCENE][CAMERA] preset={name} foundation_relative=true fly={fly} position={:?}",
             pose.position
         );
+    }
+
+    fn verify_house_window_frames(&self, base: f32) -> Result<()> {
+        let mut rays = 0;
+        let mut verify = |inside: Vec3, outside: Vec3, axis: Vec3| -> Result<()> {
+            for (surface, direction) in [(inside, axis), (outside, -axis)] {
+                let hit = self
+                    .query_terrain_ray_cpu(world(surface - direction * 3.), direction)
+                    .context("missing cottage window timber")?;
+                ensure!(
+                    hit.voxel_type == VOXEL_TYPE_OAK_WOOD
+                        && (hit.position - world(surface)).dot(axis).abs() <= 1. / 256.,
+                    "cottage window timber missing at room/exterior face: surface={surface:?} direction={direction:?} hit={hit:?}",
+                );
+                rays += 1;
+            }
+            Ok(())
+        };
+        for w in WINDOWS {
+            let left = w.x - w.width * 0.5;
+            let right = w.x + w.width * 0.5;
+            let y = (w.bottom + w.height * 0.25).floor() + 0.5;
+            let bar_y = (w.bottom + w.height * 0.52 - 0.5).ceil() + 0.5;
+            let quarter_x = (left + w.width * 0.25).floor() + 0.5;
+            for (x, y, projection) in [
+                (left - 1.5, y, 4.),
+                (right + 1.5, y, 4.),
+                (quarter_x, w.bottom - 1.5, 4.),
+                (quarter_x, w.bottom + w.height + 0.5, 4.),
+                (w.x - 0.5, y, 2.),
+                (quarter_x, bar_y, 2.),
+                (quarter_x, w.bottom - 3.5, 7.),
+            ] {
+                verify(
+                    Vec3::new(x, base + y, w.frame_inner_z()),
+                    Vec3::new(x, base + y, w.z + projection),
+                    Vec3::Z,
+                )?;
+            }
+        }
+        for floor in [0., architecture::FLOOR_HEIGHT] {
+            for (y, z, projection) in [
+                (30.5, 252.5, 3.),
+                (30.5, 287.5, 3.),
+                (30.5, 270.5, 3.),
+                (21.5, 261.5, 4.),
+                (36.5, 261.5, 4.),
+                (50.5, 261.5, 4.),
+            ] {
+                verify(
+                    Vec3::new(
+                        MAX_X - architecture::WALL_THICKNESS - 1.,
+                        base + floor + y,
+                        z,
+                    ),
+                    Vec3::new(MAX_X + projection, base + floor + y, z),
+                    Vec3::X,
+                )?;
+            }
+        }
+        log::info!("[HOUSE_SCENE][WINDOW_FRAMES] windows=6 room_and_exterior_wood=true published_cpu_rays={rays}");
+        Ok(())
     }
 
     fn verify_house_passage(&mut self) -> Result<()> {

@@ -19,6 +19,8 @@ pub(super) const MIN_Z: f32 = 214.;
 pub(super) const FRONT_Z: f32 = 354.;
 pub(super) const DOOR_X: f32 = 136.;
 pub(super) const FLOOR_HEIGHT: f32 = 64.;
+pub(super) const WALL_THICKNESS: f32 = 8.;
+const DORMER_WALL_THICKNESS: f32 = 5.;
 const WALL_TOP: f32 = FLOOR_HEIGHT * 2.;
 const RIDGE_Z: f32 = 280.;
 const ROOF_HALF_DEPTH: f32 = 94.;
@@ -87,6 +89,14 @@ pub(super) struct Window {
     pub width: f32,
     pub height: f32,
     pub z: f32,
+    pub wall_depth: f32,
+}
+
+impl Window {
+    /// One voxel of interior casing, continuous through the wall and Glass.
+    pub(super) fn frame_inner_z(self) -> f32 {
+        self.z - self.wall_depth - 1.
+    }
 }
 
 pub(super) const WINDOWS: [Window; 4] = [
@@ -96,6 +106,7 @@ pub(super) const WINDOWS: [Window; 4] = [
         width: 48.,
         height: 29.,
         z: FRONT_Z,
+        wall_depth: WALL_THICKNESS,
     },
     Window {
         x: 135.,
@@ -103,6 +114,7 @@ pub(super) const WINDOWS: [Window; 4] = [
         width: 30.,
         height: 30.,
         z: FRONT_Z,
+        wall_depth: WALL_THICKNESS,
     },
     Window {
         x: 219.,
@@ -110,6 +122,7 @@ pub(super) const WINDOWS: [Window; 4] = [
         width: 36.,
         height: 40.,
         z: FRONT_Z,
+        wall_depth: WALL_THICKNESS,
     },
     Window {
         x: 222.,
@@ -117,6 +130,7 @@ pub(super) const WINDOWS: [Window; 4] = [
         width: 28.,
         height: 22.,
         z: 343.,
+        wall_depth: DORMER_WALL_THICKNESS,
     },
 ];
 
@@ -168,23 +182,35 @@ pub(super) fn plan(base: f32, ground_min: f32, approach_y: f32) -> Result<WorldE
     // Closed side gables follow the roof, including the shallow curved eaves.
     for i in 0..35 {
         let z = MIN_Z + i as f32 * 4.;
-        for x in [MIN_X, MAX_X - 8.] {
+        for x in [MIN_X, MAX_X - WALL_THICKNESS] {
             plaster.push(box_at(
                 Vec3::new(x, WALL_TOP, z),
-                Vec3::new(x + 8., roof_height(z).min(roof_height(z + 4.)), z + 4.),
+                Vec3::new(
+                    x + WALL_THICKNESS,
+                    roof_height(z).min(roof_height(z + 4.)),
+                    z + 4.,
+                ),
             ));
         }
     }
-    for z in [MIN_Z, FRONT_Z - 8.] {
+    for z in [MIN_Z, FRONT_Z - WALL_THICKNESS] {
         plaster.push(box_at(
             Vec3::new(MIN_X, WALL_TOP, z),
-            Vec3::new(MAX_X, roof_height(z).min(roof_height(z + 8.)), z + 8.),
+            Vec3::new(
+                MAX_X,
+                roof_height(z).min(roof_height(z + WALL_THICKNESS)),
+                z + WALL_THICKNESS,
+            ),
         ));
     }
     edits.push(cuboids(plaster, VOXEL_TYPE_LIMESTONE)?);
     let mut cuts = vec![box_at(
-        Vec3::new(MIN_X + 8., 0., MIN_Z + 8.),
-        Vec3::new(MAX_X - 8., WALL_TOP + 1., FRONT_Z - 8.),
+        Vec3::new(MIN_X + WALL_THICKNESS, 0., MIN_Z + WALL_THICKNESS),
+        Vec3::new(
+            MAX_X - WALL_THICKNESS,
+            WALL_TOP + 1.,
+            FRONT_Z - WALL_THICKNESS,
+        ),
     )];
     // Generous, flat-threshold entrance; open door leaves are added inside the jambs.
     cuts.push(box_at(
@@ -542,14 +568,23 @@ fn add_dormer(edits: &mut Vec<VoxelEdit>) -> Result<()> {
         VOXEL_TYPE_EMPTY,
     )?);
     let mut walls = vec![
-        box_at(Vec3::new(198., 143., 310.), Vec3::new(203., 174., 343.)),
-        box_at(Vec3::new(241., 143., 310.), Vec3::new(246., 174., 343.)),
-        box_at(Vec3::new(198., 143., 338.), Vec3::new(246., 174., 343.)),
+        box_at(
+            Vec3::new(198., 143., 310.),
+            Vec3::new(198. + DORMER_WALL_THICKNESS, 174., 343.),
+        ),
+        box_at(
+            Vec3::new(246. - DORMER_WALL_THICKNESS, 143., 310.),
+            Vec3::new(246., 174., 343.),
+        ),
+        box_at(
+            Vec3::new(198., 143., 343. - DORMER_WALL_THICKNESS),
+            Vec3::new(246., 174., 343.),
+        ),
     ];
     for i in 0..14 {
         let half = 24. * (1. - i as f32 / 14.);
         walls.push(box_at(
-            Vec3::new(222. - half, 174. + i as f32, 338.),
+            Vec3::new(222. - half, 174. + i as f32, 343. - DORMER_WALL_THICKNESS),
             Vec3::new(222. + half, 175. + i as f32, 343.),
         ));
     }
@@ -603,6 +638,7 @@ fn add_windows(edits: &mut Vec<VoxelEdit>) -> Result<()> {
         let left = w.x - w.width * 0.5;
         let right = w.x + w.width * 0.5;
         let top = w.bottom + w.height;
+        let inner_z = w.frame_inner_z();
         cuts.push(box_at(
             Vec3::new(left, w.bottom, w.z - 10.),
             Vec3::new(right, top, w.z + 2.),
@@ -613,26 +649,26 @@ fn add_windows(edits: &mut Vec<VoxelEdit>) -> Result<()> {
         ));
         for x in [left - 1., right + 1.] {
             frames.push(box_at(
-                Vec3::new(x - 1., w.bottom - 2., w.z),
+                Vec3::new(x - 1., w.bottom - 2., inner_z),
                 Vec3::new(x + 1., top + 2., w.z + 4.),
             ));
         }
         for y in [w.bottom - 1., top + 1.] {
             frames.push(box_at(
-                Vec3::new(left - 3., y - 1., w.z),
+                Vec3::new(left - 3., y - 1., inner_z),
                 Vec3::new(right + 3., y + 1., w.z + 4.),
             ));
         }
         frames.push(box_at(
-            Vec3::new(w.x - 0.7, w.bottom, w.z),
+            Vec3::new(w.x - 0.7, w.bottom, inner_z),
             Vec3::new(w.x + 0.7, top, w.z + 2.),
         ));
         frames.push(box_at(
-            Vec3::new(left, w.bottom + w.height * 0.52, w.z),
+            Vec3::new(left, w.bottom + w.height * 0.52, inner_z),
             Vec3::new(right, w.bottom + w.height * 0.52 + 1.3, w.z + 2.),
         ));
         frames.push(box_at(
-            Vec3::new(left - 4., w.bottom - 4., w.z - 1.),
+            Vec3::new(left - 4., w.bottom - 4., inner_z),
             Vec3::new(right + 4., w.bottom - 2., w.z + 7.),
         ));
     }
@@ -647,19 +683,21 @@ fn add_windows(edits: &mut Vec<VoxelEdit>) -> Result<()> {
         ));
         for z in [253., 270., 287.] {
             frames.push(box_at(
-                Vec3::new(MAX_X, floor + 21., z - 1.),
+                Vec3::new(MAX_X - WALL_THICKNESS - 1., floor + 21., z - 1.),
                 Vec3::new(MAX_X + 3., floor + 51., z + 1.),
             ));
         }
         for y in [22., 36., 50.] {
             frames.push(box_at(
-                Vec3::new(MAX_X, floor + y - 1., 252.),
+                Vec3::new(MAX_X - WALL_THICKNESS - 1., floor + y - 1., 252.),
                 Vec3::new(MAX_X + 4., floor + y + 1., 288.),
             ));
         }
     }
     edits.push(cuboids(cuts, VOXEL_TYPE_EMPTY)?);
     edits.push(cuboids(glass, VOXEL_TYPE_GLASS)?);
+    // Solid frames replace Glass at every depth, rather than sitting in front
+    // of an uninterrupted pane or leaving disconnected interior/exterior skins.
     edits.push(cuboids(frames, VOXEL_TYPE_OAK_WOOD)?);
     Ok(())
 }
@@ -864,23 +902,36 @@ mod tests {
         let base = 116.;
         let p = plan(base, 96., 108.).unwrap();
         for w in WINDOWS {
-            let point = Vec3::new(
-                w.x - w.width * 0.23,
-                base + w.bottom + w.height * 0.7,
-                w.z - 1.,
-            );
-            assert_eq!(material(&p, point), VOXEL_TYPE_GLASS);
-            assert_eq!(material(&p, point - Vec3::Z * 4.), VOXEL_TYPE_EMPTY);
+            for u in [0.25, 0.75] {
+                for v in [0.25, 0.75] {
+                    let x = (w.x + w.width * (u - 0.5)).floor() + 0.5;
+                    let y = base + (w.bottom + w.height * v).floor() + 0.5;
+                    for z in [w.z - 1.5, w.z - 0.5] {
+                        assert_eq!(material(&p, Vec3::new(x, y, z)), VOXEL_TYPE_GLASS);
+                    }
+                    for z in [w.frame_inner_z() - 0.5, w.z + 0.5] {
+                        assert_eq!(material(&p, Vec3::new(x, y, z)), VOXEL_TYPE_EMPTY);
+                    }
+                }
+            }
         }
-        for y in [42., 106.] {
-            assert_eq!(
-                material(&p, Vec3::new(271., base + y, 261.)),
-                VOXEL_TYPE_GLASS
-            );
-            assert_eq!(
-                material(&p, Vec3::new(267., base + y, 261.)),
-                VOXEL_TYPE_EMPTY
-            );
+        for floor in [0., FLOOR_HEIGHT] {
+            for y in [29.5, 42.5] {
+                for z in [262.5, 278.5] {
+                    for x in [270.5, 271.5] {
+                        assert_eq!(
+                            material(&p, Vec3::new(x, base + floor + y, z)),
+                            VOXEL_TYPE_GLASS
+                        );
+                    }
+                    for x in [262.5, 272.5] {
+                        assert_eq!(
+                            material(&p, Vec3::new(x, base + floor + y, z)),
+                            VOXEL_TYPE_EMPTY
+                        );
+                    }
+                }
+            }
         }
         for mode in [
             crate::voxel_material::VoxelMaterialMode::Standard,
@@ -892,6 +943,64 @@ mod tests {
                 crate::voxel_material::VoxelSurfaceClass::Dielectric
             );
             assert!(glass.collision_solid && !glass.blocks_ddgi_visibility);
+        }
+    }
+
+    #[test]
+    fn window_timbers_are_solid_from_room_side_through_glass_to_exterior() {
+        for base in [105., 132.] {
+            let p = plan(base, base - 16., base - 7.).unwrap();
+            // Independently specified room-side wall planes: the dormer is thinner.
+            for (w, inner_z) in WINDOWS.into_iter().zip([346., 346., 346., 338.]) {
+                let left = w.x - w.width * 0.5;
+                let right = w.x + w.width * 0.5;
+                let y = (w.bottom + w.height * 0.25).floor() + 0.5;
+                let bar_y = (w.bottom + w.height * 0.52 - 0.5).ceil() + 0.5;
+                let members = [
+                    ("left jamb", left - 1.5, y),
+                    ("right jamb", right + 1.5, y),
+                    ("bottom rail", left + w.width * 0.25 + 0.5, w.bottom - 1.5),
+                    (
+                        "top rail",
+                        left + w.width * 0.25 + 0.5,
+                        w.bottom + w.height + 0.5,
+                    ),
+                    ("vertical muntin left", w.x - 0.5, y),
+                    ("vertical muntin right", w.x + 0.5, y),
+                    ("horizontal muntin", left + w.width * 0.25 + 0.5, bar_y),
+                    ("sill", left + w.width * 0.25 + 0.5, w.bottom - 3.5),
+                ];
+                for (name, x, y) in members {
+                    for z in (inner_z as i32 - 1)..(w.z as i32 + 2) {
+                        let point = Vec3::new(x, base + y, z as f32 + 0.5);
+                        assert_eq!(
+                            material(&p, point),
+                            VOXEL_TYPE_OAK_WOOD,
+                            "front window x={} {name} is not continuous at {point:?}",
+                            w.x,
+                        );
+                    }
+                }
+            }
+            for floor in [0., FLOOR_HEIGHT] {
+                for (name, y, z) in [
+                    ("near jamb", 30.5, 252.5),
+                    ("far jamb", 30.5, 287.5),
+                    ("vertical muntin", 30.5, 270.5),
+                    ("bottom rail", 21.5, 261.5),
+                    ("horizontal muntin", 36.5, 261.5),
+                    ("top rail", 50.5, 261.5),
+                ] {
+                    for x in 263..274 {
+                        let point = Vec3::new(x as f32 + 0.5, base + floor + y, z);
+                        assert_eq!(
+                            material(&p, point),
+                            VOXEL_TYPE_OAK_WOOD,
+                            "side window floor={floor} {name} is not continuous at {point:?}",
+                        );
+                    }
+                }
+            }
         }
     }
 
