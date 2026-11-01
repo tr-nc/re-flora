@@ -2504,7 +2504,7 @@ max = 2
             let fields = crate::app::gui_config::GuiAdjustables::from_config(&loaded);
             assert_eq!(
                 fields.low_wall_kind.value,
-                if legacy_mode.is_some() { 2 } else { 0 }
+                if legacy_mode.is_some() { 2 } else { 3 }
             );
             assert_eq!(
                 fields.low_wall_width.value,

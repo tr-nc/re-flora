@@ -69,7 +69,7 @@ impl LowWallRecipe {
     }
     pub(super) fn layers(self) -> usize {
         if self.kind == LowWallKind::Chinese {
-            return 7; // Plastered body and six pitched tile strips.
+            return 8; // Plastered body, closed roof bed and six pitched tile strips.
         }
         if self.kind == LowWallKind::Earth {
             1
@@ -215,13 +215,23 @@ impl LowWallRecipe {
             top_scale: 1.,
             top_offsets: [0.; 4],
         }];
+        // The roof bed closes the joints: recessed tile seams must not become
+        // holes looking through the wall cap to the ground behind it.
+        pieces.push(WallSlice {
+            cell: raw,
+            layer: 1,
+            lower: body_top - VOXEL_SIZE * 0.25,
+            upper: body_top + cap * 0.35,
+            top_scale: 1.,
+            top_offsets: [0.; 4],
+        });
         for strip in 0..6 {
             let a = -1. + strip as f32 / 3.;
             let b = a + 1. / 3.;
             // Real recessed joints between tile courses, within the shared band.
             let Some(foot) = inset_quad_edges(
                 footprint(a, b),
-                [VOXEL_SIZE * 0.35, 0., VOXEL_SIZE * 0.35, 0.],
+                [VOXEL_SIZE * 1.25, 0., VOXEL_SIZE * 1.25, 0.],
             ) else {
                 return vec![];
             };
@@ -231,7 +241,7 @@ impl LowWallRecipe {
                     footprint: foot,
                     ..raw
                 },
-                layer: strip + 1,
+                layer: strip + 2,
                 lower: body_top - VOXEL_SIZE * 0.25,
                 upper: self.height,
                 top_scale: 1.,
@@ -453,8 +463,10 @@ mod tests {
             .iter()
             .all(|p| p.material(wall.kind) == crate::builder::VOXEL_TYPE_ASPHALT));
         let body = pieces[0].solid([1.; 4]);
-        let eave = pieces[1].solid([1.; 4]);
-        let ridge = pieces[3].solid([1.; 4]);
+        let bed = pieces[1].solid([1.; 4]);
+        let eave = pieces[2].solid([1.; 4]);
+        let ridge = pieces[4].solid([1.; 4]);
+        assert!(bed.positions[4].y >= eave.positions[4].y - 1e-6);
         assert!(eave.positions[4].y < ridge.positions[5].y);
         assert!((ridge.positions[5].y - 1.2).abs() < 1e-6);
         assert!(body.positions[0].z < eave.positions[0].z);

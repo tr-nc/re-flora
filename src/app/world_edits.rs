@@ -102,6 +102,11 @@ pub(crate) enum VoxelEdit {
         dim: UVec3,
         data: Arc<[u8]>,
     },
+    StampModel {
+        triangles: Vec<crate::builder::ModelTriangleGpu>,
+        position: Vec3,
+        material: u32,
+    },
     StampRoundCones {
         bvh_nodes: Vec<BvhNode>,
         round_cones: Vec<RoundCone>,
@@ -299,6 +304,14 @@ fn apply_voxel_edit(plain_builder: &mut PlainBuilder, edit: VoxelEdit) -> Result
             Ok(())
         }
         VoxelEdit::ClearVoxelRegion(edit) => plain_builder.chunk_init(edit.offset, edit.dim),
+        VoxelEdit::StampModel {
+            triangles,
+            position,
+            material,
+        } => {
+            plain_builder.voxelize_model(&triangles, position, material)?;
+            Ok(())
+        }
         VoxelEdit::StampRoundCones {
             bvh_nodes,
             round_cones,

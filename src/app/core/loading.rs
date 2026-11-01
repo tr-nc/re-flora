@@ -66,6 +66,7 @@ impl App {
     pub(super) fn process_loading_step(&mut self) {
         let mut should_apply_water_experience_terrain = false;
         let mut should_apply_house_scene = false;
+        let mut courtyard_seed = None;
         let loading_directive = self.launch_owners.loading_directive();
         let water_experience_requested =
             loading_directive == launch_owners::LoadingDirective::WaterExperience;
@@ -151,6 +152,7 @@ impl App {
                         }
                         should_apply_water_experience_terrain = water_experience_requested;
                         should_apply_house_scene = house_scene_requested;
+                        courtyard_seed = self.fresh_garden_seed;
                     }
                     loading.current = 0;
                     loading.phase = LoadingPhase::Building;
@@ -159,6 +161,10 @@ impl App {
             LoadingPhase::Building | LoadingPhase::Colliders => unreachable!(),
         }
 
+        if let Some(seed) = courtyard_seed {
+            self.initialize_garden_courtyard(seed)
+                .unwrap_or_else(|err| panic!("[COURTYARD] initialization failed: {err:#}"));
+        }
         if should_apply_water_experience_terrain {
             self.apply_water_experience_terrain()
                 .unwrap_or_else(|err| panic!("[WATER_EXPERIENCE] terrain setup failed: {err:#}"));

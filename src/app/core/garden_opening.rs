@@ -1,5 +1,6 @@
 //! One-time adapter from the pure opening recipe into ordinary editing transactions.
 mod audit;
+mod courtyard;
 mod grass_review;
 #[cfg(test)]
 mod tree_settings_tests;
@@ -61,6 +62,7 @@ impl App {
                 layout::hash(seed ^ i as u32),
             )?;
         }
+        self.plant_courtyard_ginkgo(seed, size)?;
         // Sample the same saved recipe/maturity as Grow, without charging inventory.
         // Once published, each tree owns its description and optional growth clock.
         let instant_mature = self
@@ -68,7 +70,7 @@ impl App {
             .adjustables
             .tree_planting_instant_mature
             .value;
-        let mut placed_trees = 0;
+        let mut placed_trees = 1; // The mature courtyard ginkgo was published above.
         for (i, p) in layout::TREE_CENTERS.iter().enumerate() {
             let xz = *p * size;
             let y = self.query_terrain_height_cpu(xz);
@@ -164,14 +166,14 @@ impl App {
         let world = self.world_chunk_dim * VOXEL_DIM_PER_CHUNK;
         let size = Vec2::new(world.x as f32, world.z as f32) / 256.;
         let (p, target, overhead) = match preset.as_deref() {
-            Some("garden-overview") => (Vec2::new(0.85, 1.10), Vec2::new(0.46, 0.43), true),
+            Some("garden-overview") => (Vec2::new(0.95, 1.25), Vec2::new(0.46, 0.43), true),
             Some("garden-reverse") => (layout::POCKET, layout::ARRIVAL, false),
             Some("garden-corridor") => (layout::ROUTE[1], layout::POCKET, false),
             _ => (layout::ARRIVAL, Vec2::new(0.52, 0.39), false),
         };
         let xz = p * size;
         let y = if overhead {
-            1.55
+            2.7
         } else {
             self.query_terrain_height_cpu(xz) + 0.08
         };
