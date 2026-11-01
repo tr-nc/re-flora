@@ -4557,13 +4557,23 @@ impl Tracer {
             || self.record_composition_pass(cmdbuf),
         );
         if self.desc.glass_experiment_enabled || self.desc.dedicated_glass_enabled {
-            Self::with_gpu_scope(
-                gpu_profiler.as_deref_mut(),
-                gpu_profiler_frame_slot,
-                cmdbuf,
-                "glass.resolve",
-                || self.record_glass_resolve_pass(cmdbuf),
-            );
+            // Extra timestamps are opt-in; keep ordinary --perf comparisons on the
+            // original whole-pass scope, without diagnostic timestamp overhead.
+            if std::env::var("RE_FLORA_GLASS_PROFILE").as_deref() == Ok("1") {
+                self.record_glass_resolve_pass(
+                    cmdbuf,
+                    gpu_profiler.as_deref_mut(),
+                    gpu_profiler_frame_slot,
+                );
+            } else {
+                Self::with_gpu_scope(
+                    gpu_profiler.as_deref_mut(),
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "glass.resolve",
+                    || self.record_glass_resolve_pass(cmdbuf, None, gpu_profiler_frame_slot),
+                );
+            }
         }
         for pipeline in [
             &self.pipeline_topology.compute().sprinkler_mist_ppl,
@@ -7192,7 +7202,12 @@ impl Tracer {
         );
     }
 
-    fn record_glass_resolve_pass(&self, cmdbuf: &CommandBuffer) {
+    fn record_glass_resolve_pass(
+        &self,
+        cmdbuf: &CommandBuffer,
+        mut gpu_profiler: Option<&mut GpuProfiler>,
+        gpu_profiler_frame_slot: usize,
+    ) {
         let pipeline = self
             .pipeline_topology
             .compute()
@@ -7216,13 +7231,18 @@ impl Tracer {
         // Build a cell-key table from visible Glass pixels, shade its dense unique-cell list
         // once, then resolve every visible pixel from that one stored color. Reflected resource
         // tracking inserts barriers between these ordered dispatches.
-        for (pass, dispatch_extent) in [
-            (GLASS_VOXEL_CACHE_BUILD_PASS, extent),
+        for (pass, dispatch_extent, name) in [
+            (GLASS_VOXEL_CACHE_BUILD_PASS, extent, "glass.cache_build"),
             (
                 GLASS_VOXEL_CACHE_SHADE_PASS,
                 Extent3D::new(GLASS_VOXEL_CACHE_CAPACITY, 1, 1),
+                "glass.cache_shade",
             ),
-            (GLASS_VOXEL_CACHE_RESOLVE_PASS, extent),
+            (
+                GLASS_VOXEL_CACHE_RESOLVE_PASS,
+                extent,
+                "glass.cache_resolve",
+            ),
         ] {
             let push = PushConstantGlassResolve {
                 pass,
@@ -7232,7 +7252,13 @@ impl Tracer {
                 ),
                 use_stored_voxel_normal: u32::from(self.glass_stored_voxel_normal),
             };
-            pipeline.record(cmdbuf, dispatch_extent, Some(bytemuck::bytes_of(&push)));
+            Self::with_gpu_scope(
+                gpu_profiler.as_deref_mut(),
+                gpu_profiler_frame_slot,
+                cmdbuf,
+                name,
+                || pipeline.record(cmdbuf, dispatch_extent, Some(bytemuck::bytes_of(&push))),
+            );
         }
     }
 
