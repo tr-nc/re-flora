@@ -6,6 +6,9 @@ use super::{growth::rules::Architecture, TreeDesc};
 
 mod garden;
 mod legacy_conifer;
+mod veteran;
+#[cfg(test)]
+mod veteran_tests;
 
 /// Architecture adapters know curve/layout rules, not species identity or saved-config policy.
 pub(super) fn generate(desc: &TreeDesc, architecture: Architecture) -> Option<AxisSkeleton> {
@@ -14,6 +17,7 @@ pub(super) fn generate(desc: &TreeDesc, architecture: Architecture) -> Option<Ax
         Architecture::LegacyConifer => Some(legacy_conifer::generate(desc)),
         Architecture::Spreading(profile) => Some(garden::spreading(desc, profile)),
         Architecture::Layered(profile) => Some(garden::layered(desc, profile)),
+        Architecture::Veteran => Some(veteran::generate(desc)),
     }
 }
 

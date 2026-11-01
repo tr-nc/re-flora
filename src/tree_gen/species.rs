@@ -161,6 +161,17 @@ impl TreeSpecies {
         }
     }
 
+    pub(super) fn growth_rule_for(self, desc: &TreeDesc) -> rules::GrowthRule {
+        if self == Self::Ginkgo && desc.form == super::TreeForm::Veteran {
+            rules::GrowthRule {
+                architecture: rules::Architecture::Veteran,
+                foliage: rules::FoliageRule::SpurAxes,
+            }
+        } else {
+            self.growth_rule(desc.axis_model)
+        }
+    }
+
     pub fn uses_axis_model(self, legacy_axis_model: bool) -> bool {
         !matches!(
             self.growth_rule(legacy_axis_model).architecture,

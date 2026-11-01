@@ -7,6 +7,8 @@ pub const REVIEW_PRESETS: &[&str] = &[
     "garden-corridor",
     "garden-reverse",
     "garden-overview",
+    "courtyard-tree",
+    "courtyard-tiles",
 ];
 pub fn is_review_preset(name: &str) -> bool {
     REVIEW_PRESETS.contains(&name)

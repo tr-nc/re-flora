@@ -165,6 +165,40 @@ impl App {
         }
         let world = self.world_chunk_dim * VOXEL_DIM_PER_CHUNK;
         let size = Vec2::new(world.x as f32, world.z as f32) / 256.;
+        if matches!(
+            preset.as_deref(),
+            Some("courtyard-tree" | "courtyard-tiles")
+        ) {
+            // The saved specimen owns its root height. A terrain ray at its
+            // center after reload can hit the trunk/crown instead of the soil.
+            let ground = self
+                .trees
+                .specimen_position(TreeSpecies::Ginkgo, crate::tree_gen::TreeForm::Veteran)
+                .map(|position| position.y)
+                .unwrap_or_else(|| self.query_terrain_height_cpu(size * Vec2::new(0.5, 0.70)));
+            let (eye, target, fov) = if preset.as_deref() == Some("courtyard-tiles") {
+                (
+                    Vec3::new(size.x * 0.72, ground + 0.44, size.y * 0.98),
+                    Vec3::new(size.x * 0.72, ground + 0.22, size.y * 0.90),
+                    55.,
+                )
+            } else {
+                (
+                    Vec3::new(size.x * 0.68, ground + 0.72, size.y * 0.80),
+                    Vec3::new(size.x * 0.50, ground + 0.58, size.y * 0.43),
+                    70.,
+                )
+            };
+            let d = target - eye;
+            self.tracer.apply_camera_pose(CameraPose {
+                position: eye,
+                yaw_deg: d.x.atan2(-d.z).to_degrees(),
+                pitch_deg: d.y.atan2(Vec2::new(d.x, d.z).length()).to_degrees(),
+                fov_deg: fov,
+            });
+            self.camera_control.apply_snapshot_mode(true);
+            return;
+        }
         let (p, target, overhead) = match preset.as_deref() {
             Some("garden-overview") => (Vec2::new(0.95, 1.25), Vec2::new(0.46, 0.43), true),
             Some("garden-reverse") => (layout::POCKET, layout::ARRIVAL, false),
