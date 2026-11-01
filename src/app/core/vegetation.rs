@@ -242,6 +242,34 @@ struct TreeTrunkGeometry {
 
 struct TreePlacementService;
 
+/// One planting's immutable geometry, shared by admission and compilation.
+struct TreePlacementGeometry {
+    mature_desc: TreeDesc,
+    tree_desc: TreeDesc,
+    age: f32,
+    tree: Arc<Tree>,
+    mature_tree: Arc<Tree>,
+}
+
+impl TreePlacementGeometry {
+    fn new(mature_desc: TreeDesc, age: f32) -> Self {
+        let tree_desc = mature_desc.at_age(age);
+        let mature_tree = Arc::new(Tree::new(mature_desc.clone()));
+        let tree = if tree_desc == mature_desc {
+            mature_tree.clone()
+        } else {
+            Arc::new(Tree::new(tree_desc.clone()))
+        };
+        Self {
+            mature_desc,
+            tree_desc,
+            age,
+            tree,
+            mature_tree,
+        }
+    }
+}
+
 fn analyze_round_cones(round_cones: &[RoundCone]) -> (f32, f32, f32, f32, usize, usize) {
     let mut radius_min = f32::INFINITY;
     let mut radius_max = 0.0_f32;
@@ -405,9 +433,29 @@ impl TreePlacementService {
         canopy_generation: u64,
         canopy_sample_budget: usize,
     ) -> CompiledTreePlacement {
-        let tree_desc = mature_tree_desc.at_age(tree_age);
-        let tree = Tree::new(tree_desc.clone());
-        let mature_tree = Tree::new(mature_tree_desc.clone());
+        Self::compile_geometry(
+            TreePlacementGeometry::new(mature_tree_desc, tree_age),
+            tree_pos,
+            extra_rebuild_bound,
+            canopy_generation,
+            canopy_sample_budget,
+        )
+    }
+
+    fn compile_geometry(
+        geometry: TreePlacementGeometry,
+        tree_pos: Vec3,
+        extra_rebuild_bound: UAabb3,
+        canopy_generation: u64,
+        canopy_sample_budget: usize,
+    ) -> CompiledTreePlacement {
+        let TreePlacementGeometry {
+            mature_desc: mature_tree_desc,
+            tree_desc,
+            age: tree_age,
+            tree,
+            mature_tree,
+        } = geometry;
         let canopy_acoustic_descriptor = CanopyAcousticDescriptor::build_with_budget(
             canopy_generation,
             tree_pos,
@@ -536,7 +584,7 @@ impl TreePlacementService {
             fruit_specs,
             world_leaf_positions,
             canopy_acoustic_descriptor,
-            rest_tree: Arc::new(tree),
+            rest_tree: tree,
         }
     }
 }
@@ -5241,6 +5289,37 @@ mod tests {
         assert_eq!(garden.procedural_tree_ids(), vec![1]);
         assert!(garden.previous_bound().has_size());
         assert!(garden.ecology_regions().iter().any(|r| r.count > 0));
+    }
+
+    #[test]
+    fn prepared_planting_geometry_preserves_age_specific_wood_and_leaves() {
+        for age in [0.375, 0.5, 1.] {
+            let mut desc = TreeDesc::default();
+            desc.branching.iterations = 2;
+            let source = TreePlacementGeometry::new(desc.clone(), age);
+            let expected = Tree::new(desc.at_age(age));
+            assert_eq!(
+                source.tree.relative_leaf_positions(),
+                expected.relative_leaf_positions()
+            );
+            assert_eq!(source.tree.trunks().len(), expected.trunks().len());
+            for (a, b) in source.tree.trunks().iter().zip(expected.trunks()) {
+                assert_eq!(a.center_a(), b.center_a());
+                assert_eq!(a.center_b(), b.center_b());
+                assert_eq!(a.radius_a(), b.radius_a());
+                assert_eq!(a.radius_b(), b.radius_b());
+            }
+            if age == 1. {
+                assert!(Arc::ptr_eq(&source.tree, &source.mature_tree));
+            }
+            let tree = source.tree.clone();
+            let compiled =
+                TreePlacementService::compile_geometry(source, Vec3::ONE, UAabb3::default(), 1, 8);
+            assert!(
+                Arc::ptr_eq(&compiled.rest_tree, &tree),
+                "publication must retain the admitted skeleton"
+            );
+        }
     }
 
     #[test]

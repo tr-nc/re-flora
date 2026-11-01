@@ -142,28 +142,31 @@ impl App {
         );
         // Reject an impossible mature footprint before a tiny sapling is committed.
         // This is a world-bound check, not a reservation that excludes nearby plants.
-        let mature = Tree::new(desc.clone());
+        let geometry = TreePlacementGeometry::new(desc.clone(), age);
         let extent = (self.world_chunk_dim * super::super::VOXEL_DIM_PER_CHUNK).as_vec3();
         anyhow::ensure!(
-            mature.world_trunks(position).iter().all(|cone| {
-                let a = cone.aabb();
-                a.min().cmpge(Vec3::ZERO).all() && a.max().cmplt(extent).all()
-            }),
+            geometry
+                .mature_tree
+                .world_trunks(position)
+                .iter()
+                .all(|cone| {
+                    let a = cone.aabb();
+                    a.min().cmpge(Vec3::ZERO).all() && a.max().cmplt(extent).all()
+                }),
             TreePlantingRejection::OutsideWorld
         );
         anyhow::ensure!(
-            self.growing_tree_space_clear(&desc, position, age)?,
+            self.tree_geometry_space_clear(&geometry.tree, position)?,
             TreePlantingRejection::Occupied
         );
         // Pending additions stamp only the same reusable wood material. They cannot
         // invalidate one another's admission; all other materials remain protected.
         let id = self.trees.placement_id(true) + batch.publications.len() as u32;
         let generation = self.trees.allocate_canopy_acoustic_generation();
-        let compiled = TreePlacementService::compile(
-            desc.clone(),
+        let compiled = TreePlacementService::compile_geometry(
+            geometry,
             position,
             UAabb3::default(),
-            age,
             generation,
             self.debug_settings
                 .adjustables
@@ -258,7 +261,11 @@ impl App {
         position: Vec3,
         age: f32,
     ) -> Result<bool> {
-        let cones = Tree::new(desc.at_age(age)).world_trunks(position);
+        self.tree_geometry_space_clear(&Tree::new(desc.at_age(age)), position)
+    }
+
+    fn tree_geometry_space_clear(&mut self, tree: &Tree, position: Vec3) -> Result<bool> {
+        let cones = tree.world_trunks(position);
         let extent = self.world_chunk_dim * super::super::VOXEL_DIM_PER_CHUNK;
         let mut low = Vec3::splat(f32::INFINITY);
         let mut high = Vec3::splat(f32::NEG_INFINITY);
