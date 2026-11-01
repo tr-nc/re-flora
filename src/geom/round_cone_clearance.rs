@@ -54,6 +54,13 @@ impl<'a> RoundConeClearanceIndex<'a> {
         true
     }
 
+    /// Inclusive wood occupancy, matching voxel stamping and planting admission.
+    /// Unlike `has_minimum_clearance(point, 0.)`, a point exactly on wood is occupied.
+    pub fn contains_point(&self, point: Vec3) -> bool {
+        self.nearest_cone(point)
+            .is_some_and(|index| self.cones[index].signed_distance(point) <= 0.)
+    }
+
     /// Exact signed-distance winner, breaking ties by original cone index.
     /// Outside a node's bounds, unsigned AABB distance is a lower bound. Inside,
     /// it is not a signed bound: visit every overlapping node, even after finding
@@ -232,6 +239,32 @@ mod tests {
             RoundConeClearanceIndex::new(&disjoint).nearest_cone(Vec3::ZERO),
             Some(0)
         );
+    }
+
+    #[test]
+    fn occupancy_matches_stamped_geometry_including_boundaries_and_degenerate_cones() {
+        let cones = [
+            RoundCone::new(1., Vec3::new(0.5, 0.5, 0.5), 1., Vec3::new(0.5, 4.5, 0.5)),
+            RoundCone::new(2., Vec3::splat(8.), 0.1, Vec3::splat(8.)),
+            RoundCone::new(0., Vec3::splat(12.), 0., Vec3::splat(13.)),
+        ];
+        let index = RoundConeClearanceIndex::new(&cones);
+        for x in -2..=15 {
+            for y in -2..=15 {
+                for z in [-0.5, 0.5, 1.5, 8., 12.] {
+                    let p = Vec3::new(x as f32 + 0.5, y as f32 + 0.5, z);
+                    assert_eq!(
+                        index.contains_point(p),
+                        cones.iter().any(|c| c.signed_distance(p) <= 0.)
+                    );
+                }
+            }
+        }
+        let boundary = Vec3::new(1.5, 2.5, 0.5);
+        assert_eq!(cones[0].signed_distance(boundary), 0.);
+        assert!(index.contains_point(boundary));
+        assert!(index.has_minimum_clearance(boundary, 0.));
+        assert!(!RoundConeClearanceIndex::new(&[]).contains_point(Vec3::ZERO));
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! Per-tree simulated age. Published geometry advances in bounded stages through
 //! the same transactional tree owner as manual editing; old saves stay at their age.
 use super::*;
+use crate::geom::RoundConeClearanceIndex;
 
 pub(in crate::app::core) const SAPLING_AGE: f32 = 0.375;
 const MATURATION_SECONDS: f32 = 900.;
@@ -41,6 +42,33 @@ fn admission_regions(min: UVec3, max: UVec3) -> Vec<(UVec3, UVec3)> {
         }
     }
     regions
+}
+
+fn admission_region_clear(
+    wood: &RoundConeClearanceIndex<'_>,
+    data: &[u8],
+    offset: UVec3,
+    dim: UVec3,
+    base_y: u32,
+) -> bool {
+    for z in 0..dim.z {
+        for y in 0..dim.y {
+            for x in 0..dim.x {
+                let material = data[((z * dim.y + y) * dim.x + x) as usize] & 15;
+                let p = offset + UVec3::new(x, y, z);
+                if material == 0
+                    || material == VOXEL_TYPE_CHERRY_WOOD as u8
+                    || (material == crate::builder::VOXEL_TYPE_DIRT as u8 && p.y <= base_y)
+                {
+                    continue;
+                }
+                if wood.contains_point(p.as_vec3() + Vec3::splat(0.5)) {
+                    return false;
+                }
+            }
+        }
+    }
+    true
 }
 
 fn age_at(seconds: f32) -> f32 {
@@ -185,27 +213,11 @@ impl App {
             return Ok(false);
         }
         let base_y = (position.y * 256.).floor() as u32;
+        let wood = RoundConeClearanceIndex::new(&cones);
         for (offset, dim) in admission_regions(min, max) {
             let data = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
-            for z in 0..dim.z {
-                for y in 0..dim.y {
-                    for x in 0..dim.x {
-                        let material = data[((z * dim.y + y) * dim.x + x) as usize] & 15;
-                        let p = offset + UVec3::new(x, y, z);
-                        if material == 0
-                            || material == VOXEL_TYPE_CHERRY_WOOD as u8
-                            || (material == crate::builder::VOXEL_TYPE_DIRT as u8 && p.y <= base_y)
-                        {
-                            continue;
-                        }
-                        if cones
-                            .iter()
-                            .any(|c| c.signed_distance(p.as_vec3() + Vec3::splat(0.5)) <= 0.)
-                        {
-                            return Ok(false);
-                        }
-                    }
-                }
+            if !admission_region_clear(&wood, &data, offset, dim, base_y) {
+                return Ok(false);
             }
         }
         Ok(true)
@@ -419,6 +431,40 @@ pub(super) fn validate_growth(age: f32, elapsed: Option<f32>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn admission_preserves_material_protection_root_soil_and_exact_surface_occupancy() {
+        let cones = [RoundCone::new(
+            1.,
+            Vec3::splat(0.5),
+            1.,
+            Vec3::new(0.5, 4.5, 0.5),
+        )];
+        let wood = RoundConeClearanceIndex::new(&cones);
+        for material in 0..16_u8 {
+            for flags in [0, 0xf0] {
+                for p in [
+                    UVec3::ZERO,
+                    UVec3::new(1, 2, 0),
+                    UVec3::new(0, 4, 0),
+                    UVec3::splat(8),
+                ] {
+                    let allowed = material == 0
+                        || material == VOXEL_TYPE_CHERRY_WOOD as u8
+                        || (material == crate::builder::VOXEL_TYPE_DIRT as u8 && p.y <= 2);
+                    let expected = allowed
+                        || !cones
+                            .iter()
+                            .any(|c| c.signed_distance(p.as_vec3() + Vec3::splat(0.5)) <= 0.);
+                    assert_eq!(
+                        admission_region_clear(&wood, &[material | flags], p, UVec3::ONE, 2),
+                        expected,
+                        "material={material} flags={flags} p={p:?}"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn large_tree_admission_covers_every_voxel_once_with_bounded_readbacks() {
         for size in [UVec3::new(11, 7, 13), UVec3::new(141, 262, 319)] {
