@@ -1,5 +1,7 @@
 # Courtyard startup investigation
 
+Follow-up: [implemented optimization and Release acceptance evidence](optimization/index.html) (runtime `70179a06`). The original investigation below remains a historical baseline.
+
 Point-in-time Release evidence for commit `4ce0dbcc470de2c10681b8457927ed0b22c92d1a`, measured locally on 2026-11-02. Open [the HTML report](index.html) for findings. This is research evidence, not implemented optimization or a continuing feature manual.
 
 ## Bundle

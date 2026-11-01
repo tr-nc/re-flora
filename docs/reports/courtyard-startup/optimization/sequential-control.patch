@@ -1,0 +1,63 @@
+diff --git a/src/app/core/garden_opening.rs b/src/app/core/garden_opening.rs
+index 6b829693..615d914d 100644
+--- a/src/app/core/garden_opening.rs
++++ b/src/app/core/garden_opening.rs
+@@ -62,8 +62,7 @@ impl App {
+                 layout::hash(seed ^ i as u32),
+             )?;
+         }
+-        let mut tree_batch = self.begin_tree_planting_batch();
+-        self.prepare_courtyard_ginkgo(seed, size, &mut tree_batch)?;
++        self.plant_courtyard_ginkgo(seed, size)?;
+         // Sample the same saved recipe/maturity as Grow, without charging inventory.
+         // Once published, each tree owns its description and optional growth clock.
+         let instant_mature = self
+@@ -81,12 +80,7 @@ impl App {
+             log::info!("[GARDEN_OPENING] tree={i} species={} seed={} size={:.3} crown_radius_voxels={radius:.3} height_voxels={height:.3} position={:?} apple_probability={} appearance={:?} instant_mature={instant_mature}",
+                 desc.species.label(), desc.branching.seed, desc.size,
+                 Vec3::new(xz.x, y, xz.y), desc.fruit_spawn_probability, desc.appearance);
+-            match self.prepare_tree_planting(
+-                &mut tree_batch,
+-                desc,
+-                Vec3::new(xz.x, y, xz.y),
+-                instant_mature,
+-            ) {
++            match self.plant_tree_with_maturity(desc, Vec3::new(xz.x, y, xz.y), instant_mature) {
+                 Ok(id) => {
+                     placed_trees += 1;
+                     log::info!("[GARDEN_OPENING] prepared_tree={i} id={id}");
+@@ -99,7 +93,6 @@ impl App {
+                 Err(error) => return Err(error),
+             }
+         }
+-        self.publish_tree_planting_batch(tree_batch)?;
+         // Actual mow/removal paths, not a shader-only exclusion: persists in snapshots,
+         // and subsequent player edits/planting remain free to replace these patches.
+         for segment in layout::ROUTE.windows(2) {
+diff --git a/src/app/core/garden_opening/courtyard.rs b/src/app/core/garden_opening/courtyard.rs
+index c25011e7..0b984160 100644
+--- a/src/app/core/garden_opening/courtyard.rs
++++ b/src/app/core/garden_opening/courtyard.rs
+@@ -208,12 +208,7 @@ impl App {
+         })
+     }
+ 
+-    pub(super) fn prepare_courtyard_ginkgo(
+-        &mut self,
+-        seed: u32,
+-        size: Vec2,
+-        batch: &mut super::super::vegetation::TreePlantingBatch,
+-    ) -> Result<()> {
++    pub(super) fn plant_courtyard_ginkgo(&mut self, seed: u32, size: Vec2) -> Result<()> {
+         let xz = size * Vec2::new(0.50, 0.43);
+         let mut position = Vec3::new(xz.x, self.query_terrain_height_cpu(xz), xz.y);
+         let desc = ginkgo_description(seed);
+@@ -231,7 +226,7 @@ impl App {
+             }
+         }
+         let height = tree.height_voxels();
+-        let id = self.prepare_tree_planting(batch, desc, position, true)?;
++        let id = self.plant_tree_with_maturity(desc, position, true)?;
+         log::info!("[COURTYARD] ginkgo_id={id} mature=true size={GINKGO_SIZE} height_voxels={height:.3} position={position:?}");
+         Ok(())
+     }

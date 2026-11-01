@@ -1,0 +1,14 @@
+{
+  "runtimeCommit": "70179a06",
+  "terrainChunks": 32,
+  "terrainBytes": 536870912,
+  "terrainBytesEqual": true,
+  "terrainSha256": "186888e06b5f9de4d152c9d24ea999f360fa96fd8e01414e2c1516d812ffe888",
+  "floraRoots": 511077,
+  "floraRootIdentitiesEqual": true,
+  "floraRootsSha256": "8178edb2df9d72f3d64e83094cc7e04f679c956b476eb531eb94cd87f35e0c12",
+  "trees": 5,
+  "treeDescriptionsPositionsAgesAndClocksEqual": true,
+  "treeDataSha256": "b0873e2f15638f8b45fb3cab698f806a6e4a625f6d50e7a0f4330df0dd52172a",
+  "note": "Terrain compared byte for byte. Root identity includes chunk, species and position, not mutable spawn age. Saves remain local; snapshots.json is the captured comparison result."
+}

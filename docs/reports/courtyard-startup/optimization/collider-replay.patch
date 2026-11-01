@@ -1,0 +1,29 @@
+diff --git a/crates/re-flora-terrain-collider/src/lib.rs b/crates/re-flora-terrain-collider/src/lib.rs
+index ef66799c..57a07e42 100644
+--- a/crates/re-flora-terrain-collider/src/lib.rs
++++ b/crates/re-flora-terrain-collider/src/lib.rs
+@@ -254,6 +254,24 @@ pub fn export_contree_voxel_types(
+     if let Some(bytes) = block_export::try_export(
+         chunk_dim, voxel_dim_per_chunk, scene_chunks, chunk_caches, voxel_min, dim, voxel_type_mask,
+     ) {
++        if std::env::var_os("RE_FLORA_COLLIDER_EXPORT_REPLAY").is_some() {
++            let mut oracle = Vec::with_capacity(bytes.len());
++            for z in voxel_min.z..voxel_min.z + dim.z {
++                for y in voxel_min.y..voxel_min.y + dim.y {
++                    for x in voxel_min.x..voxel_min.x + dim.x {
++                        let p = UVec3::new(x,y,z);
++                        let chunk = p / voxel_dim_per_chunk;
++                        oracle.push(if !contree_scene_chunk_present(chunk_dim, scene_chunks, chunk) { 0 } else {
++                            chunk_caches[&chunk].voxel_type_at(chunk.as_vec3()
++                                + ((p % voxel_dim_per_chunk).as_vec3() + Vec3::splat(0.5))
++                                / voxel_dim_per_chunk.as_vec3(), voxel_type_mask)
++                        });
++                    }
++                }
++            }
++            assert_eq!(bytes, oracle, "collider export replay mismatch at {voxel_min:?}");
++            eprintln!("[COLLIDER_EXPORT_REPLAY] min={voxel_min:?} voxels={} disagreements=0", bytes.len());
++        }
+         return bytes;
+     }
+     let voxel_max = voxel_min + dim;

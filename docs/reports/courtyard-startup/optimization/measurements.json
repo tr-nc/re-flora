@@ -1,0 +1,1032 @@
+{
+  "schema": 1,
+  "runtimeCommit": "70179a06",
+  "baselineRuntimeCommit": "4ce0dbcc470de2c10681b8457927ed0b22c92d1a",
+  "units": "milliseconds",
+  "baselineNormalReadyMs": 42519.7,
+  "baselineProfileMedianMs": 42803,
+  "warmMedianMs": 9533.4,
+  "speedup": 4.4600772022573265,
+  "reductionPercent": 77.57886344447398,
+  "warm": [
+    {
+      "name": "accepted-warm-1",
+      "readyMs": 9533.4,
+      "cache": "hit",
+      "stages": [
+        {
+          "name": "window_vulkan",
+          "ms": 252.3
+        },
+        {
+          "name": "swapchain_gui",
+          "ms": 7.2
+        },
+        {
+          "name": "terrain_builders",
+          "ms": 283.3
+        },
+        {
+          "name": "spatial_audio",
+          "ms": 81
+        },
+        {
+          "name": "shader_modules",
+          "ms": 145.5
+        },
+        {
+          "name": "renderer_resources",
+          "ms": 120.7
+        },
+        {
+          "name": "compute_pipelines",
+          "ms": 113.4
+        },
+        {
+          "name": "graphics_pipelines",
+          "ms": 29.2
+        },
+        {
+          "name": "renderer_geometry",
+          "ms": 0.7
+        },
+        {
+          "name": "scene_services",
+          "ms": 40.7
+        },
+        {
+          "name": "terrain_and_model_caches",
+          "ms": 4318.8
+        },
+        {
+          "name": "world_population_and_lighting",
+          "ms": 3192
+        },
+        {
+          "name": "first_frame",
+          "ms": 948.4
+        }
+      ],
+      "colliderMs": 788.691,
+      "surfaces": [
+        {
+          "trees": 5,
+          "ms": 1541.866
+        }
+      ],
+      "fragments": [
+        {
+          "reused": 0,
+          "rebuilt": 5
+        }
+      ]
+    },
+    {
+      "name": "accepted-warm-2",
+      "readyMs": 9254.5,
+      "cache": "hit",
+      "stages": [
+        {
+          "name": "window_vulkan",
+          "ms": 167.2
+        },
+        {
+          "name": "swapchain_gui",
+          "ms": 6.3
+        },
+        {
+          "name": "terrain_builders",
+          "ms": 282.2
+        },
+        {
+          "name": "spatial_audio",
+          "ms": 80.3
+        },
+        {
+          "name": "shader_modules",
+          "ms": 143.3
+        },
+        {
+          "name": "renderer_resources",
+          "ms": 118
+        },
+        {
+          "name": "compute_pipelines",
+          "ms": 113.8
+        },
+        {
+          "name": "graphics_pipelines",
+          "ms": 29.3
+        },
+        {
+          "name": "renderer_geometry",
+          "ms": 0.7
+        },
+        {
+          "name": "scene_services",
+          "ms": 41
+        },
+        {
+          "name": "terrain_and_model_caches",
+          "ms": 4292.2
+        },
+        {
+          "name": "world_population_and_lighting",
+          "ms": 3118.6
+        },
+        {
+          "name": "first_frame",
+          "ms": 861.5
+        }
+      ],
+      "colliderMs": 780.205,
+      "surfaces": [
+        {
+          "trees": 5,
+          "ms": 1493.86
+        }
+      ],
+      "fragments": [
+        {
+          "reused": 0,
+          "rebuilt": 5
+        }
+      ]
+    },
+    {
+      "name": "accepted-warm-3",
+      "readyMs": 9699,
+      "cache": "hit",
+      "stages": [
+        {
+          "name": "window_vulkan",
+          "ms": 186.3
+        },
+        {
+          "name": "swapchain_gui",
+          "ms": 6.8
+        },
+        {
+          "name": "terrain_builders",
+          "ms": 283.1
+        },
+        {
+          "name": "spatial_audio",
+          "ms": 88.1
+        },
+        {
+          "name": "shader_modules",
+          "ms": 144.4
+        },
+        {
+          "name": "renderer_resources",
+          "ms": 123.4
+        },
+        {
+          "name": "compute_pipelines",
+          "ms": 111.2
+        },
+        {
+          "name": "graphics_pipelines",
+          "ms": 28.7
+        },
+        {
+          "name": "renderer_geometry",
+          "ms": 0.6
+        },
+        {
+          "name": "scene_services",
+          "ms": 40.6
+        },
+        {
+          "name": "terrain_and_model_caches",
+          "ms": 4340.4
+        },
+        {
+          "name": "world_population_and_lighting",
+          "ms": 3462.5
+        },
+        {
+          "name": "first_frame",
+          "ms": 882.5
+        }
+      ],
+      "colliderMs": 807.634,
+      "surfaces": [
+        {
+          "trees": 5,
+          "ms": 1555.317
+        }
+      ],
+      "fragments": [
+        {
+          "reused": 0,
+          "rebuilt": 5
+        }
+      ]
+    }
+  ],
+  "cold": {
+    "name": "accepted-cold",
+    "readyMs": 35328.6,
+    "cache": "miss",
+    "stages": [
+      {
+        "name": "window_vulkan",
+        "ms": 231.8
+      },
+      {
+        "name": "swapchain_gui",
+        "ms": 11.7
+      },
+      {
+        "name": "terrain_builders",
+        "ms": 315.3
+      },
+      {
+        "name": "spatial_audio",
+        "ms": 81.3
+      },
+      {
+        "name": "shader_modules",
+        "ms": 143
+      },
+      {
+        "name": "renderer_resources",
+        "ms": 118.6
+      },
+      {
+        "name": "compute_pipelines",
+        "ms": 24985.9
+      },
+      {
+        "name": "graphics_pipelines",
+        "ms": 623.9
+      },
+      {
+        "name": "renderer_geometry",
+        "ms": 1.1
+      },
+      {
+        "name": "scene_services",
+        "ms": 41.2
+      },
+      {
+        "name": "terrain_and_model_caches",
+        "ms": 4646.1
+      },
+      {
+        "name": "world_population_and_lighting",
+        "ms": 3246.3
+      },
+      {
+        "name": "first_frame",
+        "ms": 882.3
+      }
+    ],
+    "colliderMs": 766.838,
+    "surfaces": [
+      {
+        "trees": 5,
+        "ms": 1568.529
+      }
+    ],
+    "fragments": [
+      {
+        "reused": 0,
+        "rebuilt": 5
+      }
+    ]
+  },
+  "steps": [
+    {
+      "name": "admission-warm",
+      "readyMs": 17739.3,
+      "cache": "hit",
+      "stages": [
+        {
+          "name": "window_vulkan",
+          "ms": 179.3
+        },
+        {
+          "name": "swapchain_gui",
+          "ms": 7.5
+        },
+        {
+          "name": "terrain_builders",
+          "ms": 287.3
+        },
+        {
+          "name": "spatial_audio",
+          "ms": 79.2
+        },
+        {
+          "name": "shader_modules",
+          "ms": 147.1
+        },
+        {
+          "name": "renderer_resources",
+          "ms": 117.6
+        },
+        {
+          "name": "compute_pipelines",
+          "ms": 113
+        },
+        {
+          "name": "graphics_pipelines",
+          "ms": 28.6
+        },
+        {
+          "name": "renderer_geometry",
+          "ms": 0.7
+        },
+        {
+          "name": "scene_services",
+          "ms": 41
+        },
+        {
+          "name": "terrain_and_model_caches",
+          "ms": 7340.6
+        },
+        {
+          "name": "world_population_and_lighting",
+          "ms": 8466.3
+        },
+        {
+          "name": "first_frame",
+          "ms": 930.9
+        }
+      ],
+      "colliderMs": 3749.991,
+      "surfaces": [
+        {
+          "trees": 1,
+          "ms": 1527.611
+        },
+        {
+          "trees": 2,
+          "ms": 974.089
+        },
+        {
+          "trees": 3,
+          "ms": 1617.52
+        },
+        {
+          "trees": 4,
+          "ms": 937.906
+        },
+        {
+          "trees": 5,
+          "ms": 957.297
+        }
+      ],
+      "fragments": [
+        {
+          "reused": 0,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 2
+        },
+        {
+          "reused": 3,
+          "rebuilt": 1
+        },
+        {
+          "reused": 4,
+          "rebuilt": 1
+        }
+      ]
+    },
+    {
+      "name": "batch-warm",
+      "readyMs": 12724.2,
+      "cache": "hit",
+      "stages": [
+        {
+          "name": "window_vulkan",
+          "ms": 180.3
+        },
+        {
+          "name": "swapchain_gui",
+          "ms": 6.8
+        },
+        {
+          "name": "terrain_builders",
+          "ms": 288.8
+        },
+        {
+          "name": "spatial_audio",
+          "ms": 80.3
+        },
+        {
+          "name": "shader_modules",
+          "ms": 147.4
+        },
+        {
+          "name": "renderer_resources",
+          "ms": 119.1
+        },
+        {
+          "name": "compute_pipelines",
+          "ms": 112.4
+        },
+        {
+          "name": "graphics_pipelines",
+          "ms": 28.2
+        },
+        {
+          "name": "renderer_geometry",
+          "ms": 0.7
+        },
+        {
+          "name": "scene_services",
+          "ms": 41.2
+        },
+        {
+          "name": "terrain_and_model_caches",
+          "ms": 7432.6
+        },
+        {
+          "name": "world_population_and_lighting",
+          "ms": 3488.3
+        },
+        {
+          "name": "first_frame",
+          "ms": 797.9
+        }
+      ],
+      "colliderMs": 3834.682,
+      "surfaces": [
+        {
+          "trees": 5,
+          "ms": 1552.466
+        }
+      ],
+      "fragments": [
+        {
+          "reused": 0,
+          "rebuilt": 5
+        }
+      ]
+    },
+    {
+      "name": "cache-warm",
+      "readyMs": 12693.7,
+      "cache": "hit",
+      "stages": [
+        {
+          "name": "window_vulkan",
+          "ms": 177.9
+        },
+        {
+          "name": "swapchain_gui",
+          "ms": 6.5
+        },
+        {
+          "name": "terrain_builders",
+          "ms": 289.5
+        },
+        {
+          "name": "spatial_audio",
+          "ms": 93.4
+        },
+        {
+          "name": "shader_modules",
+          "ms": 145.8
+        },
+        {
+          "name": "renderer_resources",
+          "ms": 121.4
+        },
+        {
+          "name": "compute_pipelines",
+          "ms": 112.6
+        },
+        {
+          "name": "graphics_pipelines",
+          "ms": 28
+        },
+        {
+          "name": "renderer_geometry",
+          "ms": 0.6
+        },
+        {
+          "name": "scene_services",
+          "ms": 41.7
+        },
+        {
+          "name": "terrain_and_model_caches",
+          "ms": 7346.6
+        },
+        {
+          "name": "world_population_and_lighting",
+          "ms": 3532.1
+        },
+        {
+          "name": "first_frame",
+          "ms": 797.3
+        }
+      ],
+      "colliderMs": 3748.308,
+      "surfaces": [
+        {
+          "trees": 5,
+          "ms": 1577.683
+        }
+      ],
+      "fragments": [
+        {
+          "reused": 0,
+          "rebuilt": 5
+        }
+      ]
+    },
+    {
+      "name": "collider-warm",
+      "readyMs": 9552,
+      "cache": "hit",
+      "stages": [
+        {
+          "name": "window_vulkan",
+          "ms": 170.7
+        },
+        {
+          "name": "swapchain_gui",
+          "ms": 6.1
+        },
+        {
+          "name": "terrain_builders",
+          "ms": 280.4
+        },
+        {
+          "name": "spatial_audio",
+          "ms": 81.2
+        },
+        {
+          "name": "shader_modules",
+          "ms": 144.1
+        },
+        {
+          "name": "renderer_resources",
+          "ms": 121
+        },
+        {
+          "name": "compute_pipelines",
+          "ms": 111.5
+        },
+        {
+          "name": "graphics_pipelines",
+          "ms": 27.4
+        },
+        {
+          "name": "renderer_geometry",
+          "ms": 0.7
+        },
+        {
+          "name": "scene_services",
+          "ms": 40.8
+        },
+        {
+          "name": "terrain_and_model_caches",
+          "ms": 4316.5
+        },
+        {
+          "name": "world_population_and_lighting",
+          "ms": 3307
+        },
+        {
+          "name": "first_frame",
+          "ms": 944.3
+        }
+      ],
+      "colliderMs": 780.158,
+      "surfaces": [
+        {
+          "trees": 5,
+          "ms": 1563.721
+        }
+      ],
+      "fragments": [
+        {
+          "reused": 0,
+          "rebuilt": 5
+        }
+      ]
+    },
+    {
+      "name": "geometry-warm-1",
+      "readyMs": 9383.7,
+      "cache": "hit",
+      "stages": [
+        {
+          "name": "window_vulkan",
+          "ms": 184.4
+        },
+        {
+          "name": "swapchain_gui",
+          "ms": 6.7
+        },
+        {
+          "name": "terrain_builders",
+          "ms": 281.1
+        },
+        {
+          "name": "spatial_audio",
+          "ms": 81.2
+        },
+        {
+          "name": "shader_modules",
+          "ms": 145.9
+        },
+        {
+          "name": "renderer_resources",
+          "ms": 117.9
+        },
+        {
+          "name": "compute_pipelines",
+          "ms": 112.5
+        },
+        {
+          "name": "graphics_pipelines",
+          "ms": 28.2
+        },
+        {
+          "name": "renderer_geometry",
+          "ms": 0.7
+        },
+        {
+          "name": "scene_services",
+          "ms": 40.8
+        },
+        {
+          "name": "terrain_and_model_caches",
+          "ms": 4309.7
+        },
+        {
+          "name": "world_population_and_lighting",
+          "ms": 3184.4
+        },
+        {
+          "name": "first_frame",
+          "ms": 890
+        }
+      ],
+      "colliderMs": 782.058,
+      "surfaces": [
+        {
+          "trees": 5,
+          "ms": 1549.432
+        }
+      ],
+      "fragments": [
+        {
+          "reused": 0,
+          "rebuilt": 5
+        }
+      ]
+    },
+    {
+      "name": "geometry-warm-2",
+      "readyMs": 9360,
+      "cache": "hit",
+      "stages": [
+        {
+          "name": "window_vulkan",
+          "ms": 180.2
+        },
+        {
+          "name": "swapchain_gui",
+          "ms": 6.4
+        },
+        {
+          "name": "terrain_builders",
+          "ms": 283.4
+        },
+        {
+          "name": "spatial_audio",
+          "ms": 81.5
+        },
+        {
+          "name": "shader_modules",
+          "ms": 143.3
+        },
+        {
+          "name": "renderer_resources",
+          "ms": 117
+        },
+        {
+          "name": "compute_pipelines",
+          "ms": 111.9
+        },
+        {
+          "name": "graphics_pipelines",
+          "ms": 28.4
+        },
+        {
+          "name": "renderer_geometry",
+          "ms": 0.7
+        },
+        {
+          "name": "scene_services",
+          "ms": 41.9
+        },
+        {
+          "name": "terrain_and_model_caches",
+          "ms": 4312.4
+        },
+        {
+          "name": "world_population_and_lighting",
+          "ms": 3161.6
+        },
+        {
+          "name": "first_frame",
+          "ms": 891.1
+        }
+      ],
+      "colliderMs": 779.61,
+      "surfaces": [
+        {
+          "trees": 5,
+          "ms": 1537.633
+        }
+      ],
+      "fragments": [
+        {
+          "reused": 0,
+          "rebuilt": 5
+        }
+      ]
+    }
+  ],
+  "seed7": [
+    {
+      "name": "accepted-seed7-1",
+      "readyMs": 9427.9,
+      "cache": "hit",
+      "stages": [
+        {
+          "name": "window_vulkan",
+          "ms": 253.6
+        },
+        {
+          "name": "swapchain_gui",
+          "ms": 6.3
+        },
+        {
+          "name": "terrain_builders",
+          "ms": 282.5
+        },
+        {
+          "name": "spatial_audio",
+          "ms": 80.7
+        },
+        {
+          "name": "shader_modules",
+          "ms": 143.6
+        },
+        {
+          "name": "renderer_resources",
+          "ms": 119.9
+        },
+        {
+          "name": "compute_pipelines",
+          "ms": 113.7
+        },
+        {
+          "name": "graphics_pipelines",
+          "ms": 29
+        },
+        {
+          "name": "renderer_geometry",
+          "ms": 0.7
+        },
+        {
+          "name": "scene_services",
+          "ms": 40.1
+        },
+        {
+          "name": "terrain_and_model_caches",
+          "ms": 4290.6
+        },
+        {
+          "name": "world_population_and_lighting",
+          "ms": 3076.7
+        },
+        {
+          "name": "first_frame",
+          "ms": 990.4
+        }
+      ],
+      "colliderMs": 782.252,
+      "surfaces": [
+        {
+          "trees": 5,
+          "ms": 1574.165
+        }
+      ],
+      "fragments": [
+        {
+          "reused": 0,
+          "rebuilt": 5
+        }
+      ]
+    },
+    {
+      "name": "accepted-seed7-2",
+      "readyMs": 9228.9,
+      "cache": "hit",
+      "stages": [
+        {
+          "name": "window_vulkan",
+          "ms": 173
+        },
+        {
+          "name": "swapchain_gui",
+          "ms": 7.1
+        },
+        {
+          "name": "terrain_builders",
+          "ms": 281.9
+        },
+        {
+          "name": "spatial_audio",
+          "ms": 81.1
+        },
+        {
+          "name": "shader_modules",
+          "ms": 146.6
+        },
+        {
+          "name": "renderer_resources",
+          "ms": 119.1
+        },
+        {
+          "name": "compute_pipelines",
+          "ms": 111.8
+        },
+        {
+          "name": "graphics_pipelines",
+          "ms": 28
+        },
+        {
+          "name": "renderer_geometry",
+          "ms": 0.7
+        },
+        {
+          "name": "scene_services",
+          "ms": 39.7
+        },
+        {
+          "name": "terrain_and_model_caches",
+          "ms": 4319.4
+        },
+        {
+          "name": "world_population_and_lighting",
+          "ms": 3143.8
+        },
+        {
+          "name": "first_frame",
+          "ms": 776.3
+        }
+      ],
+      "colliderMs": 803.21,
+      "surfaces": [
+        {
+          "trees": 5,
+          "ms": 1552.586
+        }
+      ],
+      "fragments": [
+        {
+          "reused": 0,
+          "rebuilt": 5
+        }
+      ]
+    }
+  ],
+  "sequential": {
+    "name": "sequential-control",
+    "readyMs": 13727.2,
+    "cache": "hit",
+    "stages": [
+      {
+        "name": "window_vulkan",
+        "ms": 175.2
+      },
+      {
+        "name": "swapchain_gui",
+        "ms": 6.2
+      },
+      {
+        "name": "terrain_builders",
+        "ms": 282.9
+      },
+      {
+        "name": "spatial_audio",
+        "ms": 81.7
+      },
+      {
+        "name": "shader_modules",
+        "ms": 145.9
+      },
+      {
+        "name": "renderer_resources",
+        "ms": 118.9
+      },
+      {
+        "name": "compute_pipelines",
+        "ms": 114
+      },
+      {
+        "name": "graphics_pipelines",
+        "ms": 28.1
+      },
+      {
+        "name": "renderer_geometry",
+        "ms": 0.7
+      },
+      {
+        "name": "scene_services",
+        "ms": 41
+      },
+      {
+        "name": "terrain_and_model_caches",
+        "ms": 4308.8
+      },
+      {
+        "name": "world_population_and_lighting",
+        "ms": 7493.1
+      },
+      {
+        "name": "first_frame",
+        "ms": 930.6
+      }
+    ],
+    "colliderMs": 784.791,
+    "surfaces": [
+      {
+        "trees": 1,
+        "ms": 1532.873
+      },
+      {
+        "trees": 2,
+        "ms": 1152.332
+      },
+      {
+        "trees": 3,
+        "ms": 919.363
+      },
+      {
+        "trees": 4,
+        "ms": 912.565
+      },
+      {
+        "trees": 5,
+        "ms": 919.597
+      }
+    ],
+    "fragments": [
+      {
+        "reused": 0,
+        "rebuilt": 1
+      },
+      {
+        "reused": 1,
+        "rebuilt": 1
+      },
+      {
+        "reused": 2,
+        "rebuilt": 1
+      },
+      {
+        "reused": 3,
+        "rebuilt": 1
+      },
+      {
+        "reused": 4,
+        "rebuilt": 1
+      }
+    ]
+  },
+  "replay": [
+    {
+      "name": "collider-replay-default",
+      "blocks": 8192,
+      "voxels": 268435456,
+      "disagreements": 0
+    },
+    {
+      "name": "collider-replay-seed7",
+      "blocks": 8192,
+      "voxels": 268435456,
+      "disagreements": 0
+    }
+  ],
+  "physicsPasses": 78
+}
