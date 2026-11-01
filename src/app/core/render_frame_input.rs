@@ -114,6 +114,13 @@ pub(super) fn freeze_render_frame_inputs(
             refraction_enabled: gui.glass_refraction_enabled.value,
             unrefracted_raster_fallback: gui.glass_unrefracted_raster_fallback.value,
             stored_voxel_normal: gui.glass_stored_voxel_normal.value,
+            sampling_pattern: if gui.glass_reduced_sampling.value
+                && gui.glass_sampling_pattern.value < 4
+            {
+                gui.glass_sampling_pattern.value + 1
+            } else {
+                0
+            },
             alpha: gui.glass_alpha.value,
             glint_strength: gui.glass_glint_strength.value,
         },
@@ -392,6 +399,46 @@ mod tests {
     }
 
     #[test]
+    fn glass_sampling_checkbox_selects_the_original_or_saved_experiment_live() {
+        let mut settings = DebugSettings::load();
+        for enabled in [false, true, false] {
+            for pattern in [0, 1, 2, 3, u32::MAX] {
+                settings.adjustables.glass_reduced_sampling.value = enabled;
+                settings.adjustables.glass_sampling_pattern.value = pattern;
+                let input = freeze_render_frame_inputs(
+                    &settings,
+                    LiveRenderFrameFacts {
+                        world_tick_seconds: 0.05,
+                        flora_tick: 123,
+                        flora_tick_fraction: 0.375,
+                        visual_time_since_start: 9.5,
+                        sun_direction: Vec3::Y,
+                        sun_altitude: 0.4,
+                        sun_azimuth: 0.3,
+                        terrain_edit_preview_center: None,
+                        terrain_edit_preview_radius: 0.0,
+                        terrain_edit_preview_shape: TerrainEditPreviewShape::SurfaceCircle,
+                        terrain_edit_preview_color: Vec3::ZERO,
+                        terrain_edit_preview_alpha: 0.0,
+                    },
+                );
+                let expected = if enabled {
+                    match pattern {
+                        0 => 1,
+                        1 => 2,
+                        2 => 3,
+                        3 => 4,
+                        _ => 0,
+                    }
+                } else {
+                    0
+                };
+                assert_eq!(input.materials.glass.sampling_pattern, expected);
+            }
+        }
+    }
+
+    #[test]
     fn mapper_preserves_every_renderer_fact_and_conversion() {
         let mut settings = DebugSettings::load();
         let gui = &mut settings.adjustables;
@@ -451,6 +498,8 @@ mod tests {
         gui.glass_refraction_enabled.value = false;
         gui.glass_unrefracted_raster_fallback.value = true;
         gui.glass_stored_voxel_normal.value = false;
+        gui.glass_reduced_sampling.value = true;
+        gui.glass_sampling_pattern.value = 2;
         let terrain_material = TerrainMaterialParams {
             soil_strength: float!(terrain_soil_strength),
             rock_strength: float!(terrain_rock_strength),
@@ -600,6 +649,7 @@ mod tests {
                     refraction_enabled: false,
                     unrefracted_raster_fallback: true,
                     stored_voxel_normal: false,
+                    sampling_pattern: 3,
                     alpha: glass_alpha,
                     glint_strength: glass_glint_strength,
                 },

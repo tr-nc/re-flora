@@ -59,8 +59,11 @@ rays; never reuse a camera-screen sample for a reflected direction. The active
 voxel-glass path is `glass_resolve.slang`, not the legacy terrarium helper.
 Its geometric medium boundary owns Snell/Fresnel and ray offsets; stored appearance
 normals may steer reflections only within the incident hemisphere. They must not
-turn a parallel pane into a refractive wedge. Face filtering integrates both
-voxel-face diagonals without pixel/frame jitter and preserves one color per cell.
+turn a parallel pane into a refractive wedge. Surface quadrature owns its sample
+count and positions: the reference integrates both face diagonals; reduced-sample
+experiments may derive representative points from the cell and camera, never from
+pixel/frame jitter. All modes preserve one completed transport color per cell,
+including cache-miss recomputation, without changing boundary or lighting policy.
 
 `PipelineTopology` retains fence-safe descriptor generations and extent retirement.
 God-ray/lens-flare histories still reset on resize and camera cut. Direct-sun terrain

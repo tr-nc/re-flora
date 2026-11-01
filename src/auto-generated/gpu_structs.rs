@@ -510,6 +510,8 @@ pub struct PushConstantGlassResolve {
     pub enable_refraction: u32,
     pub enable_unrefracted_raster_fallback: u32,
     pub use_stored_voxel_normal: u32,
+    pub sampling_pattern: u32,
+    pub _pad0: [u8; 12],
 }
 
 /// Auto-generated from `PushConstantGodRayAir` (native Slang source of truth).

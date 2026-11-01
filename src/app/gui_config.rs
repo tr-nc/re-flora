@@ -2301,6 +2301,38 @@ mod tests {
     }
 
     #[test]
+    fn reduced_glass_sampling_is_opt_in_and_all_patterns_round_trip() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("gui.toml");
+        let mut settings = DebugSettings::load();
+        assert!(!settings.adjustables.glass_reduced_sampling.value);
+        let pattern = settings
+            .config
+            .section
+            .iter()
+            .flat_map(|s| &s.param)
+            .find(|p| p.id == "glass_sampling_pattern")
+            .unwrap();
+        assert_eq!(
+            pattern.enabled_if,
+            Some(GuiParamEnabledIf {
+                param: "glass_reduced_sampling".to_owned(),
+                equals: GuiParamConditionValue::Bool(true),
+            })
+        );
+        for enabled in [false, true] {
+            for pattern in 0..4 {
+                settings.adjustables.glass_reduced_sampling.value = enabled;
+                settings.adjustables.glass_sampling_pattern.value = pattern;
+                settings.save_to_path(&path).unwrap();
+                let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+                assert_eq!(loaded.adjustables.glass_reduced_sampling.value, enabled);
+                assert_eq!(loaded.adjustables.glass_sampling_pattern.value, pattern);
+            }
+        }
+    }
+
+    #[test]
     fn glass_stored_voxel_normal_defaults_on() {
         let settings = DebugSettings::from_config(GuiConfigLoader::load());
 

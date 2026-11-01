@@ -994,6 +994,7 @@ pub struct GlassGuiParams {
     pub refraction_enabled: bool,
     pub unrefracted_raster_fallback: bool,
     pub stored_voxel_normal: bool,
+    pub sampling_pattern: u32,
     pub alpha: f32,
     pub glint_strength: f32,
 }
@@ -1792,6 +1793,7 @@ pub struct Tracer {
     glass_refraction_enabled: bool,
     glass_unrefracted_raster_fallback: bool,
     glass_stored_voxel_normal: bool,
+    glass_sampling_pattern: u32,
     environment_lighting: AuthoredEnvironmentLighting,
     flora_lighting_cache: FloraLightingCache,
     grass_band_cache: grass_band_cache::GrassBandCache,
@@ -2181,6 +2183,7 @@ impl Tracer {
             glass_refraction_enabled: true,
             glass_unrefracted_raster_fallback: false,
             glass_stored_voxel_normal: true,
+            glass_sampling_pattern: 0,
             environment_lighting: AuthoredEnvironmentLighting::default(),
             flora_lighting_cache: FloraLightingCache::default(),
             grass_band_cache: grass_band_cache::GrassBandCache::default(),
@@ -3338,6 +3341,7 @@ impl Tracer {
         self.glass_refraction_enabled = materials.glass.refraction_enabled;
         self.glass_unrefracted_raster_fallback = materials.glass.unrefracted_raster_fallback;
         self.glass_stored_voxel_normal = materials.glass.stored_voxel_normal;
+        self.glass_sampling_pattern = materials.glass.sampling_pattern;
 
         BufferUpdater::update_wind_inputs(&self.resources, &wind)?;
         let sprinkler_clock = self.sprinkler_clock.sample(
@@ -7251,6 +7255,8 @@ impl Tracer {
                     self.glass_unrefracted_raster_fallback,
                 ),
                 use_stored_voxel_normal: u32::from(self.glass_stored_voxel_normal),
+                sampling_pattern: self.glass_sampling_pattern,
+                _pad0: [0; 12],
             };
             Self::with_gpu_scope(
                 gpu_profiler.as_deref_mut(),

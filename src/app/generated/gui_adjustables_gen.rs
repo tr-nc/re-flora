@@ -734,6 +734,18 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Glass",
+        id: "glass_reduced_sampling",
+        kind: "bool",
+        label: "Reduced Samples (A/B; off = 4 samples)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
+        id: "glass_sampling_pattern",
+        kind: "choice",
+        label: "Reduced Sampling Pattern",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Glass",
         id: "glass_alpha",
         kind: "float",
         label: "Alpha Multiplier",
@@ -1892,6 +1904,8 @@ pub struct GuiAdjustables {
     pub glass_refraction_enabled: crate::gui_adjustables::BoolParam,
     pub glass_unrefracted_raster_fallback: crate::gui_adjustables::BoolParam,
     pub glass_stored_voxel_normal: crate::gui_adjustables::BoolParam,
+    pub glass_reduced_sampling: crate::gui_adjustables::BoolParam,
+    pub glass_sampling_pattern: crate::gui_adjustables::ChoiceParam,
     pub glass_alpha: crate::gui_adjustables::FloatParam,
     pub glass_glint_strength: crate::gui_adjustables::FloatParam,
     pub terrain_self_shadow_tolerance_voxels: crate::gui_adjustables::FloatParam,
@@ -2196,6 +2210,8 @@ impl GuiAdjustables {
         let mut glass_refraction_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut glass_unrefracted_raster_fallback_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut glass_stored_voxel_normal_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut glass_reduced_sampling_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut glass_sampling_pattern_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut glass_alpha_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut glass_glint_strength_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut terrain_self_shadow_tolerance_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -3139,6 +3155,16 @@ impl GuiAdjustables {
                     "glass_stored_voxel_normal" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             glass_stored_voxel_normal_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "glass_reduced_sampling" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            glass_reduced_sampling_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "glass_sampling_pattern" => {
+                        if let (GuiParamKind::Choice, GuiParamValue::Choice { value, .. }) = (&param.kind, &param.value) {
+                            glass_sampling_pattern_field = Some(crate::gui_adjustables::ChoiceParam::new(*value));
                         }
                     }
                     "glass_alpha" => {
@@ -4430,6 +4456,8 @@ impl GuiAdjustables {
             glass_refraction_enabled: glass_refraction_enabled_field.expect("Missing parameter: glass_refraction_enabled"),
             glass_unrefracted_raster_fallback: glass_unrefracted_raster_fallback_field.expect("Missing parameter: glass_unrefracted_raster_fallback"),
             glass_stored_voxel_normal: glass_stored_voxel_normal_field.expect("Missing parameter: glass_stored_voxel_normal"),
+            glass_reduced_sampling: glass_reduced_sampling_field.expect("Missing parameter: glass_reduced_sampling"),
+            glass_sampling_pattern: glass_sampling_pattern_field.expect("Missing parameter: glass_sampling_pattern"),
             glass_alpha: glass_alpha_field.expect("Missing parameter: glass_alpha"),
             glass_glint_strength: glass_glint_strength_field.expect("Missing parameter: glass_glint_strength"),
             terrain_self_shadow_tolerance_voxels: terrain_self_shadow_tolerance_voxels_field.expect("Missing parameter: terrain_self_shadow_tolerance_voxels"),
@@ -4876,6 +4904,7 @@ pub fn get_choice_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &st
         "scene_pixel_resolve_mode" => Some(&adjustables.scene_pixel_resolve_mode),
         "sprinkler_placement_type" => Some(&adjustables.sprinkler_placement_type),
         "rope_material" => Some(&adjustables.rope_material),
+        "glass_sampling_pattern" => Some(&adjustables.glass_sampling_pattern),
         _ => None,
     }
 }
@@ -4909,6 +4938,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "glass_refraction_enabled" => Some(&adjustables.glass_refraction_enabled),
         "glass_unrefracted_raster_fallback" => Some(&adjustables.glass_unrefracted_raster_fallback),
         "glass_stored_voxel_normal" => Some(&adjustables.glass_stored_voxel_normal),
+        "glass_reduced_sampling" => Some(&adjustables.glass_reduced_sampling),
         "god_ray_temporal_blend" => Some(&adjustables.god_ray_temporal_blend),
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
@@ -5214,6 +5244,7 @@ pub fn get_choice_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables,
         "scene_pixel_resolve_mode" => Some(&mut adjustables.scene_pixel_resolve_mode),
         "sprinkler_placement_type" => Some(&mut adjustables.sprinkler_placement_type),
         "rope_material" => Some(&mut adjustables.rope_material),
+        "glass_sampling_pattern" => Some(&mut adjustables.glass_sampling_pattern),
         _ => None,
     }
 }
@@ -5247,6 +5278,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "glass_refraction_enabled" => Some(&mut adjustables.glass_refraction_enabled),
         "glass_unrefracted_raster_fallback" => Some(&mut adjustables.glass_unrefracted_raster_fallback),
         "glass_stored_voxel_normal" => Some(&mut adjustables.glass_stored_voxel_normal),
+        "glass_reduced_sampling" => Some(&mut adjustables.glass_reduced_sampling),
         "god_ray_temporal_blend" => Some(&mut adjustables.god_ray_temporal_blend),
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),

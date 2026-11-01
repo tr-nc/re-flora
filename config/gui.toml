@@ -1451,6 +1451,34 @@ type = "Bool"
 value = true
 
 [[section.param]]
+id = "glass_reduced_sampling"
+kind = "bool"
+label = "Reduced Samples (A/B; off = 4 samples)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "glass_sampling_pattern"
+kind = "choice"
+label = "Reduced Sampling Pattern"
+type = "Choice"
+
+[section.param.enabled_if]
+param = "glass_reduced_sampling"
+equals = true
+
+[section.param.data]
+value = 0
+options = [
+    "1 sample - face center",
+    "1 sample - view aligned",
+    "2 samples - screen aligned",
+    "2 samples - diagonal",
+]
+
+[[section.param]]
 id = "glass_alpha"
 kind = "float"
 label = "Alpha Multiplier"

@@ -72,6 +72,7 @@ struct GlassVoxelCachePushConstants
     uint enable_refraction;
     uint enable_unrefracted_raster_fallback;
     uint use_stored_voxel_normal;
+    uint sampling_pattern;
 };
 
 [[vk::push_constant]]
@@ -1224,19 +1225,28 @@ GlassResolveResult traceGlassVoxelCellRadiance(
     float3 tangentV;
     glassInterfaceFaceFrame(
         glassCell, frontEvent, faceCenter, tangentU, tangentV);
-    // Integrate both face diagonals without screen/frame jitter. Every covered
-    // pixel still receives one complete, cell-owned transport color.
+    // The experiment changes only the cell-owned surface quadrature. Optical
+    // boundaries, terminal lighting, budgets and pixel resolve remain identical.
+    uint pattern = glass_voxel_cache_push.sampling_pattern;
+    uint sampleCount = glassVoxelFaceSampleCount(pattern);
+    float3 centerRay = (float3(glassCell) + 0.5) / 256.0 - camera_info.pos.xyz;
+    float3 outward = (faceCenter - (float3(glassCell) + 0.5) / 256.0) * 512.0;
+    float3 viewInFace = float3(dot(centerRay, tangentU),
+        dot(centerRay, tangentV), dot(centerRay, outward));
+    float3 screenRight = mul(camera_info.view_mat_inv, float4(1.0, 0.0, 0.0, 0.0)).xyz;
+    float2 screenRightInFace = float2(dot(screenRight, tangentU), dot(screenRight, tangentV));
     [loop]
-    for (uint sampleIndex = 0u; sampleIndex < GLASS_VOXEL_FACE_SAMPLE_COUNT; ++sampleIndex)
+    for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
     {
-        float2 offset = glassVoxelFaceSampleOffset(sampleIndex) / 256.0;
+        float2 offset = glassVoxelFacePatternOffset(
+            pattern, sampleIndex, viewInFace, screenRightInFace) / 256.0;
         float3 samplePosition = faceCenter +
             tangentU * offset.x + tangentV * offset.y;
         GlassResolveResult sample = traceGlassFrontSample(
             samplePosition, frontEvent, appearanceNormal, localInvocationIndex);
         accumulateGlassResolveSample(sample, result);
     }
-    averageGlassResolveSamples(GLASS_VOXEL_FACE_SAMPLE_COUNT, result);
+    averageGlassResolveSamples(sampleCount, result);
 
     // Camera effects are part of the cell-owned final color. Applying them later with each
     // covered pixel's UV would reintroduce per-pixel variation after the voxel cache resolve.
