@@ -62,7 +62,8 @@ impl App {
                 layout::hash(seed ^ i as u32),
             )?;
         }
-        self.plant_courtyard_ginkgo(seed, size)?;
+        let mut tree_batch = self.begin_tree_planting_batch();
+        self.prepare_courtyard_ginkgo(seed, size, &mut tree_batch)?;
         // Sample the same saved recipe/maturity as Grow, without charging inventory.
         // Once published, each tree owns its description and optional growth clock.
         let instant_mature = self
@@ -70,7 +71,7 @@ impl App {
             .adjustables
             .tree_planting_instant_mature
             .value;
-        let mut placed_trees = 1; // The mature courtyard ginkgo was published above.
+        let mut placed_trees = 1; // The mature courtyard ginkgo was prepared above.
         for (i, p) in layout::TREE_CENTERS.iter().enumerate() {
             let xz = *p * size;
             let y = self.query_terrain_height_cpu(xz);
@@ -80,10 +81,15 @@ impl App {
             log::info!("[GARDEN_OPENING] tree={i} species={} seed={} size={:.3} crown_radius_voxels={radius:.3} height_voxels={height:.3} position={:?} apple_probability={} appearance={:?} instant_mature={instant_mature}",
                 desc.species.label(), desc.branching.seed, desc.size,
                 Vec3::new(xz.x, y, xz.y), desc.fruit_spawn_probability, desc.appearance);
-            match self.plant_tree_with_maturity(desc, Vec3::new(xz.x, y, xz.y), instant_mature) {
+            match self.prepare_tree_planting(
+                &mut tree_batch,
+                desc,
+                Vec3::new(xz.x, y, xz.y),
+                instant_mature,
+            ) {
                 Ok(id) => {
                     placed_trees += 1;
-                    log::info!("[GARDEN_OPENING] planted_tree={i} id={id}");
+                    log::info!("[GARDEN_OPENING] prepared_tree={i} id={id}");
                 }
                 // User-authored trees can exceed the world or intersect terrain. Apply
                 // Grow's validation, not a hidden scale cap or a startup crash.
@@ -93,6 +99,7 @@ impl App {
                 Err(error) => return Err(error),
             }
         }
+        self.publish_tree_planting_batch(tree_batch)?;
         // Actual mow/removal paths, not a shader-only exclusion: persists in snapshots,
         // and subsequent player edits/planting remain free to replace these patches.
         for segment in layout::ROUTE.windows(2) {

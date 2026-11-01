@@ -208,7 +208,12 @@ impl App {
         })
     }
 
-    pub(super) fn plant_courtyard_ginkgo(&mut self, seed: u32, size: Vec2) -> Result<()> {
+    pub(super) fn prepare_courtyard_ginkgo(
+        &mut self,
+        seed: u32,
+        size: Vec2,
+        batch: &mut super::super::vegetation::TreePlantingBatch,
+    ) -> Result<()> {
         let xz = size * Vec2::new(0.50, 0.43);
         let mut position = Vec3::new(xz.x, self.query_terrain_height_cpu(xz), xz.y);
         let desc = ginkgo_description(seed);
@@ -226,7 +231,7 @@ impl App {
             }
         }
         let height = tree.height_voxels();
-        let id = self.plant_tree_with_maturity(desc, position, true)?;
+        let id = self.prepare_tree_planting(batch, desc, position, true)?;
         log::info!("[COURTYARD] ginkgo_id={id} mature=true size={GINKGO_SIZE} height_voxels={height:.3} position={position:?}");
         Ok(())
     }

@@ -2,6 +2,7 @@ use super::launch_owners;
 mod fruit_attachment;
 mod growth;
 use fruit_attachment::bind_fruit_attachments;
+pub(super) use growth::TreePlantingBatch;
 mod planting_settings;
 pub(super) use planting_settings::planting_description;
 mod snapshot;
@@ -1517,6 +1518,21 @@ impl GardenTrees {
             publication.tree_id
         );
         self.publish(TreePublicationOperation::Replace, publication, host)
+    }
+
+    fn place_batch(
+        &mut self,
+        publications: Vec<PreparedTreePublication>,
+        host: &mut impl TreePublicationPrimitiveHost,
+    ) -> Result<Vec<TreePublicationReceipt>> {
+        let mut ids = HashSet::new();
+        for publication in &publications {
+            anyhow::ensure!(
+                !self.records.contains_key(&publication.tree_id) && ids.insert(publication.tree_id),
+                "tree addition batch contains an existing or duplicate ID"
+            );
+        }
+        self.publish_batch(TreePublicationOperation::Place, publications, host)
     }
 
     fn replace_batch(
@@ -5225,6 +5241,82 @@ mod tests {
         assert_eq!(garden.procedural_tree_ids(), vec![1]);
         assert!(garden.previous_bound().has_size());
         assert!(garden.ecology_regions().iter().any(|r| r.count > 0));
+    }
+
+    #[test]
+    fn initial_tree_batch_publishes_one_surface_and_keeps_individual_lifecycles() {
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost::default();
+        let mut young = prepared_tree(2, 12, 102);
+        young.record.growth_seconds = Some(0.);
+        garden
+            .place_batch(
+                vec![prepared_tree(1, 11, 101), young, prepared_tree(3, 13, 103)],
+                &mut host,
+            )
+            .unwrap();
+        assert_eq!(garden.len(), 3);
+        assert_eq!(garden.placement_id(true), 4);
+        assert_eq!(host.surface_generations, host.trunk_generations);
+        assert_eq!(host.surface_revision, garden.canonical_revision);
+        assert_eq!(garden.records[&2].growth_seconds, Some(0.));
+        for primitive in [
+            TreePublicationPrimitive::PrepareSurface,
+            TreePublicationPrimitive::PublishTrunks,
+            TreePublicationPrimitive::CommitPublication,
+        ] {
+            assert_eq!(
+                host.events
+                    .iter()
+                    .filter(|(event, _)| *event == TreePublicationEvent::Primitive(primitive))
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn initial_tree_batch_failures_leave_no_partial_forest_or_reserved_ids() {
+        for failure in [
+            TreePublicationPrimitive::PrepareSurface,
+            TreePublicationPrimitive::PublishCanopyAudio,
+            TreePublicationPrimitive::CommitPublication,
+        ] {
+            let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+            let mut host = RecordingTreePublicationHost {
+                fail_primitive: Some(failure),
+                ..Default::default()
+            };
+            let revision = garden.canonical_revision;
+            assert!(garden
+                .place_batch(
+                    vec![prepared_tree(1, 11, 101), prepared_tree(2, 12, 102)],
+                    &mut host
+                )
+                .is_err());
+            assert_eq!(garden.len(), 0);
+            assert_eq!(garden.placement_id(true), 1);
+            assert_eq!(garden.canonical_revision, revision);
+            assert!(host.trunk_generations.is_empty());
+            assert!(host.surface_generations.is_empty());
+            host.fail_primitive = None;
+            garden
+                .place_batch(
+                    vec![prepared_tree(1, 11, 101), prepared_tree(2, 12, 102)],
+                    &mut host,
+                )
+                .unwrap();
+            assert_eq!(garden.len(), 2);
+        }
+        let mut garden = GardenTrees::new(LeafEmitterDesc::default());
+        let mut host = RecordingTreePublicationHost::default();
+        assert!(garden
+            .place_batch(
+                vec![prepared_tree(1, 11, 101), prepared_tree(1, 12, 102)],
+                &mut host
+            )
+            .is_err());
+        assert!(host.events.is_empty());
     }
 
     #[test]

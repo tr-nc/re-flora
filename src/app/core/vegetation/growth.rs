@@ -22,6 +22,13 @@ pub(in crate::app::core) enum TreePlantingRejection {
     Occupied,
 }
 
+/// Prepared additions, not a second live forest. No world data changes before commit.
+pub(in crate::app::core) struct TreePlantingBatch {
+    terrain_revision: u32,
+    canonical_revision: u64,
+    publications: Vec<PreparedTreePublication>,
+}
+
 pub(super) fn planting_age(instant_mature: bool) -> f32 {
     if instant_mature {
         1.
@@ -91,10 +98,46 @@ impl App {
         position: Vec3,
         instant_mature: bool,
     ) -> Result<u32> {
+        let mut batch = self.begin_tree_planting_batch();
+        let id = self.prepare_tree_planting(&mut batch, desc, position, instant_mature)?;
+        self.publish_tree_planting_batch(batch)?;
+        Ok(id)
+    }
+
+    pub(in crate::app::core) fn begin_tree_planting_batch(&self) -> TreePlantingBatch {
+        TreePlantingBatch {
+            terrain_revision: self.visible_terrain_revision,
+            canonical_revision: self.trees.canonical_revision,
+            publications: Vec::new(),
+        }
+    }
+
+    fn validate_tree_planting_batch(&self, batch: &TreePlantingBatch) -> Result<()> {
+        anyhow::ensure!(
+            batch.terrain_revision == self.visible_terrain_revision
+                && batch.canonical_revision == self.trees.canonical_revision,
+            "world changed after tree planting admission"
+        );
+        Ok(())
+    }
+
+    pub(in crate::app::core) fn prepare_tree_planting(
+        &mut self,
+        batch: &mut TreePlantingBatch,
+        desc: TreeDesc,
+        position: Vec3,
+        instant_mature: bool,
+    ) -> Result<u32> {
+        self.validate_tree_planting_batch(batch)?;
         let age = planting_age(instant_mature);
         anyhow::ensure!(position.is_finite(), TreePlantingRejection::InvalidPosition);
         anyhow::ensure!(
-            self.trees.records.len() < 512 && self.trees.placement_id(true) < u32::MAX,
+            self.trees.records.len() + batch.publications.len() < 512
+                && self
+                    .trees
+                    .placement_id(true)
+                    .checked_add(batch.publications.len() as u32)
+                    .is_some_and(|id| id < u32::MAX),
             TreePlantingRejection::Capacity
         );
         // Reject an impossible mature footprint before a tiny sapling is committed.
@@ -112,24 +155,45 @@ impl App {
             self.growing_tree_space_clear(&desc, position, age)?,
             TreePlantingRejection::Occupied
         );
-        let id = self.trees.placement_id(true);
-        self.apply_tree_placement_at_age(
-            TreePlacementEdit {
-                tree_desc: desc,
-                placement: TreePlacement::World(position),
-                options: TreeAddOptions::default().with_new_id(),
-            },
+        // Pending additions stamp only the same reusable wood material. They cannot
+        // invalidate one another's admission; all other materials remain protected.
+        let id = self.trees.placement_id(true) + batch.publications.len() as u32;
+        let generation = self.trees.allocate_canopy_acoustic_generation();
+        let compiled = TreePlacementService::compile(
+            desc.clone(),
+            position,
+            UAabb3::default(),
             age,
-        )?;
-        self.trees
-            .records
-            .get_mut(&id)
-            .context("planted sapling missing")?
-            .growth_seconds = (!instant_mature).then_some(0.);
-        log::info!(
-            "[TREE_GROWTH] planted={id} age={age} instant_mature={instant_mature} maturation_seconds={MATURATION_SECONDS}"
+            generation,
+            self.debug_settings
+                .adjustables
+                .canopy_audio_sample_budget
+                .value as usize,
         );
+        let mut publication = PreparedTreePublication::new(id, desc, compiled);
+        publication.record.growth_seconds = (!instant_mature).then_some(0.);
+        batch.publications.push(publication);
         Ok(id)
+    }
+
+    pub(in crate::app::core) fn publish_tree_planting_batch(
+        &mut self,
+        batch: TreePlantingBatch,
+    ) -> Result<()> {
+        self.validate_tree_planting_batch(&batch)?;
+        if batch.publications.is_empty() {
+            return Ok(());
+        }
+        let planted: Vec<_> = batch
+            .publications
+            .iter()
+            .map(|p| (p.tree_id, p.record.age, p.record.growth_seconds.is_none()))
+            .collect();
+        self.transact_garden_trees(|trees, host| trees.place_batch(batch.publications, host))?;
+        for (id, age, instant_mature) in planted {
+            log::info!("[TREE_GROWTH] planted={id} age={age} instant_mature={instant_mature} maturation_seconds={MATURATION_SECONDS}");
+        }
+        Ok(())
     }
 
     pub(in crate::app::core) fn advance_tree_growth(&mut self, seconds: f32) -> Result<()> {
