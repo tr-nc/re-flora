@@ -12,12 +12,14 @@ pub(super) enum LowWallKind {
     Earth,
     Stone,
     Brick,
+    Chinese,
 }
 impl LowWallKind {
     pub(super) fn from_choice(value: u32) -> Self {
         match value {
             1 => Self::Stone,
             2 => Self::Brick,
+            3 => Self::Chinese,
             _ => Self::Earth,
         }
     }
@@ -26,6 +28,7 @@ impl LowWallKind {
             Self::Earth => "Earth",
             Self::Stone => "Stone",
             Self::Brick => "Brick",
+            Self::Chinese => "Chinese red wall",
         }
     }
 }
@@ -65,6 +68,9 @@ impl LowWallRecipe {
         }
     }
     pub(super) fn layers(self) -> usize {
+        if self.kind == LowWallKind::Chinese {
+            return 7; // Plastered body and six pitched tile strips.
+        }
         if self.kind == LowWallKind::Earth {
             1
         } else {
@@ -113,6 +119,9 @@ impl LowWallRecipe {
         if inset_quad_edges(raw.footprint, [0.; 4]).is_none() {
             return vec![];
         }
+        if self.kind == LowWallKind::Chinese {
+            return self.chinese_pieces(row, raw);
+        }
         if self.kind == LowWallKind::Earth {
             return vec![WallSlice {
                 cell: raw,
@@ -120,6 +129,7 @@ impl LowWallRecipe {
                 lower: -VOXEL_SIZE,
                 upper: self.height,
                 top_scale: 0.82,
+                top_offsets: [0.; 4],
             }];
         }
         let count = self.layers();
@@ -177,6 +187,55 @@ impl LowWallRecipe {
                 lower,
                 upper,
                 top_scale: 1.,
+                top_offsets: [0.; 4],
+            });
+        }
+        pieces
+    }
+
+    fn chinese_pieces(self, row: PathSample, raw: PathCell) -> Vec<WallSlice> {
+        let cap = (self.width * 0.32).min(self.height * 0.45);
+        let body_top = self.height - cap;
+        let footprint = |a: f32, b: f32| {
+            [
+                row.entry.point(a * self.width * 0.5),
+                row.entry.point(b * self.width * 0.5),
+                row.exit.point(b * self.width * 0.5),
+                row.exit.point(a * self.width * 0.5),
+            ]
+        };
+        let mut pieces = vec![WallSlice {
+            cell: PathCell {
+                footprint: footprint(-0.78, 0.78),
+                ..raw
+            },
+            layer: 0,
+            lower: -VOXEL_SIZE,
+            upper: body_top,
+            top_scale: 1.,
+            top_offsets: [0.; 4],
+        }];
+        for strip in 0..6 {
+            let a = -1. + strip as f32 / 3.;
+            let b = a + 1. / 3.;
+            // Real recessed joints between tile courses, within the shared band.
+            let Some(foot) = inset_quad_edges(
+                footprint(a, b),
+                [VOXEL_SIZE * 0.35, 0., VOXEL_SIZE * 0.35, 0.],
+            ) else {
+                return vec![];
+            };
+            let profile = |u: f32| -cap * 0.65 * u.abs().powf(0.75);
+            pieces.push(WallSlice {
+                cell: PathCell {
+                    footprint: foot,
+                    ..raw
+                },
+                layer: strip + 1,
+                lower: body_top - VOXEL_SIZE * 0.25,
+                upper: self.height,
+                top_scale: 1.,
+                top_offsets: [profile(a), profile(b), profile(b), profile(a)],
             });
         }
         pieces
@@ -189,16 +248,31 @@ pub(super) struct WallSlice {
     pub lower: f32,
     pub upper: f32,
     pub top_scale: f32,
+    top_offsets: [f32; 4],
 }
 impl WallSlice {
     pub(super) fn solid(self, ground: [f32; 4]) -> CellSolid {
-        CellSolid::new(
+        let mut solid = CellSolid::new(
             self.cell.footprint,
             ground,
             self.lower,
             self.upper,
             self.top_scale,
-        )
+        );
+        for i in 0..4 {
+            solid.positions[i + 4].y += self.top_offsets[i];
+        }
+        solid
+    }
+    pub(super) fn material(self, kind: LowWallKind) -> u32 {
+        use crate::builder::*;
+        match kind {
+            LowWallKind::Earth => VOXEL_TYPE_DIRT,
+            LowWallKind::Stone => VOXEL_TYPE_ROCK,
+            LowWallKind::Brick => VOXEL_TYPE_TERRACOTTA,
+            LowWallKind::Chinese if self.layer == 0 => VOXEL_MATERIAL_CINNABAR,
+            LowWallKind::Chinese => VOXEL_TYPE_ASPHALT,
+        }
     }
     pub(super) fn preview(self) -> PathCell {
         let mut cell = self.cell;
@@ -246,7 +320,12 @@ mod tests {
     }
     #[test]
     fn low_walls_height_is_independent_of_guide_width_and_every_layer_is_closed() {
-        for kind in [LowWallKind::Earth, LowWallKind::Stone, LowWallKind::Brick] {
+        for kind in [
+            LowWallKind::Earth,
+            LowWallKind::Stone,
+            LowWallKind::Brick,
+            LowWallKind::Chinese,
+        ] {
             for width in [0.05, 0.06, 0.15] {
                 for height in [0.02, 0.12, 0.3] {
                     for pitch in [0.025, 0.05, 0.1] {
@@ -303,7 +382,12 @@ mod tests {
     }
     #[test]
     fn low_walls_share_complete_curved_cells_and_no_earth_sampling_seams() {
-        for kind in [LowWallKind::Earth, LowWallKind::Stone, LowWallKind::Brick] {
+        for kind in [
+            LowWallKind::Earth,
+            LowWallKind::Stone,
+            LowWallKind::Brick,
+            LowWallKind::Chinese,
+        ] {
             for width in [0.05, 0.06, 0.15] {
                 for pitch in [0.025, 0.05, 0.1] {
                     for sign in [-1., 1.] {
@@ -353,6 +437,28 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn chinese_wall_has_independent_red_plaster_pitched_tiles_and_real_eaves() {
+        assert_eq!(LowWallKind::from_choice(3), LowWallKind::Chinese);
+        let wall = LowWallRecipe::new(LowWallKind::Chinese, 0.1, 0.2, 0.05, 42);
+        let row = PathSample::straight(Vec3::ONE, Vec3::X, 0., 0, wall.pitch);
+        let pieces = wall.pieces(row);
+        assert_eq!(pieces.len(), wall.layers());
+        assert_eq!(
+            pieces[0].material(wall.kind),
+            crate::builder::VOXEL_MATERIAL_CINNABAR
+        );
+        assert!(pieces[1..]
+            .iter()
+            .all(|p| p.material(wall.kind) == crate::builder::VOXEL_TYPE_ASPHALT));
+        let body = pieces[0].solid([1.; 4]);
+        let eave = pieces[1].solid([1.; 4]);
+        let ridge = pieces[3].solid([1.; 4]);
+        assert!(eave.positions[4].y < ridge.positions[5].y);
+        assert!((ridge.positions[5].y - 1.2).abs() < 1e-6);
+        assert!(body.positions[0].z < eave.positions[0].z);
+        assert!(eave.positions[5].y > body.positions[5].y);
     }
     #[test]
     fn low_walls_invalid_and_outlandish_inputs_never_make_nan_or_folded_prisms() {

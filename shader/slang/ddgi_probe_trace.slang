@@ -31,10 +31,9 @@ StructuredBuffer<uint> contree_leaf_data;
 [[vk::binding(9, 0)]] [[vk::image_format("rg32ui")]]
 readonly RWTexture3D<uint2> scene_tex;
 
-#if RE_FLORA_GLASS_TRANSPORT
+// Authored finishes are atlas state, shared by opaque and glass transport.
 [[vk::binding(16, 0)]] [[vk::image_format("r8ui")]]
 readonly RWTexture3D<uint> chunk_atlas;
-#endif
 
 [[vk::binding(25, 0)]]
 GLSLShaderStorageBuffer<B_DdgiRayData, Std430DataLayout>
@@ -197,7 +196,8 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
     // Keep the existing dry-material transport approximation: live atlas moisture is not
     // frozen with this multi-frame build. The authored per-voxel variation itself is shared exactly.
     float3 albedo = ddgiTerrainColorAtVoxel(
-        ddgi_radiance_voxel_palette, result.voxel_type, result.center_position);
+        ddgi_radiance_voxel_palette, result.voxel_type, result.center_position,
+        chunk_atlas[uint3(floor(result.center_position * 256.0))]);
     float3 surfaceEmission = ddgiVoxelSurfaceEmission(
         ddgi_radiance_voxel_palette, result.voxel_type);
     if ((ddgi_local_light_info.flags &

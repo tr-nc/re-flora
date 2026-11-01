@@ -39,13 +39,21 @@ public float3 voxelColorByType(U_VoxelColors colors, uint voxelType)
     return srgbToLinear(voxelColorByTypeSrgb(colors, voxelType));
 }
 
+float3 applyAuthoredFinish(float3 baseColor, uint voxelType, uint atlasData)
+{
+    if (voxelType == VOXEL_TYPE_STUCCO &&
+        (atlasData & VOXEL_CINNABAR_FINISH_BIT) != 0u)
+        return srgbToLinear(float3(0.66, 0.12, 0.085));
+    return baseColor;
+}
+
 public float3 terrainColorAtVoxel(U_VoxelColors colors, uint voxelType,
                                   float3 voxelCenterWorld, uint atlasData)
 {
     float3 baseColor = voxelType == VOXEL_TYPE_DIRT &&
         (atlasData & VOXEL_GRASS_COVER_BIT) != 0u
         ? srgbToLinear(colors.dirt_color) : voxelColorByType(colors, voxelType);
-    return applyTerrainMaterial(baseColor, voxelType,
+    return applyTerrainMaterial(applyAuthoredFinish(baseColor, voxelType, atlasData), voxelType,
         voxelCenterWorld, colors.terrain_variation,
         colors.terrain_seed);
 }
@@ -92,9 +100,10 @@ public float3 ddgiVoxelColorByType(
 }
 
 public float3 ddgiTerrainColorAtVoxel(U_DdgiRadianceVoxelPalette colors,
-                                      uint voxelType, float3 voxelCenterWorld)
+                                      uint voxelType, float3 voxelCenterWorld, uint atlasData)
 {
-    return applyTerrainMaterial(ddgiVoxelColorByType(colors, voxelType), voxelType,
+    float3 baseColor = ddgiVoxelColorByType(colors, voxelType);
+    return applyTerrainMaterial(applyAuthoredFinish(baseColor, voxelType, atlasData), voxelType,
         voxelCenterWorld, colors.terrain_variation,
         colors.terrain_seed);
 }

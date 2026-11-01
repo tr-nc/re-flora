@@ -290,6 +290,7 @@ fn surface_frame(normal: Vec3, forward: Vec3) -> Option<Quat> {
     )))
 }
 
+#[derive(Clone)]
 struct GroundedPiece {
     piece: PathCell,
     triangles: Vec<ModelTriangleGpu>,
@@ -301,6 +302,7 @@ struct GroundedPiece {
 
 // A protected atlas region. Undo data is captured immediately before each stamp,
 // because adjacent stones in this same course may share voxelized boundaries.
+#[derive(Clone, Copy)]
 struct PathStampReadback {
     offset: UVec3,
     dim: UVec3,
@@ -815,7 +817,12 @@ impl App {
         } else {
             &mut settings.pavement_kind.value
         };
-        *value = (*value + 1) % 3;
+        let count = if self.player_tools.selected_tool() == PlayerTool::Wall {
+            4
+        } else {
+            3
+        };
+        *value = (*value + 1) % count;
         self.play_item_panel_scroll_sound();
     }
 

@@ -182,16 +182,31 @@ impl App {
                 };
                 let readback = self.path_stamp_readback(active.recipe, &grounded);
                 staged.cells.record(grounded.piece);
-                vec![PreparedStamp {
-                    grounded,
-                    readback,
-                    count: wall.layers(),
-                    material: match wall.kind {
-                        LowWallKind::Earth => VOXEL_TYPE_DIRT,
-                        LowWallKind::Stone => VOXEL_TYPE_ROCK,
-                        LowWallKind::Brick => VOXEL_TYPE_TERRACOTTA,
-                    },
-                }]
+                // Preflight the complete column before either material is written.
+                // Group closed primitives by material; red plaster and roof tiles
+                // share the same publication, support and protection contract.
+                let mut groups: Vec<PreparedStamp> = Vec::new();
+                for (slice, triangles) in wall
+                    .pieces(row)
+                    .into_iter()
+                    .zip(grounded.triangles.chunks_exact(12))
+                {
+                    let material = slice.material(wall.kind);
+                    if let Some(group) = groups.iter_mut().find(|g| g.material == material) {
+                        group.grounded.triangles.extend_from_slice(triangles);
+                        group.count += 1;
+                    } else {
+                        let mut mesh = grounded.clone();
+                        mesh.triangles = triangles.to_vec();
+                        groups.push(PreparedStamp {
+                            grounded: mesh,
+                            readback,
+                            count: 1,
+                            material,
+                        });
+                    }
+                }
+                groups
             }
         };
         // No writes occur during preparation. Check every full course/column,

@@ -134,11 +134,12 @@ label = "Low wall material"
 type = "Choice"
 
 [section.param.data]
-value = 0
+value = 3
 options = [
     "Earth (continuous soil)",
     "Stone (layered blocks)",
     "Brick (running bond)",
+    "Chinese red wall (grey tile cap)",
 ]
 
 [[section.param]]

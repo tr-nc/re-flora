@@ -303,6 +303,7 @@ impl App {
                     LowWallKind::Earth => VOXEL_TYPE_DIRT,
                     LowWallKind::Stone => VOXEL_TYPE_ROCK,
                     LowWallKind::Brick => VOXEL_TYPE_TERRACOTTA,
+                    LowWallKind::Chinese => crate::builder::VOXEL_MATERIAL_CINNABAR,
                 };
                 let mut models = Vec::new();
                 for &row in &wall_rows {

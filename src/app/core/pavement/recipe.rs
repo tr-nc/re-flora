@@ -42,6 +42,7 @@ impl ConstructionRecipe {
                 LowWallKind::Earth => "EarthWall",
                 LowWallKind::Stone => "StoneWall",
                 LowWallKind::Brick => "BrickWall",
+                LowWallKind::Chinese => "ChineseWall",
             },
         }
     }

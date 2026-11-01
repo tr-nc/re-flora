@@ -15,6 +15,8 @@ public bool voxelIsFixedScene(uint voxelData)
 }
 // Derived surface appearance on Dirt; all material/physics queries ignore it.
 public static const uint VOXEL_GRASS_COVER_BIT = 0x40u;
+// Non-soil finish, independent of fixed-scene ownership and soil moisture.
+public static const uint VOXEL_CINNABAR_FINISH_BIT = 0x40u;
 public static const uint VOXEL_MOISTURE_MASK = 0x30u;
 public static const uint VOXEL_MOISTURE_SHIFT = 4u;
 public static const uint VOXEL_MOISTURE_MAX = 3u;

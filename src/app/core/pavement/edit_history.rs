@@ -144,7 +144,9 @@ impl<F> EditHistory<F> {
             }
             let old = before & crate::builder::VOXEL_TYPE_MASK;
             let new = after & crate::builder::VOXEL_TYPE_MASK;
-            if u32::from(new) == material && old != new {
+            if u32::from(new) == (material & u32::from(crate::builder::VOXEL_TYPE_MASK))
+                && old != new
+            {
                 self.owned.insert(cell);
             }
         }
