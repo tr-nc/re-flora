@@ -1,0 +1,627 @@
+diff --git a/src/app/core/garden_opening.rs b/src/app/core/garden_opening.rs
+index 8728c1b3..d0193856 100644
+--- a/src/app/core/garden_opening.rs
++++ b/src/app/core/garden_opening.rs
+@@ -25,6 +25,7 @@ fn opening_tree_description(settings: &DebugSettings, seed: u32, index: usize) -
+ 
+ impl App {
+     pub(super) fn establish_garden_opening(&mut self, seed: u32) -> anyhow::Result<()> {
++        let _probe = crate::util::startup_probe::span("garden.establish");
+         anyhow::ensure!(
+             !self.terrain_persistence.startup_load_requested(),
+             "loaded world must never be regenerated"
+diff --git a/src/app/core/garden_opening/courtyard.rs b/src/app/core/garden_opening/courtyard.rs
+index 0b984160..169def25 100644
+--- a/src/app/core/garden_opening/courtyard.rs
++++ b/src/app/core/garden_opening/courtyard.rs
+@@ -47,6 +47,7 @@ pub(super) fn ginkgo_description(seed: u32) -> TreeDesc {
+ 
+ impl App {
+     pub(in crate::app::core) fn initialize_garden_courtyard(&mut self, seed: u32) -> Result<()> {
++        let _probe = crate::util::startup_probe::span("courtyard.initialize_walls_and_soil");
+         ensure!(
+             !self.terrain_persistence.startup_load_requested(),
+             "cannot rebuild a loaded courtyard"
+@@ -164,6 +165,7 @@ impl App {
+     }
+ 
+     fn courtyard_root_soil(&mut self, seed: u32, size: Vec2, world: UVec3) -> Result<VoxelEdit> {
++        let _probe = crate::util::startup_probe::span("courtyard.root_soil");
+         // This is an authored planting bed in a fresh world, not a relaxation of
+         // Grow's material protection. A veteran root flare needs deeper soil
+         // than the meadow generator's shallow topsoil over rock.
+@@ -209,6 +211,7 @@ impl App {
+     }
+ 
+     pub(super) fn plant_courtyard_ginkgo(&mut self, seed: u32, size: Vec2) -> Result<()> {
++        let _probe = crate::util::startup_probe::span("courtyard.ginkgo");
+         let xz = size * Vec2::new(0.50, 0.43);
+         let mut position = Vec3::new(xz.x, self.query_terrain_height_cpu(xz), xz.y);
+         let desc = ginkgo_description(seed);
+diff --git a/src/app/core/loading.rs b/src/app/core/loading.rs
+index ecf4e69f..e005cb24 100644
+--- a/src/app/core/loading.rs
++++ b/src/app/core/loading.rs
+@@ -76,6 +76,11 @@ impl App {
+             _ => return,
+         };
+ 
++        let _step_probe = crate::util::startup_probe::span(match phase {
++            LoadingPhase::Terrain => "loading.step.terrain",
++            LoadingPhase::Building => "loading.step.building",
++            LoadingPhase::Colliders => "loading.step.colliders",
++        });
+         if matches!(phase, LoadingPhase::Building | LoadingPhase::Colliders) {
+             self.advance_loading_visible_terrain();
+             return;
+@@ -363,6 +368,7 @@ impl App {
+         publication: &mut visible_terrain::VisibleTerrainPublication,
+         canopy_audio_vegetation_startup: Option<launch_owners::CanopyAudioVegetationStartup>,
+     ) {
++        let _probe = crate::util::startup_probe::span("startup.population");
+         if let Some(progress) = &self.startup_progress {
+             progress.stage("world_population_and_lighting");
+         }
+diff --git a/src/app/core/physics.rs b/src/app/core/physics.rs
+index c96d50ea..f229a6aa 100644
+--- a/src/app/core/physics.rs
++++ b/src/app/core/physics.rs
+@@ -1087,6 +1087,7 @@ impl TerrainPhysics {
+         &mut self,
+         contree_builder: &ContreeBuilder,
+     ) -> anyhow::Result<(usize, usize)> {
++        let _probe = crate::util::startup_probe::span("terrain.collider_import");
+         anyhow::ensure!(
+             self.world_collider_import.is_some(),
+             "world terrain collider import has not started"
+diff --git a/src/app/core/vegetation.rs b/src/app/core/vegetation.rs
+index bb5f54c7..d9118c68 100644
+--- a/src/app/core/vegetation.rs
++++ b/src/app/core/vegetation.rs
+@@ -404,9 +404,11 @@ impl TreePlacementService {
+         canopy_generation: u64,
+         canopy_sample_budget: usize,
+     ) -> CompiledTreePlacement {
++        let _probe = crate::util::startup_probe::span("tree.compile_placement");
+         let tree_desc = mature_tree_desc.at_age(tree_age);
+         let tree = Tree::new(tree_desc.clone());
+         let mature_tree = Tree::new(mature_tree_desc.clone());
++        let canopy_probe = crate::util::startup_probe::span("tree.canopy_descriptor");
+         let canopy_acoustic_descriptor = CanopyAcousticDescriptor::build_with_budget(
+             canopy_generation,
+             tree_pos,
+@@ -415,6 +417,7 @@ impl TreePlacementService {
+             tree.trunks(),
+             canopy_sample_budget,
+         );
++        drop(canopy_probe);
+         let round_cones = tree.world_trunks(tree_pos);
+ 
+         let (radius_min, radius_max, length_min, length_max, short_count, steep_count) =
+@@ -478,6 +481,7 @@ impl TreePlacementService {
+             positions.sort_by_key(|pos| (pos.x, pos.y, pos.z));
+             positions
+         };
++        let leaves_probe = crate::util::startup_probe::span("tree.quantize_render_leaves");
+         let mut quantized_leaf_render_data = tree
+             .relative_leaf_placements()
+             .iter()
+@@ -491,6 +495,7 @@ impl TreePlacementService {
+         quantized_leaf_render_data.dedup_by_key(|(pos, _)| *pos);
+         let (quantized_leaf_render_positions, leaf_render_local_positions) =
+             quantized_leaf_render_data.into_iter().unzip();
++        drop(leaves_probe);
+         let mature_leaf_positions = mature_tree
+             .relative_leaf_positions()
+             .iter()
+@@ -1837,6 +1842,7 @@ impl TreeTrunkPhysicalPrimitiveHost for AppTreeTrunkPhysicalHost<'_> {
+         &mut self,
+         change: &TreeTrunkPhysicalChange,
+     ) -> Result<TreeTrunkPublicationOutcome> {
++        let _probe = crate::util::startup_probe::span("tree.trunk_transaction");
+         change.validate()?;
+         let started_at = Instant::now();
+         let edits = match change.direction {
+@@ -2061,6 +2067,7 @@ impl TreePublicationPrimitiveHost for AppTreePublicationHost<'_> {
+         tree_id: u32,
+         publication: &PreparedTreePublication,
+     ) -> Result<()> {
++        let _probe = crate::util::startup_probe::span("tree.publish_leaves");
+         let record = &publication.record;
+         self.app.tracer.add_tree_leaves(
+             &mut self.app.surface_builder.resources,
+@@ -3704,6 +3711,7 @@ impl App {
+         edit: TreePlacementEdit,
+         age: f32,
+     ) -> Result<()> {
++        let _probe = crate::util::startup_probe::span("tree.apply_placement");
+         let total_start = Instant::now();
+         let TreePlacementEdit {
+             tree_desc,
+diff --git a/src/app/core/vegetation/growth.rs b/src/app/core/vegetation/growth.rs
+index 0fab89b9..793c2df3 100644
+--- a/src/app/core/vegetation/growth.rs
++++ b/src/app/core/vegetation/growth.rs
+@@ -63,6 +63,7 @@ impl App {
+         position: Vec3,
+         instant_mature: bool,
+     ) -> Result<u32> {
++        let _probe = crate::util::startup_probe::span(format!("plant.{:?}", desc.species));
+         let age = planting_age(instant_mature);
+         anyhow::ensure!(position.is_finite(), TreePlantingRejection::InvalidPosition);
+         anyhow::ensure!(
+@@ -71,6 +72,7 @@ impl App {
+         );
+         // Reject an impossible mature footprint before a tiny sapling is committed.
+         // This is a world-bound check, not a reservation that excludes nearby plants.
++        let bounds_probe = crate::util::startup_probe::span("plant.mature_bounds");
+         let mature = Tree::new(desc.clone());
+         let extent = (self.world_chunk_dim * super::super::VOXEL_DIM_PER_CHUNK).as_vec3();
+         anyhow::ensure!(
+@@ -80,6 +82,7 @@ impl App {
+             }),
+             TreePlantingRejection::OutsideWorld
+         );
++        drop(bounds_probe);
+         anyhow::ensure!(
+             self.growing_tree_space_clear(&desc, position, age)?,
+             TreePlantingRejection::Occupied
+@@ -166,6 +169,7 @@ impl App {
+         position: Vec3,
+         age: f32,
+     ) -> Result<bool> {
++        let _probe = crate::util::startup_probe::span("plant.space_clear");
+         let cones = Tree::new(desc.at_age(age)).world_trunks(position);
+         let extent = self.world_chunk_dim * super::super::VOXEL_DIM_PER_CHUNK;
+         let mut low = Vec3::splat(f32::INFINITY);
+@@ -185,7 +189,15 @@ impl App {
+             return Ok(false);
+         }
+         let base_y = (position.y * 256.).floor() as u32;
++        let replay_requested = std::env::var_os("RE_FLORA_STARTUP_REPLAY").is_some();
++        let mut replay_points = Vec::new();
++        let mut material_counts = [0_u64; 16];
++        let mut material_candidates = 0_u64;
++        let mut read_regions = 0_u64;
++        let mut read_bytes = 0_u64;
+         for (offset, dim) in admission_regions(min, max) {
++            read_regions += 1;
++            read_bytes += dim.x as u64 * dim.y as u64 * dim.z as u64;
+             let data = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+             for z in 0..dim.z {
+                 for y in 0..dim.y {
+@@ -198,6 +210,11 @@ impl App {
+                         {
+                             continue;
+                         }
++                        material_candidates += 1;
++                        material_counts[material as usize] += 1;
++                        if replay_requested {
++                            replay_points.push(p.as_vec3() + Vec3::splat(0.5));
++                        }
+                         if cones
+                             .iter()
+                             .any(|c| c.signed_distance(p.as_vec3() + Vec3::splat(0.5)) <= 0.)
+@@ -208,6 +225,13 @@ impl App {
+                 }
+             }
+         }
++        if replay_requested {
++            crate::util::startup_probe::replay_clearance(&cones, &replay_points);
++        }
++        if crate::util::startup_probe::enabled() {
++            log::info!("[STARTUP_PROBE_COUNTS] materials={material_counts:?}");
++            log::info!("[STARTUP_PROBE_COUNTS] admission species={:?} cones={} candidates={material_candidates} distance_tests={} regions={read_regions} bytes={read_bytes}", desc.species, cones.len(), material_candidates * cones.len() as u64);
++        }
+         Ok(true)
+     }
+ 
+diff --git a/src/app/core/vegetation/surface.rs b/src/app/core/vegetation/surface.rs
+index 5c096cfc..12a0d21f 100644
+--- a/src/app/core/vegetation/surface.rs
++++ b/src/app/core/vegetation/surface.rs
+@@ -68,9 +68,13 @@ impl PreparedTreeSurface {
+         sources: &[TreeSurfaceSource],
+         canonical_revision: u64,
+     ) -> Result<Self> {
++        let _probe =
++            crate::util::startup_probe::span(format!("surface.prepare.forest{}", sources.len()));
+         let diagnostic = std::env::var_os("RE_FLORA_TREE_EDIT_DIAGNOSTIC").is_some();
+         let wait_started = Instant::now();
++        let wait_probe = crate::util::startup_probe::span("surface.wait_idle");
+         app.vulkan_ctx.device().wait_idle();
++        drop(wait_probe);
+         let wait_ms = wait_started.elapsed().as_secs_f64() * 1000.;
+         let started = Instant::now();
+         let mut read_ms = 0.;
+@@ -89,6 +93,8 @@ impl PreparedTreeSurface {
+             let bytes = app.plain_builder.read_chunk_atlas_region(origin, dim)?;
+             read_ms += stage.elapsed().as_secs_f64() * 1000.;
+             let stage = Instant::now();
++            let append_probe =
++                crate::util::startup_probe::span(format!("surface.append.tree{}", source.id));
+             cache_hits += usize::from(mesh.append_cached_tree_region(
+                 crate::tracer::TreeSurfaceRegion {
+                     id: source.id,
+@@ -101,6 +107,7 @@ impl PreparedTreeSurface {
+                 },
+                 &app.tracer.raster_trees.rest_mesh,
+             )?);
++            drop(append_probe);
+             append_ms += stage.elapsed().as_secs_f64() * 1000.;
+         }
+         let stage = Instant::now();
+@@ -108,12 +115,17 @@ impl PreparedTreeSurface {
+             "[TREE][COMPILE_CACHE] reused={cache_hits} rebuilt={}",
+             sources.len() - cache_hits
+         );
++        let finish_probe = crate::util::startup_probe::span("surface.finish");
+         let cells = mesh.finish()?;
++        drop(finish_probe);
+         let finish_ms = stage.elapsed().as_secs_f64() * 1000.;
+         let stage = Instant::now();
++        let bind_probe = crate::util::startup_probe::span("surface.bind_and_cpu_plan");
+         let mut anchors = BTreeMap::new();
+         let bind_started = Instant::now();
++        let mesh_probe = crate::util::startup_probe::span("surface.mesh_bind");
+         mesh.bind_compiled_fragments()?;
++        drop(mesh_probe);
+         let mesh_bind_ms = bind_started.elapsed().as_secs_f64() * 1000.;
+         for source in sources {
+             for (leaf, &branch) in source
+@@ -142,6 +154,7 @@ impl PreparedTreeSurface {
+             }
+         }
+         mesh.compile_cpu_deformation()?;
++        drop(bind_probe);
+         let bind_ms = stage.elapsed().as_secs_f64() * 1000.;
+         let stage = Instant::now();
+         let by_id: BTreeMap<_, _> = sources.iter().map(|source| (source.id, source)).collect();
+@@ -165,6 +178,7 @@ impl PreparedTreeSurface {
+             |id| by_id.get(&id).map(|source| source.poses.as_slice()),
+             app.debug_settings.adjustables.raster_tree_wind.value,
+         )?;
++        let collision_probe = crate::util::startup_probe::span("surface.physics_collision");
+         let collision = publication
+             .as_ref()
+             .map(|publication| {
+@@ -174,6 +188,7 @@ impl PreparedTreeSurface {
+                 )
+             })
+             .transpose()?;
++        drop(collision_probe);
+         let upload_ms = stage.elapsed().as_secs_f64() * 1000.;
+         if diagnostic {
+             log::info!("[TREE_EDIT_DIAG] published={}", publication.is_some());
+diff --git a/src/app/physical_visible_terrain.rs b/src/app/physical_visible_terrain.rs
+index d5f54089..fec6f2a8 100644
+--- a/src/app/physical_visible_terrain.rs
++++ b/src/app/physical_visible_terrain.rs
+@@ -169,6 +169,7 @@ impl PhysicalTerrainPublication {
+         &mut self,
+         mut builders: PhysicalTerrainBuilders<'_>,
+     ) -> Result<PhysicalTerrainPublicationProgress> {
++        let _probe = crate::util::startup_probe::span("terrain.physical_advance");
+         match self.state {
+             PhysicalTerrainPublicationState::Published => {
+                 return Ok(PhysicalTerrainPublicationProgress::Published {
+diff --git a/src/builder/plain/mod.rs b/src/builder/plain/mod.rs
+index 2a1b8e68..1f71340e 100644
+--- a/src/builder/plain/mod.rs
++++ b/src/builder/plain/mod.rs
+@@ -576,6 +576,7 @@ impl PlainBuilder {
+     /// All bounds are checked before submission; overlapping source regions are
+     /// independent packed copies, never an enlarged protection/undo volume.
+     pub fn read_chunk_atlas_regions(&mut self, regions: &[(UVec3, UVec3)]) -> Result<Vec<Vec<u8>>> {
++        let _probe = crate::util::startup_probe::span("atlas.read");
+         let atlas_extent = self.resources.chunk_atlas.get_image().get_desc().extent;
+         let atlas_size = UVec3::new(atlas_extent.width, atlas_extent.height, atlas_extent.depth);
+         let plan = atlas_readback::AtlasReadPlan::new(regions, atlas_size)?;
+@@ -593,6 +594,7 @@ impl PlainBuilder {
+             .as_mut()
+             .expect("chunk atlas readback buffer should be allocated");
+         let transfer_start = Instant::now();
++        let transfer_probe = crate::util::startup_probe::span("atlas.transfer_wait");
+         chunk_atlas.copy_image_regions_to_buffer(
+             buffer,
+             &queue,
+@@ -601,9 +603,12 @@ impl PlainBuilder {
+             0,
+             &plan.copies,
+         );
++        drop(transfer_probe);
+         let transfer_ms = transfer_start.elapsed().as_secs_f64() * 1000.;
++        let copy_probe = crate::util::startup_probe::span("atlas.host_copy");
+         let copy_start = Instant::now();
+         let data = plan.read_results(|offset, count| buffer.read_back_range(offset, count))?;
++        drop(copy_probe);
+         let report = if std::env::var_os("RE_FLORA_SOIL_PERF_REPORT").is_some() {
+             Some("SOIL_READ")
+         } else if std::env::var_os("RE_FLORA_PAVEMENT_PERF_REPORT").is_some() {
+diff --git a/src/tracer/mod.rs b/src/tracer/mod.rs
+index 0d0eb5a4..1a318544 100644
+--- a/src/tracer/mod.rs
++++ b/src/tracer/mod.rs
+@@ -3535,6 +3535,7 @@ impl Tracer {
+         profiler: Option<&mut GpuProfiler>,
+         settings: ModelCacheSettings,
+     ) -> Result<bool> {
++        let _probe = crate::util::startup_probe::span("models.warmup_record_commands");
+         Self::with_gpu_scope(profiler, frame_slot, cmdbuf, "models.cache.warmup", || {
+             self.model_mesh_frame.warmup_cache(
+                 frame_slot,
+@@ -8120,11 +8121,15 @@ impl Tracer {
+                 leaf_local_pos,
+             })
+             .collect::<Vec<_>>();
++        let proxy_probe = crate::util::startup_probe::span("leaves.shadow_proxies");
+         let leaf_shadow_proxies = build_leaf_shadow_proxies(&leaf_voxel_instances)?;
++        drop(proxy_probe);
++        let response_probe = crate::util::startup_probe::span("leaves.response_members");
+         let members = leaf_shadow_proxy::leaf_shadow_response_members(
+             &leaf_voxel_instances,
+             &leaf_shadow_proxies,
+         )?;
++        drop(response_probe);
+         let mut response_sources = Vec::<[u32; 2]>::with_capacity(leaf_positions.len());
+         let coarse_proxy_count = leaf_shadow_proxies
+             .iter()
+@@ -8166,6 +8171,7 @@ impl Tracer {
+             leaf_shadow_proxy::LEAF_SHADOW_PROXY_CELL_SIZE_VOXELS,
+             leaf_shadow_proxy::LEAF_SHADOW_PROXY_FINE_CELL_SIZE_VOXELS,
+         );
++        let instance_probe = crate::util::startup_probe::span("leaves.build_gpu_instances");
+         let mut tree_leaves_instance = self.build_tree_render_instances(
+             tree_id,
+             &leaf_voxel_instances,
+@@ -8173,6 +8179,7 @@ impl Tracer {
+             0.2,
+             "tree leaf",
+         )?;
++        drop(instance_probe);
+         tree_leaves_instance.appearance = appearance;
+         tree_leaves_instance.palette_srgb = palette_srgb;
+         if !response_sources.is_empty() {
+diff --git a/src/tracer/raster_tree/fragments.rs b/src/tracer/raster_tree/fragments.rs
+index c4eed21c..ad1d87ca 100644
+--- a/src/tracer/raster_tree/fragments.rs
++++ b/src/tracer/raster_tree/fragments.rs
+@@ -103,6 +103,30 @@ impl RasterTreeMesh {
+                     .all(|(old, new)| *old == super::surface_material(*new))
+         });
+         let hit = previous_fragment.is_some();
++        if !hit && std::env::var_os("RE_FLORA_STARTUP_REPLAY").is_some() {
++            if let Some(old) = previous
++                .fragments
++                .get(&id)
++                .filter(|f| f.origin == origin && f.dim == dim && f.materials.len() == bytes.len())
++            {
++                let _probe = crate::util::startup_probe::span("diagnostic.cache_material_diff");
++                let index = RoundConeClearanceIndex::new(cones);
++                let mut changed = 0_u64;
++                let mut minimum_distance = f32::INFINITY;
++                for (i, (old, new)) in old.materials.iter().zip(bytes).enumerate() {
++                    if *old == super::surface_material(*new) {
++                        continue;
++                    }
++                    changed += 1;
++                    let i = i as u32;
++                    let p =
++                        origin + UVec3::new(i % dim.x, (i / dim.x) % dim.y, i / (dim.x * dim.y));
++                    minimum_distance = minimum_distance
++                        .min(index.minimum_clearance(p.as_vec3() + Vec3::splat(0.5)));
++                }
++                log::info!("[STARTUP_PROBE_COUNTS] cache_miss tree={id} changed_materials={changed} minimum_distance_voxels={minimum_distance}");
++            }
++        }
+         let fragment = match previous_fragment {
+             Some(fragment) => fragment.clone(),
+             None => {
+diff --git a/src/tracer/tree_publication.rs b/src/tracer/tree_publication.rs
+index b953e8b0..602586b6 100644
+--- a/src/tracer/tree_publication.rs
++++ b/src/tracer/tree_publication.rs
+@@ -34,6 +34,7 @@ impl Tracer {
+         poses: impl Fn(u32) -> Option<&'a [crate::tree_gen::pose::BranchPose]>,
+         wind_active: bool,
+     ) -> Result<Option<PreparedRasterTreePublication>> {
++        let _probe = crate::util::startup_probe::span("surface.prepare_gpu_publication");
+         ensure!(
+             cells.len() == mesh.cell_vertex_indices.len(),
+             "tree surface lookup topology mismatch"
+@@ -43,7 +44,9 @@ impl Tracer {
+             rotation: glam::Quat::IDENTITY,
+             translation: Vec3::ZERO,
+         };
++        let skin_probe = crate::util::startup_probe::span("surface.gpu_skin");
+         let mut skin = mesh.gpu_skin()?;
++        drop(skin_probe);
+         skin.poses.push(identity);
+         for &(id, branch) in &skin.branches {
+             let pose = if wind_active {
+@@ -95,8 +98,11 @@ impl Tracer {
+             return Ok(None);
+         }
+         let positions: Vec<Vec3> = mesh.rest_positions().collect();
++        let scene_probe = crate::util::startup_probe::span("surface.scene_bvh");
+         let scene = TreeScene::new(&mesh.indices, &positions)?;
++        drop(scene_probe);
+         let refit = scene.refit_schedule();
++        let lookup_probe = crate::util::startup_probe::span("surface.lookup_tables");
+         let rest_entries: Vec<_> = mesh
+             .solid_cells
+             .iter()
+@@ -112,6 +118,7 @@ impl Tracer {
+             })
+             .collect::<Result<_>>()?;
+         let keys = build_tree_lookup(&attachment_entries)?.table;
++        drop(lookup_probe);
+         let properties = unsafe {
+             self.vulkan_ctx
+                 .instance()
+@@ -154,6 +161,7 @@ impl Tracer {
+         let resident_bytes =
+             self.resources.tree.bytes + self.raster_trees.indices.get_size_bytes() as usize;
+         layout.validate_complete_budget(resident_bytes, index_bytes, staging_bytes)?;
++        let alloc_probe = crate::util::startup_probe::span("surface.gpu_allocate");
+         let resources = TreeSurfaceResources::allocate(
+             self.vulkan_ctx.device().clone(),
+             self.allocator.clone(),
+@@ -168,6 +176,7 @@ impl Tracer {
+             MemoryLocation::GpuOnly,
+             index_bytes as u64,
+         )?;
++        drop(alloc_probe);
+         if std::env::var_os("RE_FLORA_TREE_SCALE_DIAGNOSTIC").is_some() {
+             for (name, buffer) in [
+                 ("skin_rest", &*resources.tree_skin_rest),
+@@ -197,7 +206,9 @@ impl Tracer {
+             &*resources.raster_tree_cells,
+         ];
+         let uploads: Vec<_> = targets.into_iter().zip(static_data).collect();
++        let upload_probe = crate::util::startup_probe::span("surface.gpu_upload");
+         super::tree_upload::upload(&self.vulkan_ctx, &self.allocator, &uploads)?;
++        drop(upload_probe);
+         resources.tree_scene_info.fill(&[[
+             u32::from(wind_active),
+             scene.nodes.len() as u32,
+diff --git a/src/tree_gen/tree.rs b/src/tree_gen/tree.rs
+index 9f49e60f..f0a57be2 100644
+--- a/src/tree_gen/tree.rs
++++ b/src/tree_gen/tree.rs
+@@ -138,6 +138,10 @@ pub struct Tree {
+ 
+ impl Tree {
+     pub fn new(desc: TreeDesc) -> Self {
++        let _probe = crate::util::startup_probe::span(format!(
++            "tree.generate.{:?}.{:?}",
++            desc.species, desc.form
++        ));
+         let desc = desc.into_current();
+         let built_objects = Self::build(&desc);
+         Tree {
+@@ -226,12 +230,14 @@ impl Tree {
+     }
+ 
+     fn build(desc: &TreeDesc) -> BuiltObjects {
++        let axes_probe = crate::util::startup_probe::span("tree.axes");
+         let growth::GrowthSkeleton {
+             branches: segments,
+             axes: axis_segments,
+             wood,
+             foliage: leaf_anchors,
+         } = growth::generate(desc);
++        drop(axes_probe);
+         let mut leaf_rng = StdRng::seed_from_u64(desc.branching.seed ^ 0xA511_E9B3_D6E8_FD9D);
+         let mut subdivision_rng =
+             StdRng::seed_from_u64(desc.branching.seed ^ 0x63D8_3595_B529_7A4D);
+@@ -294,6 +300,7 @@ fn generate_leaf_sprays(
+     anchors: &[(usize, Vec3, Vec3)],
+     rng: &mut StdRng,
+ ) -> (Vec<LeafPlacement>, Vec<usize>) {
++    let _probe = crate::util::startup_probe::span("tree.leaf_sprays");
+     let diameter = 2.0_f32.powi(desc.leaves_size_level.min(8) as i32);
+     let along_radius = (diameter * 0.5).max(1.0);
+     let width_radius = (along_radius * desc.leaf_spray_width_ratio.max(0.05)).max(1.0);
+diff --git a/src/util/mod.rs b/src/util/mod.rs
+index fa893dc8..5d911887 100644
+--- a/src/util/mod.rs
++++ b/src/util/mod.rs
+@@ -1,3 +1,4 @@
++pub(crate) mod startup_probe;
+ pub(crate) mod startup_progress;
+ 
+ mod time_info;
+diff --git a/src/util/startup_probe.rs b/src/util/startup_probe.rs
+new file mode 100644
+index 00000000..4e184037
+--- /dev/null
++++ b/src/util/startup_probe.rs
+@@ -0,0 +1,87 @@
++//! Temporary wall-clock scopes for the courtyard startup investigation.
++use std::{
++    cell::RefCell,
++    sync::{
++        atomic::{AtomicU64, Ordering},
++        OnceLock,
++    },
++    time::Instant,
++};
++thread_local! { static STACK: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) }; }
++static NEXT: AtomicU64 = AtomicU64::new(1);
++static ENABLED: OnceLock<bool> = OnceLock::new();
++pub(crate) fn enabled() -> bool {
++    *ENABLED.get_or_init(|| std::env::var_os("RE_FLORA_STARTUP_PROBE").is_some())
++}
++pub(crate) struct Span(Option<(u64, u64, Instant, String)>);
++pub(crate) fn span(label: impl Into<String>) -> Span {
++    if !enabled() {
++        return Span(None);
++    }
++    let id = NEXT.fetch_add(1, Ordering::Relaxed);
++    let parent = STACK.with(|s| {
++        let mut s = s.borrow_mut();
++        let parent = s.last().copied().unwrap_or(0);
++        s.push(id);
++        parent
++    });
++    Span(Some((id, parent, Instant::now(), label.into())))
++}
++/// Read-only replay after the authoritative naive admission has succeeded.
++/// Its answer is never substituted into planting and no world data is changed.
++pub(crate) fn replay_clearance(cones: &[crate::geom::RoundCone], points: &[glam::Vec3]) {
++    use crate::geom::RoundConeClearanceIndex;
++    let replay_probe = span("diagnostic.clearance_bvh_replay");
++    let started = Instant::now();
++    let index = RoundConeClearanceIndex::new(cones);
++    let build_ms = started.elapsed().as_secs_f64() * 1000.;
++    let started = Instant::now();
++    let hits = points
++        .iter()
++        .filter(|&&p| {
++            index
++                .nearest_cone(p)
++                .is_some_and(|i| cones[i].signed_distance(p) <= 0.)
++        })
++        .count();
++    let query_ms = started.elapsed().as_secs_f64() * 1000.;
++    assert_eq!(
++        hits, 0,
++        "replay must match the authoritative successful admission"
++    );
++    log::info!("[STARTUP_PROBE_REPLAY] points={} build_ms={build_ms:.6} query_ms={query_ms:.6} mismatches={hits}", points.len());
++    drop(replay_probe);
++    let _fixture_probe = span("diagnostic.clearance_boundary_fixtures");
++    let mut fixtures = 0;
++    let mut mismatches = 0;
++    for cone in cones {
++        for p in [
++            cone.center_a(),
++            cone.center_b(),
++            cone.center_a() + glam::Vec3::X * cone.radius_a(),
++            cone.aabb().min(),
++        ] {
++            let naive = cones.iter().any(|c| c.signed_distance(p) <= 0.);
++            let accelerated = index
++                .nearest_cone(p)
++                .is_some_and(|i| cones[i].signed_distance(p) <= 0.);
++            fixtures += 1;
++            mismatches += usize::from(naive != accelerated);
++        }
++    }
++    assert_eq!(mismatches, 0, "boundary fixture replay mismatch");
++    log::info!("[STARTUP_PROBE_REPLAY] boundary_fixtures={fixtures} mismatches={mismatches}");
++}
++
++impl Drop for Span {
++    fn drop(&mut self) {
++        if let Some((id, parent, start, label)) = self.0.take() {
++            let ms = start.elapsed().as_secs_f64() * 1000.;
++            STACK.with(|s| assert_eq!(s.borrow_mut().pop(), Some(id)));
++            log::info!(
++                "[STARTUP_PROBE] id={id} parent={parent} label={label} ms={ms:.6} thread={:?}",
++                std::thread::current().id()
++            );
++        }
++    }
++}

@@ -1,0 +1,5872 @@
+{
+  "schema": 1,
+  "baseCommit": "4ce0dbcc470de2c10681b8457927ed0b22c92d1a",
+  "units": "milliseconds unless named otherwise",
+  "method": "warm-repeat median; disjoint top-level partition, nested scope wall time; not GPU timestamps",
+  "warmReadyMedianMs": 42803,
+  "warmPartitionMedian": [
+    {
+      "key": "admission",
+      "name": "种植障碍检查",
+      "ms": 25765.151305500003
+    },
+    {
+      "key": "terrain",
+      "name": "地形、模型预热与初始碰撞体",
+      "ms": 7599.4
+    },
+    {
+      "key": "surfaces",
+      "name": "五次树木表面准备",
+      "ms": 6008.1629665
+    },
+    {
+      "key": "init",
+      "name": "窗口、Vulkan、渲染器等初始化",
+      "ms": 1045.800000000001
+    },
+    {
+      "key": "first_frame",
+      "name": "首帧准备与等待",
+      "ms": 1001.5
+    },
+    {
+      "key": "other_population",
+      "name": "其它庭院填充、音频、提交与准备",
+      "ms": 619.4793859999979
+    },
+    {
+      "key": "trunks",
+      "name": "树干事务（地形写入及可见发布）",
+      "ms": 360.5437855
+    },
+    {
+      "key": "placement_compile",
+      "name": "树形与放置数据编译",
+      "ms": 256.36818600000004
+    },
+    {
+      "key": "leaves",
+      "name": "叶片发布",
+      "ms": 146.59437050000003
+    }
+  ],
+  "runs": [
+    {
+      "name": "baseline-diag.log.gz",
+      "readyMs": 43029.7,
+      "pipelineCache": "hit",
+      "userSeconds": 41.2,
+      "systemSeconds": 2.18,
+      "stages": [
+        {
+          "stage": "window_vulkan",
+          "ms": 202.3
+        },
+        {
+          "stage": "swapchain_gui",
+          "ms": 7.8
+        },
+        {
+          "stage": "terrain_builders",
+          "ms": 311.5
+        },
+        {
+          "stage": "spatial_audio",
+          "ms": 86.7
+        },
+        {
+          "stage": "shader_modules",
+          "ms": 154.6
+        },
+        {
+          "stage": "renderer_resources",
+          "ms": 130.3
+        },
+        {
+          "stage": "compute_pipelines",
+          "ms": 116.9
+        },
+        {
+          "stage": "graphics_pipelines",
+          "ms": 29.9
+        },
+        {
+          "stage": "renderer_geometry",
+          "ms": 0.8
+        },
+        {
+          "stage": "scene_services",
+          "ms": 42.9
+        },
+        {
+          "stage": "terrain_and_model_caches",
+          "ms": 7542.3
+        },
+        {
+          "stage": "world_population_and_lighting",
+          "ms": 33511.9
+        },
+        {
+          "stage": "first_frame",
+          "ms": 891.6
+        }
+      ],
+      "partition": [],
+      "admission": [],
+      "forest": [],
+      "cache": [
+        {
+          "reused": 0,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 2
+        },
+        {
+          "reused": 3,
+          "rebuilt": 1
+        },
+        {
+          "reused": 4,
+          "rebuilt": 1
+        }
+      ],
+      "counters": [],
+      "replay": [],
+      "summary": []
+    },
+    {
+      "name": "clean-1.log.gz",
+      "readyMs": 69144.1,
+      "pipelineCache": "miss",
+      "userSeconds": 65.97,
+      "systemSeconds": 2.94,
+      "stages": [
+        {
+          "stage": "window_vulkan",
+          "ms": 259
+        },
+        {
+          "stage": "swapchain_gui",
+          "ms": 11.2
+        },
+        {
+          "stage": "terrain_builders",
+          "ms": 320.6
+        },
+        {
+          "stage": "spatial_audio",
+          "ms": 78.6
+        },
+        {
+          "stage": "shader_modules",
+          "ms": 142.3
+        },
+        {
+          "stage": "renderer_resources",
+          "ms": 120.5
+        },
+        {
+          "stage": "compute_pipelines",
+          "ms": 25068.4
+        },
+        {
+          "stage": "graphics_pipelines",
+          "ms": 634.6
+        },
+        {
+          "stage": "renderer_geometry",
+          "ms": 0.9
+        },
+        {
+          "stage": "scene_services",
+          "ms": 42.4
+        },
+        {
+          "stage": "terrain_and_model_caches",
+          "ms": 7933.2
+        },
+        {
+          "stage": "world_population_and_lighting",
+          "ms": 33671.7
+        },
+        {
+          "stage": "first_frame",
+          "ms": 860.5
+        }
+      ],
+      "partition": [],
+      "admission": [],
+      "forest": [],
+      "cache": [
+        {
+          "reused": 0,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 2
+        },
+        {
+          "reused": 3,
+          "rebuilt": 1
+        },
+        {
+          "reused": 4,
+          "rebuilt": 1
+        }
+      ],
+      "counters": [],
+      "replay": [],
+      "summary": []
+    },
+    {
+      "name": "clean-2.log.gz",
+      "readyMs": 42519.7,
+      "pipelineCache": "hit",
+      "userSeconds": 40.3,
+      "systemSeconds": 2.14,
+      "stages": [
+        {
+          "stage": "window_vulkan",
+          "ms": 174.3
+        },
+        {
+          "stage": "swapchain_gui",
+          "ms": 6.7
+        },
+        {
+          "stage": "terrain_builders",
+          "ms": 298.6
+        },
+        {
+          "stage": "spatial_audio",
+          "ms": 83.8
+        },
+        {
+          "stage": "shader_modules",
+          "ms": 148.7
+        },
+        {
+          "stage": "renderer_resources",
+          "ms": 121.4
+        },
+        {
+          "stage": "compute_pipelines",
+          "ms": 115.8
+        },
+        {
+          "stage": "graphics_pipelines",
+          "ms": 29.1
+        },
+        {
+          "stage": "renderer_geometry",
+          "ms": 0.7
+        },
+        {
+          "stage": "scene_services",
+          "ms": 42
+        },
+        {
+          "stage": "terrain_and_model_caches",
+          "ms": 7359.6
+        },
+        {
+          "stage": "world_population_and_lighting",
+          "ms": 33217.3
+        },
+        {
+          "stage": "first_frame",
+          "ms": 921.5
+        }
+      ],
+      "partition": [],
+      "admission": [],
+      "forest": [],
+      "cache": [
+        {
+          "reused": 0,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 2
+        },
+        {
+          "reused": 3,
+          "rebuilt": 1
+        },
+        {
+          "reused": 4,
+          "rebuilt": 1
+        }
+      ],
+      "counters": [],
+      "replay": [],
+      "summary": []
+    },
+    {
+      "name": "profile-1.log.gz",
+      "readyMs": 69749.7,
+      "pipelineCache": "miss",
+      "userSeconds": 67.77,
+      "systemSeconds": 2.74,
+      "stages": [
+        {
+          "stage": "window_vulkan",
+          "ms": 256.8
+        },
+        {
+          "stage": "swapchain_gui",
+          "ms": 11.2
+        },
+        {
+          "stage": "terrain_builders",
+          "ms": 340.5
+        },
+        {
+          "stage": "spatial_audio",
+          "ms": 85.9
+        },
+        {
+          "stage": "shader_modules",
+          "ms": 150.4
+        },
+        {
+          "stage": "renderer_resources",
+          "ms": 139.6
+        },
+        {
+          "stage": "compute_pipelines",
+          "ms": 26411
+        },
+        {
+          "stage": "graphics_pipelines",
+          "ms": 658.9
+        },
+        {
+          "stage": "renderer_geometry",
+          "ms": 0.8
+        },
+        {
+          "stage": "scene_services",
+          "ms": 42.7
+        },
+        {
+          "stage": "terrain_and_model_caches",
+          "ms": 7644.7
+        },
+        {
+          "stage": "world_population_and_lighting",
+          "ms": 33071.9
+        },
+        {
+          "stage": "first_frame",
+          "ms": 935.1
+        }
+      ],
+      "partition": [
+        {
+          "key": "init",
+          "name": "窗口、Vulkan、渲染器等初始化",
+          "ms": 28097.999999999996
+        },
+        {
+          "key": "admission",
+          "name": "种植障碍检查",
+          "ms": 25687.505851999995
+        },
+        {
+          "key": "terrain",
+          "name": "地形、模型预热与初始碰撞体",
+          "ms": 7644.7
+        },
+        {
+          "key": "surfaces",
+          "name": "五次树木表面准备",
+          "ms": 6009.469451
+        },
+        {
+          "key": "first_frame",
+          "name": "首帧准备与等待",
+          "ms": 935.1
+        },
+        {
+          "key": "other_population",
+          "name": "其它庭院填充、音频、提交与准备",
+          "ms": 612.6782500000068
+        },
+        {
+          "key": "trunks",
+          "name": "树干事务（地形写入及可见发布）",
+          "ms": 349.80888200000004
+        },
+        {
+          "key": "placement_compile",
+          "name": "树形与放置数据编译",
+          "ms": 264.656665
+        },
+        {
+          "key": "leaves",
+          "name": "叶片发布",
+          "ms": 147.7809
+        }
+      ],
+      "admission": [
+        {
+          "ms": 25684.252781,
+          "generateMs": 22.976534,
+          "readMs": 217.15199099999998,
+          "cpuScanAndDistanceMs": 25444.124256
+        },
+        {
+          "ms": 0.531743,
+          "generateMs": 0.050553,
+          "readMs": 0.415516,
+          "cpuScanAndDistanceMs": 0.06567399999999995
+        },
+        {
+          "ms": 1.413661,
+          "generateMs": 0.053906,
+          "readMs": 0.511283,
+          "cpuScanAndDistanceMs": 0.848472
+        },
+        {
+          "ms": 0.642234,
+          "generateMs": 0.051396,
+          "readMs": 0.501397,
+          "cpuScanAndDistanceMs": 0.08944099999999999
+        },
+        {
+          "ms": 0.665433,
+          "generateMs": 0.051165,
+          "readMs": 0.379096,
+          "cpuScanAndDistanceMs": 0.23517200000000005
+        }
+      ],
+      "forest": [
+        {
+          "label": "surface.prepare.forest1",
+          "ms": 1606.029694,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.056429
+            },
+            {
+              "label": "atlas.read",
+              "ms": 71.963675
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 721.711369
+            },
+            {
+              "label": "surface.finish",
+              "ms": 26.013427
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 173.140726
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 425.829649
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 177.378198
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 17.31025
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 228.226665
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 25.807362
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.079135
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 111.620873
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest2",
+          "ms": 982.810426,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.042011
+            },
+            {
+              "label": "atlas.read",
+              "ms": 60.476542
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 121.452538
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.3891
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 1.010108
+            },
+            {
+              "label": "surface.finish",
+              "ms": 16.778186
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 173.426352
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 421.489226
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 177.864001
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 17.899887
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 227.367881
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 25.535124
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 3.084218
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 105.283582
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest3",
+          "ms": 1475.388177,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.178885
+            },
+            {
+              "label": "atlas.read",
+              "ms": 47.358149
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 617.183649
+            },
+            {
+              "label": "atlas.read",
+              "ms": 1.332122
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.112351
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.520285
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 0.991226
+            },
+            {
+              "label": "surface.finish",
+              "ms": 21.275457
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 169.764492
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 426.494517
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 181.515164
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 26.099248
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 222.810652
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 23.427447
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.083718
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 113.41412
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest4",
+          "ms": 966.031748,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.056605
+            },
+            {
+              "label": "atlas.read",
+              "ms": 47.562514
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 120.967936
+            },
+            {
+              "label": "atlas.read",
+              "ms": 1.328084
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.133921
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.747113
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 0.121123
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.367395
+            },
+            {
+              "label": "surface.append.tree4",
+              "ms": 1.143782
+            },
+            {
+              "label": "surface.finish",
+              "ms": 10.800916
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 159.241802
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 436.096159
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 179.936361
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 18.71149
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 227.970782
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 24.334541
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.07873
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 127.217476
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest5",
+          "ms": 979.209406,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.054245
+            },
+            {
+              "label": "atlas.read",
+              "ms": 62.426738
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 119.608606
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.405203
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.133667
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.214529
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 0.1194
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.236798
+            },
+            {
+              "label": "surface.append.tree4",
+              "ms": 0.14034
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.219947
+            },
+            {
+              "label": "surface.append.tree5",
+              "ms": 1.077046
+            },
+            {
+              "label": "surface.finish",
+              "ms": 10.825468
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 166.756041
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 425.789259
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 182.253055
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 28.761755
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 216.341639
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 23.727533
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.086639
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 115.585698
+            }
+          ]
+        }
+      ],
+      "cache": [
+        {
+          "reused": 0,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 2
+        },
+        {
+          "reused": 3,
+          "rebuilt": 1
+        },
+        {
+          "reused": 4,
+          "rebuilt": 1
+        }
+      ],
+      "counters": [
+        "admission species=Ginkgo cones=1074 candidates=1396954 distance_tests=1500328596 regions=48 bytes=59655104",
+        "admission species=AppleTree cones=250 candidates=0 distance_tests=0 regions=1 bytes=73788",
+        "admission species=AppleTree cones=250 candidates=172 distance_tests=43000 regions=1 bytes=74046",
+        "admission species=AppleTree cones=250 candidates=0 distance_tests=0 regions=1 bytes=100450",
+        "admission species=AppleTree cones=250 candidates=34 distance_tests=8500 regions=1 bytes=92160"
+      ],
+      "replay": [],
+      "summary": [
+        {
+          "label": "plant.space_clear",
+          "count": 5,
+          "inclusiveMs": 25687.505851999995,
+          "exclusiveMs": 25445.363015000003
+        },
+        {
+          "label": "surface.append.tree1",
+          "count": 5,
+          "inclusiveMs": 1700.924098,
+          "exclusiveMs": 1700.924098
+        },
+        {
+          "label": "surface.scene_bvh",
+          "count": 5,
+          "inclusiveMs": 1122.717619,
+          "exclusiveMs": 1122.717619
+        },
+        {
+          "label": "surface.physics_collision",
+          "count": 5,
+          "inclusiveMs": 898.9467790000001,
+          "exclusiveMs": 898.9467790000001
+        },
+        {
+          "label": "atlas.transfer_wait",
+          "count": 79,
+          "inclusiveMs": 585.5998209999999,
+          "exclusiveMs": 585.5998209999999
+        },
+        {
+          "label": "surface.gpu_upload",
+          "count": 5,
+          "inclusiveMs": 573.121749,
+          "exclusiveMs": 573.121749
+        },
+        {
+          "label": "surface.bind_and_cpu_plan",
+          "count": 5,
+          "inclusiveMs": 842.329413,
+          "exclusiveMs": 443.612389
+        },
+        {
+          "label": "surface.mesh_bind",
+          "count": 5,
+          "inclusiveMs": 398.717024,
+          "exclusiveMs": 398.717024
+        },
+        {
+          "label": "tree.apply_placement",
+          "count": 5,
+          "inclusiveMs": 7074.204281,
+          "exclusiveMs": 302.488383
+        },
+        {
+          "label": "garden.establish",
+          "count": 1,
+          "inclusiveMs": 33070.472481,
+          "exclusiveMs": 262.0150019999928
+        },
+        {
+          "label": "tree.trunk_transaction",
+          "count": 5,
+          "inclusiveMs": 349.80888200000004,
+          "exclusiveMs": 232.49962
+        },
+        {
+          "label": "surface.prepare_gpu_publication",
+          "count": 5,
+          "inclusiveMs": 2135.69881,
+          "exclusiveMs": 204.83236499999992
+        },
+        {
+          "label": "tree.canopy_descriptor",
+          "count": 5,
+          "inclusiveMs": 175.275611,
+          "exclusiveMs": 175.275611
+        },
+        {
+          "label": "tree.leaf_sprays",
+          "count": 31,
+          "inclusiveMs": 132.57352000000003,
+          "exclusiveMs": 132.57352000000003
+        },
+        {
+          "label": "surface.lookup_tables",
+          "count": 5,
+          "inclusiveMs": 122.832007,
+          "exclusiveMs": 122.832007
+        },
+        {
+          "label": "surface.gpu_skin",
+          "count": 5,
+          "inclusiveMs": 108.78263000000001,
+          "exclusiveMs": 108.78263000000001
+        },
+        {
+          "label": "atlas.host_copy",
+          "count": 79,
+          "inclusiveMs": 99.653024,
+          "exclusiveMs": 99.653024
+        },
+        {
+          "label": "surface.finish",
+          "count": 5,
+          "inclusiveMs": 85.693454,
+          "exclusiveMs": 85.693454
+        },
+        {
+          "label": "leaves.shadow_proxies",
+          "count": 5,
+          "inclusiveMs": 64.351843,
+          "exclusiveMs": 64.351843
+        },
+        {
+          "label": "leaves.response_members",
+          "count": 5,
+          "inclusiveMs": 64.18795200000001,
+          "exclusiveMs": 64.18795200000001
+        },
+        {
+          "label": "tree.quantize_render_leaves",
+          "count": 5,
+          "inclusiveMs": 37.45145899999999,
+          "exclusiveMs": 37.45145899999999
+        },
+        {
+          "label": "atlas.read",
+          "count": 79,
+          "inclusiveMs": 706.4203549999999,
+          "exclusiveMs": 21.16751000000002
+        },
+        {
+          "label": "tree.publish_leaves",
+          "count": 5,
+          "inclusiveMs": 147.7809,
+          "exclusiveMs": 11.362786000000018
+        },
+        {
+          "label": "surface.prepare.forest1",
+          "count": 1,
+          "inclusiveMs": 1606.029694,
+          "exclusiveMs": 9.93622100000016
+        },
+        {
+          "label": "surface.prepare.forest2",
+          "count": 1,
+          "inclusiveMs": 982.810426,
+          "exclusiveMs": 9.882361999999944
+        },
+        {
+          "label": "surface.prepare.forest5",
+          "count": 1,
+          "inclusiveMs": 979.209406,
+          "exclusiveMs": 8.949063999999908
+        },
+        {
+          "label": "surface.prepare.forest3",
+          "count": 1,
+          "inclusiveMs": 1475.388177,
+          "exclusiveMs": 8.661880000000338
+        },
+        {
+          "label": "leaves.build_gpu_instances",
+          "count": 5,
+          "inclusiveMs": 7.878319,
+          "exclusiveMs": 7.878319
+        },
+        {
+          "label": "surface.prepare.forest4",
+          "count": 1,
+          "inclusiveMs": 966.031748,
+          "exclusiveMs": 7.528036999999927
+        },
+        {
+          "label": "tree.compile_placement",
+          "count": 5,
+          "inclusiveMs": 264.656665,
+          "exclusiveMs": 5.21785699999998
+        },
+        {
+          "label": "surface.gpu_allocate",
+          "count": 5,
+          "inclusiveMs": 3.41244,
+          "exclusiveMs": 3.41244
+        },
+        {
+          "label": "courtyard.ginkgo",
+          "count": 1,
+          "inclusiveMs": 27976.454548,
+          "exclusiveMs": 1.7842810000038298
+        },
+        {
+          "label": "startup.population",
+          "count": 1,
+          "inclusiveMs": 33071.863549,
+          "exclusiveMs": 1.3910680000044522
+        },
+        {
+          "label": "surface.append.tree2",
+          "count": 4,
+          "inclusiveMs": 1.390047,
+          "exclusiveMs": 1.390047
+        },
+        {
+          "label": "courtyard.root_soil",
+          "count": 1,
+          "inclusiveMs": 23.782722,
+          "exclusiveMs": 1.388266999999999
+        },
+        {
+          "label": "surface.append.tree4",
+          "count": 2,
+          "inclusiveMs": 1.284122,
+          "exclusiveMs": 1.284122
+        },
+        {
+          "label": "surface.append.tree3",
+          "count": 3,
+          "inclusiveMs": 1.231749,
+          "exclusiveMs": 1.231749
+        },
+        {
+          "label": "surface.append.tree5",
+          "count": 1,
+          "inclusiveMs": 1.077046,
+          "exclusiveMs": 1.077046
+        },
+        {
+          "label": "tree.axes",
+          "count": 31,
+          "inclusiveMs": 0.8025970000000001,
+          "exclusiveMs": 0.8025970000000001
+        },
+        {
+          "label": "surface.wait_idle",
+          "count": 5,
+          "inclusiveMs": 0.388175,
+          "exclusiveMs": 0.388175
+        },
+        {
+          "label": "tree.generate.Ginkgo.Veteran",
+          "count": 6,
+          "inclusiveMs": 132.425645,
+          "exclusiveMs": 0.3705750000000023
+        },
+        {
+          "label": "tree.generate.AppleTree.Standard",
+          "count": 25,
+          "inclusiveMs": 1.592432,
+          "exclusiveMs": 0.271385
+        },
+        {
+          "label": "plant.AppleTree",
+          "count": 4,
+          "inclusiveMs": 4831.456413999999,
+          "exclusiveMs": 0.06109799999990173
+        },
+        {
+          "label": "plant.mature_bounds",
+          "count": 5,
+          "inclusiveMs": 22.296255999999996,
+          "exclusiveMs": 0.03337000000000077
+        },
+        {
+          "label": "plant.Ginkgo",
+          "count": 1,
+          "inclusiveMs": 27952.640095,
+          "exclusiveMs": 0.02902199999880395
+        }
+      ]
+    },
+    {
+      "name": "profile-2.log.gz",
+      "readyMs": 70004.9,
+      "pipelineCache": "miss",
+      "userSeconds": 67.87,
+      "systemSeconds": 2.8,
+      "stages": [
+        {
+          "stage": "window_vulkan",
+          "ms": 232.1
+        },
+        {
+          "stage": "swapchain_gui",
+          "ms": 12.2
+        },
+        {
+          "stage": "terrain_builders",
+          "ms": 336.1
+        },
+        {
+          "stage": "spatial_audio",
+          "ms": 85.2
+        },
+        {
+          "stage": "shader_modules",
+          "ms": 149.6
+        },
+        {
+          "stage": "renderer_resources",
+          "ms": 131.8
+        },
+        {
+          "stage": "compute_pipelines",
+          "ms": 26436
+        },
+        {
+          "stage": "graphics_pipelines",
+          "ms": 660.7
+        },
+        {
+          "stage": "renderer_geometry",
+          "ms": 0.7
+        },
+        {
+          "stage": "scene_services",
+          "ms": 42.5
+        },
+        {
+          "stage": "terrain_and_model_caches",
+          "ms": 7641.3
+        },
+        {
+          "stage": "world_population_and_lighting",
+          "ms": 33330.7
+        },
+        {
+          "stage": "first_frame",
+          "ms": 945.6
+        }
+      ],
+      "partition": [
+        {
+          "key": "init",
+          "name": "窗口、Vulkan、渲染器等初始化",
+          "ms": 28087.3
+        },
+        {
+          "key": "admission",
+          "name": "种植障碍检查",
+          "ms": 25734.757576
+        },
+        {
+          "key": "terrain",
+          "name": "地形、模型预热与初始碰撞体",
+          "ms": 7641.3
+        },
+        {
+          "key": "surfaces",
+          "name": "五次树木表面准备",
+          "ms": 6031.3498070000005
+        },
+        {
+          "key": "first_frame",
+          "name": "首帧准备与等待",
+          "ms": 945.6
+        },
+        {
+          "key": "other_population",
+          "name": "其它庭院填充、音频、提交与准备",
+          "ms": 742.3967049999966
+        },
+        {
+          "key": "trunks",
+          "name": "树干事务（地形写入及可见发布）",
+          "ms": 420.499068
+        },
+        {
+          "key": "placement_compile",
+          "name": "树形与放置数据编译",
+          "ms": 255.444233
+        },
+        {
+          "key": "leaves",
+          "name": "叶片发布",
+          "ms": 146.252611
+        }
+      ],
+      "admission": [
+        {
+          "ms": 25731.385611,
+          "generateMs": 23.470543,
+          "readMs": 227.42365399999997,
+          "cpuScanAndDistanceMs": 25480.491414
+        },
+        {
+          "ms": 0.573986,
+          "generateMs": 0.061469,
+          "readMs": 0.447811,
+          "cpuScanAndDistanceMs": 0.06470599999999993
+        },
+        {
+          "ms": 1.404683,
+          "generateMs": 0.074039,
+          "readMs": 0.51451,
+          "cpuScanAndDistanceMs": 0.8161339999999999
+        },
+        {
+          "ms": 0.554761,
+          "generateMs": 0.054703,
+          "readMs": 0.405905,
+          "cpuScanAndDistanceMs": 0.09415299999999993
+        },
+        {
+          "ms": 0.838535,
+          "generateMs": 0.067073,
+          "readMs": 0.543985,
+          "cpuScanAndDistanceMs": 0.22747699999999993
+        }
+      ],
+      "forest": [
+        {
+          "label": "surface.prepare.forest1",
+          "ms": 1596.920624,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.046772
+            },
+            {
+              "label": "atlas.read",
+              "ms": 71.439789
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 713.922113
+            },
+            {
+              "label": "surface.finish",
+              "ms": 25.939138
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 170.864608
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 421.600216
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 182.951142
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 17.639821
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 226.057613
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 25.461072
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.08884
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 108.600698
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest2",
+          "ms": 996.644832,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.041891
+            },
+            {
+              "label": "atlas.read",
+              "ms": 59.827694
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 122.203189
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.436529
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.983951
+            },
+            {
+              "label": "surface.finish",
+              "ms": 17.253517
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 168.448323
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 432.307649
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 184.921681
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 26.684651
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 220.989546
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 25.545269
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 2.93445
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 112.981236
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest3",
+          "ms": 1476.397943,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.112729
+            },
+            {
+              "label": "atlas.read",
+              "ms": 46.906271
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 610.46034
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.54116
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.116968
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.275352
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 0.97699
+            },
+            {
+              "label": "surface.finish",
+              "ms": 21.624296
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 172.88175
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 427.790312
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 185.718198
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 19.339432
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 222.292656
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 23.686984
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.083661
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 118.967083
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest4",
+          "ms": 996.467608,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.042938
+            },
+            {
+              "label": "atlas.read",
+              "ms": 61.163512
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 122.596702
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.384161
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.124765
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.1844
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 0.132795
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.23433
+            },
+            {
+              "label": "surface.append.tree4",
+              "ms": 1.097515
+            },
+            {
+              "label": "surface.finish",
+              "ms": 10.717772
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 168.444758
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 437.229134
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 185.07511
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 19.295435
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 230.266545
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 24.99849
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.081779
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 124.527663
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest5",
+          "ms": 964.9188,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.042621
+            },
+            {
+              "label": "atlas.read",
+              "ms": 46.243575
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 121.879087
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.572202
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.131165
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.494039
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 0.130362
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.267276
+            },
+            {
+              "label": "surface.append.tree4",
+              "ms": 0.145467
+            },
+            {
+              "label": "atlas.read",
+              "ms": 1.235945
+            },
+            {
+              "label": "surface.append.tree5",
+              "ms": 1.057061
+            },
+            {
+              "label": "surface.finish",
+              "ms": 11.181342
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 167.617476
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 422.834906
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 183.498847
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 29.222411
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 216.67294
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 23.882831
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.083914
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 114.723516
+            }
+          ]
+        }
+      ],
+      "cache": [
+        {
+          "reused": 0,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 2
+        },
+        {
+          "reused": 3,
+          "rebuilt": 1
+        },
+        {
+          "reused": 4,
+          "rebuilt": 1
+        }
+      ],
+      "counters": [
+        "materials=[0, 0, 148086, 0, 0, 0, 0, 1248868, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=Ginkgo cones=1074 candidates=1396954 distance_tests=1500328596 regions=48 bytes=59655104",
+        "materials=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=0 distance_tests=0 regions=1 bytes=73788",
+        "materials=[0, 0, 172, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=172 distance_tests=43000 regions=1 bytes=74046",
+        "materials=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=0 distance_tests=0 regions=1 bytes=100450",
+        "materials=[0, 0, 34, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=34 distance_tests=8500 regions=1 bytes=92160"
+      ],
+      "replay": [],
+      "summary": [
+        {
+          "label": "plant.space_clear",
+          "count": 5,
+          "inclusiveMs": 25734.757576,
+          "exclusiveMs": 25481.693884
+        },
+        {
+          "label": "terrain.collider_import",
+          "count": 142,
+          "inclusiveMs": 3585.0470099999984,
+          "exclusiveMs": 3585.0470099999984
+        },
+        {
+          "label": "courtyard.initialize_walls_and_soil",
+          "count": 1,
+          "inclusiveMs": 1800.778957,
+          "exclusiveMs": 1708.226744
+        },
+        {
+          "label": "surface.append.tree1",
+          "count": 5,
+          "inclusiveMs": 1691.061431,
+          "exclusiveMs": 1691.061431
+        },
+        {
+          "label": "loading.step.terrain",
+          "count": 32,
+          "inclusiveMs": 3466.184513,
+          "exclusiveMs": 1665.405556
+        },
+        {
+          "label": "surface.scene_bvh",
+          "count": 5,
+          "inclusiveMs": 1116.2793,
+          "exclusiveMs": 1116.2793
+        },
+        {
+          "label": "surface.physics_collision",
+          "count": 5,
+          "inclusiveMs": 922.164978,
+          "exclusiveMs": 922.164978
+        },
+        {
+          "label": "atlas.transfer_wait",
+          "count": 79,
+          "inclusiveMs": 671.0275980000001,
+          "exclusiveMs": 671.0275980000001
+        },
+        {
+          "label": "surface.gpu_upload",
+          "count": 5,
+          "inclusiveMs": 579.800196,
+          "exclusiveMs": 579.800196
+        },
+        {
+          "label": "surface.bind_and_cpu_plan",
+          "count": 5,
+          "inclusiveMs": 848.2569149999999,
+          "exclusiveMs": 440.13976099999996
+        },
+        {
+          "label": "garden.establish",
+          "count": 1,
+          "inclusiveMs": 33329.24124,
+          "exclusiveMs": 411.25644800000737
+        },
+        {
+          "label": "surface.mesh_bind",
+          "count": 5,
+          "inclusiveMs": 408.117154,
+          "exclusiveMs": 408.117154
+        },
+        {
+          "label": "tree.apply_placement",
+          "count": 5,
+          "inclusiveMs": 7135.801386,
+          "exclusiveMs": 282.25566700000024
+        },
+        {
+          "label": "surface.prepare_gpu_publication",
+          "count": 5,
+          "inclusiveMs": 2141.762217,
+          "exclusiveMs": 206.6536809999999
+        },
+        {
+          "label": "models.warmup_record_commands",
+          "count": 206,
+          "inclusiveMs": 192.83052699999985,
+          "exclusiveMs": 192.83052699999985
+        },
+        {
+          "label": "tree.trunk_transaction",
+          "count": 5,
+          "inclusiveMs": 420.499068,
+          "exclusiveMs": 174.23469599999999
+        },
+        {
+          "label": "tree.canopy_descriptor",
+          "count": 5,
+          "inclusiveMs": 170.260274,
+          "exclusiveMs": 170.260274
+        },
+        {
+          "label": "tree.leaf_sprays",
+          "count": 31,
+          "inclusiveMs": 130.18214,
+          "exclusiveMs": 130.18214
+        },
+        {
+          "label": "surface.lookup_tables",
+          "count": 5,
+          "inclusiveMs": 123.574646,
+          "exclusiveMs": 123.574646
+        },
+        {
+          "label": "surface.gpu_skin",
+          "count": 5,
+          "inclusiveMs": 112.18175,
+          "exclusiveMs": 112.18175
+        },
+        {
+          "label": "terrain.physical_advance",
+          "count": 60,
+          "inclusiveMs": 104.80454899999997,
+          "exclusiveMs": 104.80454899999997
+        },
+        {
+          "label": "atlas.host_copy",
+          "count": 79,
+          "inclusiveMs": 100.80571499999999,
+          "exclusiveMs": 100.80571499999999
+        },
+        {
+          "label": "surface.finish",
+          "count": 5,
+          "inclusiveMs": 86.716065,
+          "exclusiveMs": 86.716065
+        },
+        {
+          "label": "leaves.response_members",
+          "count": 5,
+          "inclusiveMs": 63.566981,
+          "exclusiveMs": 63.566981
+        },
+        {
+          "label": "leaves.shadow_proxies",
+          "count": 5,
+          "inclusiveMs": 63.370619,
+          "exclusiveMs": 63.370619
+        },
+        {
+          "label": "tree.quantize_render_leaves",
+          "count": 5,
+          "inclusiveMs": 36.837833,
+          "exclusiveMs": 36.837833
+        },
+        {
+          "label": "atlas.read",
+          "count": 79,
+          "inclusiveMs": 795.7833109999996,
+          "exclusiveMs": 23.949998
+        },
+        {
+          "label": "loading.step.colliders",
+          "count": 142,
+          "inclusiveMs": 3606.6751649999983,
+          "exclusiveMs": 21.62815499999998
+        },
+        {
+          "label": "tree.publish_leaves",
+          "count": 5,
+          "inclusiveMs": 146.252611,
+          "exclusiveMs": 11.311255999999995
+        },
+        {
+          "label": "surface.prepare.forest2",
+          "count": 1,
+          "inclusiveMs": 996.644832,
+          "exclusiveMs": 10.220407999999907
+        },
+        {
+          "label": "surface.prepare.forest1",
+          "count": 1,
+          "inclusiveMs": 1596.920624,
+          "exclusiveMs": 10.156846000000087
+        },
+        {
+          "label": "surface.prepare.forest4",
+          "count": 1,
+          "inclusiveMs": 996.467608,
+          "exclusiveMs": 9.039716000000112
+        },
+        {
+          "label": "surface.prepare.forest3",
+          "count": 1,
+          "inclusiveMs": 1476.397943,
+          "exclusiveMs": 8.99357699999996
+        },
+        {
+          "label": "leaves.build_gpu_instances",
+          "count": 5,
+          "inclusiveMs": 8.003755,
+          "exclusiveMs": 8.003755
+        },
+        {
+          "label": "surface.prepare.forest5",
+          "count": 1,
+          "inclusiveMs": 964.9188,
+          "exclusiveMs": 7.587429000000043
+        },
+        {
+          "label": "tree.compile_placement",
+          "count": 5,
+          "inclusiveMs": 255.444233,
+          "exclusiveMs": 5.181794
+        },
+        {
+          "label": "surface.gpu_allocate",
+          "count": 5,
+          "inclusiveMs": 3.272644,
+          "exclusiveMs": 3.272644
+        },
+        {
+          "label": "courtyard.ginkgo",
+          "count": 1,
+          "inclusiveMs": 28075.394128,
+          "exclusiveMs": 1.7600359999996726
+        },
+        {
+          "label": "startup.population",
+          "count": 1,
+          "inclusiveMs": 33330.665682,
+          "exclusiveMs": 1.4244419999959064
+        },
+        {
+          "label": "courtyard.root_soil",
+          "count": 1,
+          "inclusiveMs": 23.757798,
+          "exclusiveMs": 1.3791930000000008
+        },
+        {
+          "label": "loading.step.building",
+          "count": 32,
+          "inclusiveMs": 64.11170499999999,
+          "exclusiveMs": 1.3627139999999978
+        },
+        {
+          "label": "surface.append.tree2",
+          "count": 4,
+          "inclusiveMs": 1.356849,
+          "exclusiveMs": 1.356849
+        },
+        {
+          "label": "surface.append.tree4",
+          "count": 2,
+          "inclusiveMs": 1.242982,
+          "exclusiveMs": 1.242982
+        },
+        {
+          "label": "surface.append.tree3",
+          "count": 3,
+          "inclusiveMs": 1.240147,
+          "exclusiveMs": 1.240147
+        },
+        {
+          "label": "surface.append.tree5",
+          "count": 1,
+          "inclusiveMs": 1.057061,
+          "exclusiveMs": 1.057061
+        },
+        {
+          "label": "tree.axes",
+          "count": 31,
+          "inclusiveMs": 0.8080529999999999,
+          "exclusiveMs": 0.8080529999999999
+        },
+        {
+          "label": "tree.generate.Ginkgo.Veteran",
+          "count": 6,
+          "inclusiveMs": 130.01539100000002,
+          "exclusiveMs": 0.37311900000000264
+        },
+        {
+          "label": "tree.generate.AppleTree.Standard",
+          "count": 25,
+          "inclusiveMs": 1.6528189999999998,
+          "exclusiveMs": 0.30489799999999995
+        },
+        {
+          "label": "surface.wait_idle",
+          "count": 5,
+          "inclusiveMs": 0.286951,
+          "exclusiveMs": 0.286951
+        },
+        {
+          "label": "plant.AppleTree",
+          "count": 4,
+          "inclusiveMs": 4842.027076,
+          "exclusiveMs": 0.07065099999977065
+        },
+        {
+          "label": "plant.mature_bounds",
+          "count": 5,
+          "inclusiveMs": 22.462372000000002,
+          "exclusiveMs": 0.028266999999999036
+        },
+        {
+          "label": "plant.Ginkgo",
+          "count": 1,
+          "inclusiveMs": 28051.085509,
+          "exclusiveMs": 0.020599999999831198
+        }
+      ]
+    },
+    {
+      "name": "profile-3.log.gz",
+      "readyMs": 42780,
+      "pipelineCache": "hit",
+      "userSeconds": 41.13,
+      "systemSeconds": 2.07,
+      "stages": [
+        {
+          "stage": "window_vulkan",
+          "ms": 179
+        },
+        {
+          "stage": "swapchain_gui",
+          "ms": 6.6
+        },
+        {
+          "stage": "terrain_builders",
+          "ms": 308.9
+        },
+        {
+          "stage": "spatial_audio",
+          "ms": 81.8
+        },
+        {
+          "stage": "shader_modules",
+          "ms": 150.3
+        },
+        {
+          "stage": "renderer_resources",
+          "ms": 129.1
+        },
+        {
+          "stage": "compute_pipelines",
+          "ms": 116
+        },
+        {
+          "stage": "graphics_pipelines",
+          "ms": 29.7
+        },
+        {
+          "stage": "renderer_geometry",
+          "ms": 0.7
+        },
+        {
+          "stage": "scene_services",
+          "ms": 42.9
+        },
+        {
+          "stage": "terrain_and_model_caches",
+          "ms": 7540.4
+        },
+        {
+          "stage": "world_population_and_lighting",
+          "ms": 33129
+        },
+        {
+          "stage": "first_frame",
+          "ms": 1065.5
+        }
+      ],
+      "partition": [
+        {
+          "key": "admission",
+          "name": "种植障碍检查",
+          "ms": 25747.466722999998
+        },
+        {
+          "key": "terrain",
+          "name": "地形、模型预热与初始碰撞体",
+          "ms": 7540.4
+        },
+        {
+          "key": "surfaces",
+          "name": "五次树木表面准备",
+          "ms": 6039.229698
+        },
+        {
+          "key": "first_frame",
+          "name": "首帧准备与等待",
+          "ms": 1065.5
+        },
+        {
+          "key": "init",
+          "name": "窗口、Vulkan、渲染器等初始化",
+          "ms": 1045.1000000000004
+        },
+        {
+          "key": "other_population",
+          "name": "其它庭院填充、音频、提交与准备",
+          "ms": 580.0540160000021
+        },
+        {
+          "key": "trunks",
+          "name": "树干事务（地形写入及可见发布）",
+          "ms": 359.825604
+        },
+        {
+          "key": "placement_compile",
+          "name": "树形与放置数据编译",
+          "ms": 255.92542100000003
+        },
+        {
+          "key": "leaves",
+          "name": "叶片发布",
+          "ms": 146.49853800000002
+        }
+      ],
+      "admission": [
+        {
+          "ms": 25744.481794,
+          "generateMs": 23.759369,
+          "readMs": 240.95742999999996,
+          "cpuScanAndDistanceMs": 25479.764994999998
+        },
+        {
+          "ms": 0.520295,
+          "generateMs": 0.053659,
+          "readMs": 0.403389,
+          "cpuScanAndDistanceMs": 0.06324699999999994
+        },
+        {
+          "ms": 1.240491,
+          "generateMs": 0.056071,
+          "readMs": 0.37435,
+          "cpuScanAndDistanceMs": 0.8100700000000001
+        },
+        {
+          "ms": 0.542623,
+          "generateMs": 0.067634,
+          "readMs": 0.392037,
+          "cpuScanAndDistanceMs": 0.08295199999999991
+        },
+        {
+          "ms": 0.68152,
+          "generateMs": 0.058217,
+          "readMs": 0.394954,
+          "cpuScanAndDistanceMs": 0.22834899999999997
+        }
+      ],
+      "forest": [
+        {
+          "label": "surface.prepare.forest1",
+          "ms": 1605.118626,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.051924
+            },
+            {
+              "label": "atlas.read",
+              "ms": 73.384706
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 708.362703
+            },
+            {
+              "label": "surface.finish",
+              "ms": 26.087515
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 173.234212
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 428.572252
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 185.486309
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 18.014946
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 229.33791
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 25.448715
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.073088
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 112.393456
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest2",
+          "ms": 1002.922319,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.043194
+            },
+            {
+              "label": "atlas.read",
+              "ms": 61.186933
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 122.953106
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.437611
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 1.071963
+            },
+            {
+              "label": "surface.finish",
+              "ms": 17.419777
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 168.712131
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 436.587164
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 184.007139
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 26.457505
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 230.584828
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 23.582026
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 2.906229
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 109.463483
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest3",
+          "ms": 1487.980931,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.047768
+            },
+            {
+              "label": "atlas.read",
+              "ms": 48.917237
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 614.984547
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.650338
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.119804
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.384086
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 0.947703
+            },
+            {
+              "label": "surface.finish",
+              "ms": 21.499339
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 176.742366
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 428.040784
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 187.063472
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 18.520668
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 228.781773
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 23.66373
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.085921
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 116.363716
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest4",
+          "ms": 969.463786,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.041731
+            },
+            {
+              "label": "atlas.read",
+              "ms": 45.963074
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 122.586945
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.51603
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.120306
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.3703
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 0.125639
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.404498
+            },
+            {
+              "label": "surface.append.tree4",
+              "ms": 1.08886
+            },
+            {
+              "label": "surface.finish",
+              "ms": 10.129541
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 159.441166
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 435.555732
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 185.485746
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 19.336013
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 233.82685
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 23.371459
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.081115
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 121.882784
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest5",
+          "ms": 973.744036,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.041283
+            },
+            {
+              "label": "atlas.read",
+              "ms": 61.383308
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 122.750093
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.429233
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.139632
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.217585
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 0.126822
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.236766
+            },
+            {
+              "label": "surface.append.tree4",
+              "ms": 0.143048
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.21819
+            },
+            {
+              "label": "surface.append.tree5",
+              "ms": 1.053215
+            },
+            {
+              "label": "surface.finish",
+              "ms": 10.703751
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 167.327038
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 414.800701
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 185.411637
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 29.59832
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 221.150522
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 12.757269
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.084572
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 113.896952
+            }
+          ]
+        }
+      ],
+      "cache": [
+        {
+          "reused": 0,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 2
+        },
+        {
+          "reused": 3,
+          "rebuilt": 1
+        },
+        {
+          "reused": 4,
+          "rebuilt": 1
+        }
+      ],
+      "counters": [
+        "materials=[0, 0, 148086, 0, 0, 0, 0, 1248868, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=Ginkgo cones=1074 candidates=1396954 distance_tests=1500328596 regions=48 bytes=59655104",
+        "materials=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=0 distance_tests=0 regions=1 bytes=73788",
+        "materials=[0, 0, 172, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=172 distance_tests=43000 regions=1 bytes=74046",
+        "materials=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=0 distance_tests=0 regions=1 bytes=100450",
+        "materials=[0, 0, 34, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=34 distance_tests=8500 regions=1 bytes=92160"
+      ],
+      "replay": [],
+      "summary": [
+        {
+          "label": "plant.space_clear",
+          "count": 5,
+          "inclusiveMs": 25747.466722999998,
+          "exclusiveMs": 25480.949612999997
+        },
+        {
+          "label": "terrain.collider_import",
+          "count": 143,
+          "inclusiveMs": 3603.8723759999993,
+          "exclusiveMs": 3603.8723759999993
+        },
+        {
+          "label": "courtyard.initialize_walls_and_soil",
+          "count": 1,
+          "inclusiveMs": 1819.41899,
+          "exclusiveMs": 1725.915219
+        },
+        {
+          "label": "surface.append.tree1",
+          "count": 5,
+          "inclusiveMs": 1691.6373940000003,
+          "exclusiveMs": 1691.6373940000003
+        },
+        {
+          "label": "loading.step.terrain",
+          "count": 32,
+          "inclusiveMs": 3344.633693,
+          "exclusiveMs": 1525.2147030000003
+        },
+        {
+          "label": "surface.scene_bvh",
+          "count": 5,
+          "inclusiveMs": 1143.681883,
+          "exclusiveMs": 1143.681883
+        },
+        {
+          "label": "surface.physics_collision",
+          "count": 5,
+          "inclusiveMs": 927.4543030000001,
+          "exclusiveMs": 927.4543030000001
+        },
+        {
+          "label": "atlas.transfer_wait",
+          "count": 79,
+          "inclusiveMs": 612.9210619999999,
+          "exclusiveMs": 612.9210619999999
+        },
+        {
+          "label": "surface.gpu_upload",
+          "count": 5,
+          "inclusiveMs": 574.000391,
+          "exclusiveMs": 574.000391
+        },
+        {
+          "label": "surface.bind_and_cpu_plan",
+          "count": 5,
+          "inclusiveMs": 845.4569130000001,
+          "exclusiveMs": 445.79594799999995
+        },
+        {
+          "label": "surface.mesh_bind",
+          "count": 5,
+          "inclusiveMs": 399.660965,
+          "exclusiveMs": 399.660965
+        },
+        {
+          "label": "tree.apply_placement",
+          "count": 5,
+          "inclusiveMs": 7079.968343999999,
+          "exclusiveMs": 278.48908300000005
+        },
+        {
+          "label": "garden.establish",
+          "count": 1,
+          "inclusiveMs": 33127.91712,
+          "exclusiveMs": 251.16152699999657
+        },
+        {
+          "label": "surface.prepare_gpu_publication",
+          "count": 5,
+          "inclusiveMs": 2143.556633,
+          "exclusiveMs": 201.89278299999995
+        },
+        {
+          "label": "models.warmup_record_commands",
+          "count": 207,
+          "inclusiveMs": 186.64607399999997,
+          "exclusiveMs": 186.64607399999997
+        },
+        {
+          "label": "tree.trunk_transaction",
+          "count": 5,
+          "inclusiveMs": 359.825604,
+          "exclusiveMs": 186.47304100000002
+        },
+        {
+          "label": "tree.canopy_descriptor",
+          "count": 5,
+          "inclusiveMs": 170.563595,
+          "exclusiveMs": 170.563595
+        },
+        {
+          "label": "tree.leaf_sprays",
+          "count": 31,
+          "inclusiveMs": 132.23499299999997,
+          "exclusiveMs": 132.23499299999997
+        },
+        {
+          "label": "terrain.physical_advance",
+          "count": 60,
+          "inclusiveMs": 120.92160000000003,
+          "exclusiveMs": 120.92160000000003
+        },
+        {
+          "label": "surface.gpu_skin",
+          "count": 5,
+          "inclusiveMs": 111.927452,
+          "exclusiveMs": 111.927452
+        },
+        {
+          "label": "surface.lookup_tables",
+          "count": 5,
+          "inclusiveMs": 108.82319899999999,
+          "exclusiveMs": 108.82319899999999
+        },
+        {
+          "label": "atlas.host_copy",
+          "count": 79,
+          "inclusiveMs": 98.17494299999997,
+          "exclusiveMs": 98.17494299999997
+        },
+        {
+          "label": "surface.finish",
+          "count": 5,
+          "inclusiveMs": 85.839923,
+          "exclusiveMs": 85.839923
+        },
+        {
+          "label": "leaves.shadow_proxies",
+          "count": 5,
+          "inclusiveMs": 64.19317099999999,
+          "exclusiveMs": 64.19317099999999
+        },
+        {
+          "label": "leaves.response_members",
+          "count": 5,
+          "inclusiveMs": 63.048245,
+          "exclusiveMs": 63.048245
+        },
+        {
+          "label": "tree.quantize_render_leaves",
+          "count": 5,
+          "inclusiveMs": 36.927178000000005,
+          "exclusiveMs": 36.927178000000005
+        },
+        {
+          "label": "atlas.read",
+          "count": 79,
+          "inclusiveMs": 731.06207,
+          "exclusiveMs": 19.96606499999999
+        },
+        {
+          "label": "tree.publish_leaves",
+          "count": 5,
+          "inclusiveMs": 146.49853800000002,
+          "exclusiveMs": 11.377273000000006
+        },
+        {
+          "label": "surface.prepare.forest2",
+          "count": 1,
+          "inclusiveMs": 1002.922319,
+          "exclusiveMs": 10.503300999999965
+        },
+        {
+          "label": "surface.prepare.forest1",
+          "count": 1,
+          "inclusiveMs": 1605.118626,
+          "exclusiveMs": 9.939004999999725
+        },
+        {
+          "label": "surface.prepare.forest5",
+          "count": 1,
+          "inclusiveMs": 973.744036,
+          "exclusiveMs": 8.761734000000047
+        },
+        {
+          "label": "surface.prepare.forest3",
+          "count": 1,
+          "inclusiveMs": 1487.980931,
+          "exclusiveMs": 8.583486999999877
+        },
+        {
+          "label": "leaves.build_gpu_instances",
+          "count": 5,
+          "inclusiveMs": 7.879849,
+          "exclusiveMs": 7.879849
+        },
+        {
+          "label": "surface.prepare.forest4",
+          "count": 1,
+          "inclusiveMs": 969.463786,
+          "exclusiveMs": 7.634217999999919
+        },
+        {
+          "label": "tree.compile_placement",
+          "count": 5,
+          "inclusiveMs": 255.92542100000003,
+          "exclusiveMs": 5.269166000000022
+        },
+        {
+          "label": "loading.step.colliders",
+          "count": 143,
+          "inclusiveMs": 3608.0785740000006,
+          "exclusiveMs": 4.206198000000004
+        },
+        {
+          "label": "surface.gpu_allocate",
+          "count": 5,
+          "inclusiveMs": 3.230925,
+          "exclusiveMs": 3.230925
+        },
+        {
+          "label": "courtyard.ginkgo",
+          "count": 1,
+          "inclusiveMs": 28031.802771,
+          "exclusiveMs": 1.7911429999985558
+        },
+        {
+          "label": "courtyard.root_soil",
+          "count": 1,
+          "inclusiveMs": 24.102088,
+          "exclusiveMs": 1.5041079999999987
+        },
+        {
+          "label": "surface.append.tree2",
+          "count": 4,
+          "inclusiveMs": 1.451705,
+          "exclusiveMs": 1.451705
+        },
+        {
+          "label": "loading.step.building",
+          "count": 32,
+          "inclusiveMs": 69.85648599999999,
+          "exclusiveMs": 1.285321000000002
+        },
+        {
+          "label": "surface.append.tree4",
+          "count": 2,
+          "inclusiveMs": 1.231908,
+          "exclusiveMs": 1.231908
+        },
+        {
+          "label": "surface.append.tree3",
+          "count": 3,
+          "inclusiveMs": 1.200164,
+          "exclusiveMs": 1.200164
+        },
+        {
+          "label": "startup.population",
+          "count": 1,
+          "inclusiveMs": 33128.999842,
+          "exclusiveMs": 1.082721999999194
+        },
+        {
+          "label": "surface.append.tree5",
+          "count": 1,
+          "inclusiveMs": 1.053215,
+          "exclusiveMs": 1.053215
+        },
+        {
+          "label": "tree.axes",
+          "count": 31,
+          "inclusiveMs": 0.874465,
+          "exclusiveMs": 0.874465
+        },
+        {
+          "label": "tree.generate.Ginkgo.Veteran",
+          "count": 6,
+          "inclusiveMs": 132.103379,
+          "exclusiveMs": 0.3789299999999969
+        },
+        {
+          "label": "tree.generate.AppleTree.Standard",
+          "count": 25,
+          "inclusiveMs": 1.7004470000000003,
+          "exclusiveMs": 0.315438
+        },
+        {
+          "label": "surface.wait_idle",
+          "count": 5,
+          "inclusiveMs": 0.2259,
+          "exclusiveMs": 0.2259
+        },
+        {
+          "label": "plant.AppleTree",
+          "count": 4,
+          "inclusiveMs": 4844.374111,
+          "exclusiveMs": 0.07114699999965524
+        },
+        {
+          "label": "plant.Ginkgo",
+          "count": 1,
+          "inclusiveMs": 28006.695817,
+          "exclusiveMs": 0.033187000000907574
+        },
+        {
+          "label": "plant.mature_bounds",
+          "count": 5,
+          "inclusiveMs": 23.530527,
+          "exclusiveMs": 0.02869799999999772
+        }
+      ]
+    },
+    {
+      "name": "profile-4.log.gz",
+      "readyMs": 42826,
+      "pipelineCache": "hit",
+      "userSeconds": 41.13,
+      "systemSeconds": 2.12,
+      "stages": [
+        {
+          "stage": "window_vulkan",
+          "ms": 180.3
+        },
+        {
+          "stage": "swapchain_gui",
+          "ms": 6.3
+        },
+        {
+          "stage": "terrain_builders",
+          "ms": 304.7
+        },
+        {
+          "stage": "spatial_audio",
+          "ms": 81.5
+        },
+        {
+          "stage": "shader_modules",
+          "ms": 150.1
+        },
+        {
+          "stage": "renderer_resources",
+          "ms": 128.7
+        },
+        {
+          "stage": "compute_pipelines",
+          "ms": 120
+        },
+        {
+          "stage": "graphics_pipelines",
+          "ms": 30.7
+        },
+        {
+          "stage": "renderer_geometry",
+          "ms": 0.7
+        },
+        {
+          "stage": "scene_services",
+          "ms": 43.3
+        },
+        {
+          "stage": "terrain_and_model_caches",
+          "ms": 7658.4
+        },
+        {
+          "stage": "world_population_and_lighting",
+          "ms": 33183.6
+        },
+        {
+          "stage": "first_frame",
+          "ms": 937.5
+        }
+      ],
+      "partition": [
+        {
+          "key": "admission",
+          "name": "种植障碍检查",
+          "ms": 25782.835888000005
+        },
+        {
+          "key": "terrain",
+          "name": "地形、模型预热与初始碰撞体",
+          "ms": 7658.4
+        },
+        {
+          "key": "surfaces",
+          "name": "五次树木表面准备",
+          "ms": 5977.096235
+        },
+        {
+          "key": "init",
+          "name": "窗口、Vulkan、渲染器等初始化",
+          "ms": 1046.5000000000018
+        },
+        {
+          "key": "first_frame",
+          "name": "首帧准备与等待",
+          "ms": 937.5
+        },
+        {
+          "key": "other_population",
+          "name": "其它庭院填充、音频、提交与准备",
+          "ms": 658.9047559999937
+        },
+        {
+          "key": "trunks",
+          "name": "树干事务（地形写入及可见发布）",
+          "ms": 361.26196699999997
+        },
+        {
+          "key": "placement_compile",
+          "name": "树形与放置数据编译",
+          "ms": 256.810951
+        },
+        {
+          "key": "leaves",
+          "name": "叶片发布",
+          "ms": 146.690203
+        }
+      ],
+      "admission": [
+        {
+          "ms": 25779.639792,
+          "generateMs": 23.193864,
+          "readMs": 234.145421,
+          "cpuScanAndDistanceMs": 25522.300507
+        },
+        {
+          "ms": 0.580363,
+          "generateMs": 0.05394,
+          "readMs": 0.447801,
+          "cpuScanAndDistanceMs": 0.07862199999999997
+        },
+        {
+          "ms": 1.303793,
+          "generateMs": 0.056857,
+          "readMs": 0.428126,
+          "cpuScanAndDistanceMs": 0.81881
+        },
+        {
+          "ms": 0.58087,
+          "generateMs": 0.064603,
+          "readMs": 0.432992,
+          "cpuScanAndDistanceMs": 0.08327499999999999
+        },
+        {
+          "ms": 0.73107,
+          "generateMs": 0.05735,
+          "readMs": 0.43696,
+          "cpuScanAndDistanceMs": 0.23675999999999997
+        }
+      ],
+      "forest": [
+        {
+          "label": "surface.prepare.forest1",
+          "ms": 1595.580921,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.047792
+            },
+            {
+              "label": "atlas.read",
+              "ms": 71.289853
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 705.925205
+            },
+            {
+              "label": "surface.finish",
+              "ms": 26.061864
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 172.277681
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 425.425963
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 184.364868
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 17.877989
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 227.377567
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 25.380929
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.087397
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 111.53347
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest2",
+          "ms": 994.903774,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.041344
+            },
+            {
+              "label": "atlas.read",
+              "ms": 61.091542
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 122.869962
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.467014
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 1.003241
+            },
+            {
+              "label": "surface.finish",
+              "ms": 16.965605
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 166.909705
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 430.873067
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 184.574469
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 26.143626
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 225.360417
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 24.072313
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 2.932165
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 108.974572
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest3",
+          "ms": 1470.966487,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.143602
+            },
+            {
+              "label": "atlas.read",
+              "ms": 47.562726
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 609.949527
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.536026
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.151447
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.272421
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 0.955785
+            },
+            {
+              "label": "surface.finish",
+              "ms": 17.596922
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 172.746877
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 427.472424
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 185.49194
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 17.473941
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 226.679698
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 25.873377
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.085251
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 114.637978
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest4",
+          "ms": 964.463105,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.040969
+            },
+            {
+              "label": "atlas.read",
+              "ms": 48.020915
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 123.507345
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.491959
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.141811
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.361154
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 0.121571
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.261491
+            },
+            {
+              "label": "surface.append.tree4",
+              "ms": 1.096113
+            },
+            {
+              "label": "surface.finish",
+              "ms": 9.777131
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 156.264553
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 427.975428
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 188.799185
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 19.232665
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 222.749282
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 23.85913
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.071727
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 124.595058
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest5",
+          "ms": 951.181948,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.046923
+            },
+            {
+              "label": "atlas.read",
+              "ms": 48.544041
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 121.366755
+            },
+            {
+              "label": "atlas.read",
+              "ms": 1.648012
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.112505
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.352929
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 0.138481
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.258875
+            },
+            {
+              "label": "surface.append.tree4",
+              "ms": 0.141505
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.225927
+            },
+            {
+              "label": "surface.append.tree5",
+              "ms": 1.039753
+            },
+            {
+              "label": "surface.finish",
+              "ms": 11.062409
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 158.062388
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 418.777723
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 181.990866
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 29.774803
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 216.141142
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 23.509443
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.082442
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 113.138784
+            }
+          ]
+        }
+      ],
+      "cache": [
+        {
+          "reused": 0,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 2
+        },
+        {
+          "reused": 3,
+          "rebuilt": 1
+        },
+        {
+          "reused": 4,
+          "rebuilt": 1
+        }
+      ],
+      "counters": [
+        "materials=[0, 0, 148086, 0, 0, 0, 0, 1248868, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=Ginkgo cones=1074 candidates=1396954 distance_tests=1500328596 regions=48 bytes=59655104",
+        "materials=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=0 distance_tests=0 regions=1 bytes=73788",
+        "materials=[0, 0, 172, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=172 distance_tests=43000 regions=1 bytes=74046",
+        "materials=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=0 distance_tests=0 regions=1 bytes=100450",
+        "materials=[0, 0, 34, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=34 distance_tests=8500 regions=1 bytes=92160"
+      ],
+      "replay": [],
+      "summary": [
+        {
+          "label": "plant.space_clear",
+          "count": 5,
+          "inclusiveMs": 25782.835888000005,
+          "exclusiveMs": 25523.517974000002
+        },
+        {
+          "label": "terrain.collider_import",
+          "count": 144,
+          "inclusiveMs": 3646.0004220000014,
+          "exclusiveMs": 3646.0004220000014
+        },
+        {
+          "label": "courtyard.initialize_walls_and_soil",
+          "count": 1,
+          "inclusiveMs": 1832.12128,
+          "exclusiveMs": 1736.2607150000001
+        },
+        {
+          "label": "surface.append.tree1",
+          "count": 5,
+          "inclusiveMs": 1683.618794,
+          "exclusiveMs": 1683.618794
+        },
+        {
+          "label": "loading.step.terrain",
+          "count": 32,
+          "inclusiveMs": 3395.505743,
+          "exclusiveMs": 1563.384463
+        },
+        {
+          "label": "surface.scene_bvh",
+          "count": 5,
+          "inclusiveMs": 1118.308106,
+          "exclusiveMs": 1118.308106
+        },
+        {
+          "label": "surface.physics_collision",
+          "count": 5,
+          "inclusiveMs": 925.221328,
+          "exclusiveMs": 925.221328
+        },
+        {
+          "label": "atlas.transfer_wait",
+          "count": 79,
+          "inclusiveMs": 596.8745690000001,
+          "exclusiveMs": 596.8745690000001
+        },
+        {
+          "label": "surface.gpu_upload",
+          "count": 5,
+          "inclusiveMs": 572.879862,
+          "exclusiveMs": 572.879862
+        },
+        {
+          "label": "surface.bind_and_cpu_plan",
+          "count": 5,
+          "inclusiveMs": 826.2612039999999,
+          "exclusiveMs": 431.21186700000004
+        },
+        {
+          "label": "surface.mesh_bind",
+          "count": 5,
+          "inclusiveMs": 395.049337,
+          "exclusiveMs": 395.049337
+        },
+        {
+          "label": "garden.establish",
+          "count": 1,
+          "inclusiveMs": 33179.69731,
+          "exclusiveMs": 328.4482859999989
+        },
+        {
+          "label": "tree.apply_placement",
+          "count": 5,
+          "inclusiveMs": 7019.46198,
+          "exclusiveMs": 277.6026240000002
+        },
+        {
+          "label": "surface.prepare_gpu_publication",
+          "count": 5,
+          "inclusiveMs": 2130.524605,
+          "exclusiveMs": 202.87943899999993
+        },
+        {
+          "label": "models.warmup_record_commands",
+          "count": 208,
+          "inclusiveMs": 190.2846429999999,
+          "exclusiveMs": 190.2846429999999
+        },
+        {
+          "label": "tree.trunk_transaction",
+          "count": 5,
+          "inclusiveMs": 361.26196699999997,
+          "exclusiveMs": 181.728547
+        },
+        {
+          "label": "tree.canopy_descriptor",
+          "count": 5,
+          "inclusiveMs": 170.457685,
+          "exclusiveMs": 170.457685
+        },
+        {
+          "label": "tree.leaf_sprays",
+          "count": 31,
+          "inclusiveMs": 131.84072800000004,
+          "exclusiveMs": 131.84072800000004
+        },
+        {
+          "label": "surface.lookup_tables",
+          "count": 5,
+          "inclusiveMs": 122.69519200000002,
+          "exclusiveMs": 122.69519200000002
+        },
+        {
+          "label": "terrain.physical_advance",
+          "count": 60,
+          "inclusiveMs": 121.18055200000003,
+          "exclusiveMs": 121.18055200000003
+        },
+        {
+          "label": "surface.gpu_skin",
+          "count": 5,
+          "inclusiveMs": 110.50302399999998,
+          "exclusiveMs": 110.50302399999998
+        },
+        {
+          "label": "atlas.host_copy",
+          "count": 79,
+          "inclusiveMs": 90.71034199999998,
+          "exclusiveMs": 90.71034199999998
+        },
+        {
+          "label": "surface.finish",
+          "count": 5,
+          "inclusiveMs": 81.463931,
+          "exclusiveMs": 81.463931
+        },
+        {
+          "label": "leaves.response_members",
+          "count": 5,
+          "inclusiveMs": 63.852815,
+          "exclusiveMs": 63.852815
+        },
+        {
+          "label": "leaves.shadow_proxies",
+          "count": 5,
+          "inclusiveMs": 63.40428800000001,
+          "exclusiveMs": 63.40428800000001
+        },
+        {
+          "label": "tree.quantize_render_leaves",
+          "count": 5,
+          "inclusiveMs": 37.479890000000005,
+          "exclusiveMs": 37.479890000000005
+        },
+        {
+          "label": "atlas.read",
+          "count": 79,
+          "inclusiveMs": 717.7089980000001,
+          "exclusiveMs": 30.12408699999999
+        },
+        {
+          "label": "tree.publish_leaves",
+          "count": 5,
+          "inclusiveMs": 146.690203,
+          "exclusiveMs": 11.451395999999999
+        },
+        {
+          "label": "surface.prepare.forest1",
+          "count": 1,
+          "inclusiveMs": 1595.580921,
+          "exclusiveMs": 10.187694999999849
+        },
+        {
+          "label": "surface.prepare.forest2",
+          "count": 1,
+          "inclusiveMs": 994.903774,
+          "exclusiveMs": 10.107824999999934
+        },
+        {
+          "label": "surface.prepare.forest3",
+          "count": 1,
+          "inclusiveMs": 1470.966487,
+          "exclusiveMs": 8.086790000000065
+        },
+        {
+          "label": "leaves.build_gpu_instances",
+          "count": 5,
+          "inclusiveMs": 7.981704,
+          "exclusiveMs": 7.981704
+        },
+        {
+          "label": "surface.prepare.forest4",
+          "count": 1,
+          "inclusiveMs": 964.463105,
+          "exclusiveMs": 7.603480000000104
+        },
+        {
+          "label": "surface.prepare.forest5",
+          "count": 1,
+          "inclusiveMs": 951.181948,
+          "exclusiveMs": 7.412856000000147
+        },
+        {
+          "label": "tree.compile_placement",
+          "count": 5,
+          "inclusiveMs": 256.810951,
+          "exclusiveMs": 5.247445999999985
+        },
+        {
+          "label": "loading.step.colliders",
+          "count": 144,
+          "inclusiveMs": 3650.421884000001,
+          "exclusiveMs": 4.421461999999988
+        },
+        {
+          "label": "startup.population",
+          "count": 1,
+          "inclusiveMs": 33183.648747,
+          "exclusiveMs": 3.9514369999960763
+        },
+        {
+          "label": "surface.gpu_allocate",
+          "count": 5,
+          "inclusiveMs": 3.258982,
+          "exclusiveMs": 3.258982
+        },
+        {
+          "label": "courtyard.ginkgo",
+          "count": 1,
+          "inclusiveMs": 28064.466164,
+          "exclusiveMs": 1.7730010000013863
+        },
+        {
+          "label": "surface.append.tree2",
+          "count": 4,
+          "inclusiveMs": 1.4090040000000001,
+          "exclusiveMs": 1.4090040000000001
+        },
+        {
+          "label": "courtyard.root_soil",
+          "count": 1,
+          "inclusiveMs": 23.86991,
+          "exclusiveMs": 1.3647770000000001
+        },
+        {
+          "label": "loading.step.building",
+          "count": 32,
+          "inclusiveMs": 68.06971499999999,
+          "exclusiveMs": 1.3201269999999994
+        },
+        {
+          "label": "surface.append.tree4",
+          "count": 2,
+          "inclusiveMs": 1.2376179999999999,
+          "exclusiveMs": 1.2376179999999999
+        },
+        {
+          "label": "surface.append.tree3",
+          "count": 3,
+          "inclusiveMs": 1.215837,
+          "exclusiveMs": 1.215837
+        },
+        {
+          "label": "surface.append.tree5",
+          "count": 1,
+          "inclusiveMs": 1.039753,
+          "exclusiveMs": 1.039753
+        },
+        {
+          "label": "tree.axes",
+          "count": 31,
+          "inclusiveMs": 0.8866979999999997,
+          "exclusiveMs": 0.8866979999999997
+        },
+        {
+          "label": "tree.generate.Ginkgo.Veteran",
+          "count": 6,
+          "inclusiveMs": 131.72554300000002,
+          "exclusiveMs": 0.3742250000000098
+        },
+        {
+          "label": "surface.wait_idle",
+          "count": 5,
+          "inclusiveMs": 0.32062999999999997,
+          "exclusiveMs": 0.32062999999999997
+        },
+        {
+          "label": "tree.generate.AppleTree.Standard",
+          "count": 25,
+          "inclusiveMs": 1.6354179999999996,
+          "exclusiveMs": 0.25931
+        },
+        {
+          "label": "plant.AppleTree",
+          "count": 4,
+          "inclusiveMs": 4786.209388,
+          "exclusiveMs": 0.08077500000024429
+        },
+        {
+          "label": "plant.mature_bounds",
+          "count": 5,
+          "inclusiveMs": 23.486238,
+          "exclusiveMs": 0.02929099999999861
+        },
+        {
+          "label": "plant.Ginkgo",
+          "count": 1,
+          "inclusiveMs": 28039.676905,
+          "exclusiveMs": 0.021411999998235842
+        }
+      ]
+    },
+    {
+      "name": "profile-load.log.gz",
+      "readyMs": 11756.7,
+      "pipelineCache": "hit",
+      "userSeconds": 12.62,
+      "systemSeconds": 1.58,
+      "stages": [
+        {
+          "stage": "window_vulkan",
+          "ms": 175.1
+        },
+        {
+          "stage": "swapchain_gui",
+          "ms": 1110.5
+        },
+        {
+          "stage": "terrain_builders",
+          "ms": 298.4
+        },
+        {
+          "stage": "spatial_audio",
+          "ms": 81.3
+        },
+        {
+          "stage": "shader_modules",
+          "ms": 151
+        },
+        {
+          "stage": "renderer_resources",
+          "ms": 122.2
+        },
+        {
+          "stage": "compute_pipelines",
+          "ms": 116.3
+        },
+        {
+          "stage": "graphics_pipelines",
+          "ms": 29.5
+        },
+        {
+          "stage": "renderer_geometry",
+          "ms": 0.7
+        },
+        {
+          "stage": "scene_services",
+          "ms": 43.2
+        },
+        {
+          "stage": "terrain_and_model_caches",
+          "ms": 6005.8
+        },
+        {
+          "stage": "world_population_and_lighting",
+          "ms": 2505.7
+        },
+        {
+          "stage": "first_frame",
+          "ms": 1116.9
+        }
+      ],
+      "partition": [
+        {
+          "key": "terrain",
+          "name": "地形、模型预热与初始碰撞体",
+          "ms": 6005.8
+        },
+        {
+          "key": "init",
+          "name": "窗口、Vulkan、渲染器等初始化",
+          "ms": 2128.2999999999997
+        },
+        {
+          "key": "surfaces",
+          "name": "五次树木表面准备",
+          "ms": 1810.338631
+        },
+        {
+          "key": "first_frame",
+          "name": "首帧准备与等待",
+          "ms": 1116.9
+        },
+        {
+          "key": "other_population",
+          "name": "其它庭院填充、音频、提交与准备",
+          "ms": 290.22060199999976
+        },
+        {
+          "key": "placement_compile",
+          "name": "树形与放置数据编译",
+          "ms": 258.38873
+        },
+        {
+          "key": "leaves",
+          "name": "叶片发布",
+          "ms": 146.75203699999997
+        },
+        {
+          "key": "admission",
+          "name": "种植障碍检查",
+          "ms": 0
+        },
+        {
+          "key": "trunks",
+          "name": "树干事务（地形写入及可见发布）",
+          "ms": 0
+        }
+      ],
+      "admission": [],
+      "forest": [
+        {
+          "label": "surface.prepare.forest5",
+          "ms": 1810.338631,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.639494
+            },
+            {
+              "label": "atlas.read",
+              "ms": 293.487152
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 695.929652
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.543038
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 1.044633
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.305876
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 1.01395
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.28176
+            },
+            {
+              "label": "surface.append.tree4",
+              "ms": 1.123971
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.261039
+            },
+            {
+              "label": "surface.append.tree5",
+              "ms": 1.157287
+            },
+            {
+              "label": "surface.finish",
+              "ms": 30.008436
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 168.34213
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 426.267244
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 179.334012
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 28.368591
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 218.87866
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 25.076418
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.082824
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 107.49795
+            }
+          ]
+        }
+      ],
+      "cache": [
+        {
+          "reused": 0,
+          "rebuilt": 5
+        }
+      ],
+      "counters": [],
+      "replay": [],
+      "summary": [
+        {
+          "label": "terrain.collider_import",
+          "count": 172,
+          "inclusiveMs": 4361.497974999998,
+          "exclusiveMs": 4361.497974999998
+        },
+        {
+          "label": "loading.step.terrain",
+          "count": 32,
+          "inclusiveMs": 943.9997069999997,
+          "exclusiveMs": 943.9997069999997
+        },
+        {
+          "label": "surface.append.tree1",
+          "count": 1,
+          "inclusiveMs": 695.929652,
+          "exclusiveMs": 695.929652
+        },
+        {
+          "label": "startup.population",
+          "count": 1,
+          "inclusiveMs": 2505.699467,
+          "exclusiveMs": 290.22006899999997
+        },
+        {
+          "label": "atlas.transfer_wait",
+          "count": 5,
+          "inclusiveMs": 264.646218,
+          "exclusiveMs": 264.646218
+        },
+        {
+          "label": "surface.scene_bvh",
+          "count": 1,
+          "inclusiveMs": 218.87866,
+          "exclusiveMs": 218.87866
+        },
+        {
+          "label": "models.warmup_record_commands",
+          "count": 236,
+          "inclusiveMs": 188.68135499999985,
+          "exclusiveMs": 188.68135499999985
+        },
+        {
+          "label": "surface.physics_collision",
+          "count": 1,
+          "inclusiveMs": 179.334012,
+          "exclusiveMs": 179.334012
+        },
+        {
+          "label": "tree.canopy_descriptor",
+          "count": 5,
+          "inclusiveMs": 170.05364400000002,
+          "exclusiveMs": 170.05364400000002
+        },
+        {
+          "label": "surface.gpu_upload",
+          "count": 1,
+          "inclusiveMs": 107.49795,
+          "exclusiveMs": 107.49795
+        },
+        {
+          "label": "surface.bind_and_cpu_plan",
+          "count": 1,
+          "inclusiveMs": 168.34213,
+          "exclusiveMs": 84.529102
+        },
+        {
+          "label": "surface.mesh_bind",
+          "count": 1,
+          "inclusiveMs": 83.813028,
+          "exclusiveMs": 83.813028
+        },
+        {
+          "label": "leaves.shadow_proxies",
+          "count": 5,
+          "inclusiveMs": 62.979395000000004,
+          "exclusiveMs": 62.979395000000004
+        },
+        {
+          "label": "leaves.response_members",
+          "count": 5,
+          "inclusiveMs": 62.595818,
+          "exclusiveMs": 62.595818
+        },
+        {
+          "label": "terrain.physical_advance",
+          "count": 32,
+          "inclusiveMs": 61.33506199999999,
+          "exclusiveMs": 61.33506199999999
+        },
+        {
+          "label": "surface.prepare_gpu_publication",
+          "count": 1,
+          "inclusiveMs": 426.267244,
+          "exclusiveMs": 46.36280099999999
+        },
+        {
+          "label": "tree.leaf_sprays",
+          "count": 11,
+          "inclusiveMs": 45.325925,
+          "exclusiveMs": 45.325925
+        },
+        {
+          "label": "tree.quantize_render_leaves",
+          "count": 5,
+          "inclusiveMs": 37.427392000000005,
+          "exclusiveMs": 37.427392000000005
+        },
+        {
+          "label": "surface.finish",
+          "count": 1,
+          "inclusiveMs": 30.008436,
+          "exclusiveMs": 30.008436
+        },
+        {
+          "label": "surface.gpu_skin",
+          "count": 1,
+          "inclusiveMs": 28.368591,
+          "exclusiveMs": 28.368591
+        },
+        {
+          "label": "surface.lookup_tables",
+          "count": 1,
+          "inclusiveMs": 25.076418,
+          "exclusiveMs": 25.076418
+        },
+        {
+          "label": "atlas.host_copy",
+          "count": 5,
+          "inclusiveMs": 18.514865,
+          "exclusiveMs": 18.514865
+        },
+        {
+          "label": "atlas.read",
+          "count": 5,
+          "inclusiveMs": 294.878865,
+          "exclusiveMs": 11.717781999999994
+        },
+        {
+          "label": "tree.publish_leaves",
+          "count": 5,
+          "inclusiveMs": 146.75203699999997,
+          "exclusiveMs": 11.283605999999995
+        },
+        {
+          "label": "surface.prepare.forest5",
+          "count": 1,
+          "inclusiveMs": 1810.338631,
+          "exclusiveMs": 10.598956999999928
+        },
+        {
+          "label": "leaves.build_gpu_instances",
+          "count": 5,
+          "inclusiveMs": 9.893218,
+          "exclusiveMs": 9.893218
+        },
+        {
+          "label": "tree.compile_placement",
+          "count": 5,
+          "inclusiveMs": 258.38873,
+          "exclusiveMs": 5.207220999999981
+        },
+        {
+          "label": "loading.step.colliders",
+          "count": 172,
+          "inclusiveMs": 4365.401062000001,
+          "exclusiveMs": 3.903087000000017
+        },
+        {
+          "label": "loading.step.building",
+          "count": 32,
+          "inclusiveMs": 62.594704999999976,
+          "exclusiveMs": 1.259643
+        },
+        {
+          "label": "surface.append.tree5",
+          "count": 1,
+          "inclusiveMs": 1.157287,
+          "exclusiveMs": 1.157287
+        },
+        {
+          "label": "surface.append.tree4",
+          "count": 1,
+          "inclusiveMs": 1.123971,
+          "exclusiveMs": 1.123971
+        },
+        {
+          "label": "surface.append.tree2",
+          "count": 1,
+          "inclusiveMs": 1.044633,
+          "exclusiveMs": 1.044633
+        },
+        {
+          "label": "surface.append.tree3",
+          "count": 1,
+          "inclusiveMs": 1.01395,
+          "exclusiveMs": 1.01395
+        },
+        {
+          "label": "surface.wait_idle",
+          "count": 1,
+          "inclusiveMs": 0.639494,
+          "exclusiveMs": 0.639494
+        },
+        {
+          "label": "tree.axes",
+          "count": 11,
+          "inclusiveMs": 0.26098,
+          "exclusiveMs": 0.26098
+        },
+        {
+          "label": "tree.generate.AppleTree.Standard",
+          "count": 9,
+          "inclusiveMs": 0.648837,
+          "exclusiveMs": 0.119813
+        },
+        {
+          "label": "surface.gpu_allocate",
+          "count": 1,
+          "inclusiveMs": 0.082824,
+          "exclusiveMs": 0.082824
+        },
+        {
+          "label": "tree.generate.Ginkgo.Veteran",
+          "count": 2,
+          "inclusiveMs": 45.135138999999995,
+          "exclusiveMs": 0.07725800000000049
+        }
+      ]
+    },
+    {
+      "name": "replay-default.log.gz",
+      "readyMs": 43920.1,
+      "pipelineCache": "hit",
+      "userSeconds": 41.82,
+      "systemSeconds": 2.29,
+      "stages": [
+        {
+          "stage": "window_vulkan",
+          "ms": 249.5
+        },
+        {
+          "stage": "swapchain_gui",
+          "ms": 7.2
+        },
+        {
+          "stage": "terrain_builders",
+          "ms": 304.7
+        },
+        {
+          "stage": "spatial_audio",
+          "ms": 85.9
+        },
+        {
+          "stage": "shader_modules",
+          "ms": 150.8
+        },
+        {
+          "stage": "renderer_resources",
+          "ms": 132.3
+        },
+        {
+          "stage": "compute_pipelines",
+          "ms": 117.1
+        },
+        {
+          "stage": "graphics_pipelines",
+          "ms": 29.6
+        },
+        {
+          "stage": "renderer_geometry",
+          "ms": 0.7
+        },
+        {
+          "stage": "scene_services",
+          "ms": 42.8
+        },
+        {
+          "stage": "terrain_and_model_caches",
+          "ms": 7659.8
+        },
+        {
+          "stage": "world_population_and_lighting",
+          "ms": 34321.5
+        },
+        {
+          "stage": "first_frame",
+          "ms": 818.2
+        }
+      ],
+      "partition": [
+        {
+          "key": "admission",
+          "name": "种植障碍检查",
+          "ms": 26583.808988000004
+        },
+        {
+          "key": "terrain",
+          "name": "地形、模型预热与初始碰撞体",
+          "ms": 7659.8
+        },
+        {
+          "key": "surfaces",
+          "name": "五次树木表面准备",
+          "ms": 6151.928059999999
+        },
+        {
+          "key": "init",
+          "name": "窗口、Vulkan、渲染器等初始化",
+          "ms": 1120.5999999999983
+        },
+        {
+          "key": "first_frame",
+          "name": "首帧准备与等待",
+          "ms": 818.2
+        },
+        {
+          "key": "other_population",
+          "name": "其它庭院填充、音频、提交与准备",
+          "ms": 682.7563539999965
+        },
+        {
+          "key": "trunks",
+          "name": "树干事务（地形写入及可见发布）",
+          "ms": 502.318073
+        },
+        {
+          "key": "placement_compile",
+          "name": "树形与放置数据编译",
+          "ms": 254.70057100000002
+        },
+        {
+          "key": "leaves",
+          "name": "叶片发布",
+          "ms": 145.98795399999997
+        }
+      ],
+      "admission": [
+        {
+          "ms": 26573.771009,
+          "generateMs": 22.965507,
+          "readMs": 216.43520000000004,
+          "cpuScanAndDistanceMs": 25618.119466
+        },
+        {
+          "ms": 2.228122,
+          "generateMs": 0.06547,
+          "readMs": 0.472106,
+          "cpuScanAndDistanceMs": 0.06509199999999993
+        },
+        {
+          "ms": 2.97705,
+          "generateMs": 0.055741,
+          "readMs": 0.412291,
+          "cpuScanAndDistanceMs": 0.8099730000000003
+        },
+        {
+          "ms": 2.324916,
+          "generateMs": 0.061251,
+          "readMs": 0.634273,
+          "cpuScanAndDistanceMs": 0.07863599999999993
+        },
+        {
+          "ms": 2.507891,
+          "generateMs": 0.0642,
+          "readMs": 0.595261,
+          "cpuScanAndDistanceMs": 0.22300299999999984
+        }
+      ],
+      "forest": [
+        {
+          "label": "surface.prepare.forest1",
+          "ms": 1602.991595,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.045457
+            },
+            {
+              "label": "atlas.read",
+              "ms": 74.083362
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 723.36602
+            },
+            {
+              "label": "surface.finish",
+              "ms": 25.171353
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 169.720602
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 417.724776
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 183.037698
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 18.205208
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 225.820458
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 25.735778
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.078294
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 105.367954
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest2",
+          "ms": 997.080568,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.042233
+            },
+            {
+              "label": "atlas.read",
+              "ms": 60.102718
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 122.543878
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.389401
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 1.01117
+            },
+            {
+              "label": "surface.finish",
+              "ms": 17.247235
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 172.709893
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 428.255728
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 184.559727
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 27.735782
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 225.234796
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 25.161238
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 2.984702
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 102.063664
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest3",
+          "ms": 1443.64289,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.049897
+            },
+            {
+              "label": "atlas.read",
+              "ms": 45.923626
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 612.284741
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.421262
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.117727
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.202845
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 0.969377
+            },
+            {
+              "label": "surface.finish",
+              "ms": 21.960757
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 161.966024
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 412.267766
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 178.78313
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 25.736367
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 214.560254
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 23.295401
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.082448
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 108.695132
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest4",
+          "ms": 955.684044,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.056277
+            },
+            {
+              "label": "atlas.read",
+              "ms": 57.694253
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 121.284976
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.506188
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.130652
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.292284
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 0.116634
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.345879
+            },
+            {
+              "label": "surface.append.tree4",
+              "ms": 1.07368
+            },
+            {
+              "label": "surface.finish",
+              "ms": 11.027265
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 159.673031
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 415.916589
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 178.772999
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 27.107955
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 222.065585
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 23.500085
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.079596
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 114.068737
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest5",
+          "ms": 1152.528963,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.046262
+            },
+            {
+              "label": "atlas.read",
+              "ms": 57.303547
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 118.215365
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.6638
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.120613
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.384747
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 0.121444
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.326831
+            },
+            {
+              "label": "surface.append.tree4",
+              "ms": 0.14111
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.466459
+            },
+            {
+              "label": "surface.append.tree5",
+              "ms": 1.016895
+            },
+            {
+              "label": "surface.finish",
+              "ms": 10.6488
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 161.181151
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 614.285164
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 179.062149
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 26.51062
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 220.870791
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 23.157223
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.084562
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 306.954655
+            }
+          ]
+        }
+      ],
+      "cache": [
+        {
+          "reused": 0,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 1
+        },
+        {
+          "reused": 1,
+          "rebuilt": 2
+        },
+        {
+          "reused": 3,
+          "rebuilt": 1
+        },
+        {
+          "reused": 4,
+          "rebuilt": 1
+        }
+      ],
+      "counters": [
+        "materials=[0, 0, 148086, 0, 0, 0, 0, 1248868, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=Ginkgo cones=1074 candidates=1396954 distance_tests=1500328596 regions=48 bytes=59655104",
+        "materials=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=0 distance_tests=0 regions=1 bytes=73788",
+        "materials=[0, 0, 172, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=172 distance_tests=43000 regions=1 bytes=74046",
+        "cache_miss tree=1 changed_materials=208 minimum_distance_voxels=151.77872",
+        "materials=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=0 distance_tests=0 regions=1 bytes=100450",
+        "materials=[0, 0, 34, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=34 distance_tests=8500 regions=1 bytes=92160"
+      ],
+      "replay": [
+        "points=1396954 build_ms=0.250608 query_ms=692.449771 mismatches=0",
+        "boundary_fixtures=4296 mismatches=0",
+        "points=0 build_ms=0.050918 query_ms=0.000033 mismatches=0",
+        "boundary_fixtures=1000 mismatches=0",
+        "points=172 build_ms=0.047367 query_ms=0.093686 mismatches=0",
+        "boundary_fixtures=1000 mismatches=0",
+        "points=0 build_ms=0.045939 query_ms=0.000032 mismatches=0",
+        "boundary_fixtures=1000 mismatches=0",
+        "points=34 build_ms=0.047342 query_ms=0.022120 mismatches=0",
+        "boundary_fixtures=1000 mismatches=0"
+      ],
+      "summary": [
+        {
+          "label": "plant.space_clear",
+          "count": 5,
+          "inclusiveMs": 26583.808988000004,
+          "exclusiveMs": 25619.296169999998
+        },
+        {
+          "label": "terrain.collider_import",
+          "count": 145,
+          "inclusiveMs": 3663.478577,
+          "exclusiveMs": 3663.478577
+        },
+        {
+          "label": "courtyard.initialize_walls_and_soil",
+          "count": 1,
+          "inclusiveMs": 1846.507173,
+          "exclusiveMs": 1752.210254
+        },
+        {
+          "label": "surface.append.tree1",
+          "count": 5,
+          "inclusiveMs": 1697.6949800000002,
+          "exclusiveMs": 1681.8660300000001
+        },
+        {
+          "label": "loading.step.terrain",
+          "count": 32,
+          "inclusiveMs": 3385.182149,
+          "exclusiveMs": 1538.6749760000005
+        },
+        {
+          "label": "surface.scene_bvh",
+          "count": 5,
+          "inclusiveMs": 1108.551884,
+          "exclusiveMs": 1108.551884
+        },
+        {
+          "label": "surface.physics_collision",
+          "count": 5,
+          "inclusiveMs": 904.2157030000001,
+          "exclusiveMs": 904.2157030000001
+        },
+        {
+          "label": "surface.gpu_upload",
+          "count": 5,
+          "inclusiveMs": 737.150142,
+          "exclusiveMs": 737.150142
+        },
+        {
+          "label": "atlas.transfer_wait",
+          "count": 79,
+          "inclusiveMs": 735.87378,
+          "exclusiveMs": 735.87378
+        },
+        {
+          "label": "diagnostic.clearance_bvh_replay",
+          "count": 5,
+          "inclusiveMs": 693.049847,
+          "exclusiveMs": 693.049847
+        },
+        {
+          "label": "surface.bind_and_cpu_plan",
+          "count": 5,
+          "inclusiveMs": 825.250701,
+          "exclusiveMs": 424.661608
+        },
+        {
+          "label": "surface.mesh_bind",
+          "count": 5,
+          "inclusiveMs": 400.589093,
+          "exclusiveMs": 400.589093
+        },
+        {
+          "label": "garden.establish",
+          "count": 1,
+          "inclusiveMs": 34317.378844,
+          "exclusiveMs": 341.19910099999834
+        },
+        {
+          "label": "tree.apply_placement",
+          "count": 5,
+          "inclusiveMs": 7343.290493,
+          "exclusiveMs": 288.35583499999973
+        },
+        {
+          "label": "surface.prepare_gpu_publication",
+          "count": 5,
+          "inclusiveMs": 2288.450023,
+          "exclusiveMs": 193.29273799999993
+        },
+        {
+          "label": "models.warmup_record_commands",
+          "count": 209,
+          "inclusiveMs": 190.56389,
+          "exclusiveMs": 190.56389
+        },
+        {
+          "label": "tree.trunk_transaction",
+          "count": 5,
+          "inclusiveMs": 502.318073,
+          "exclusiveMs": 174.50291900000008
+        },
+        {
+          "label": "tree.canopy_descriptor",
+          "count": 5,
+          "inclusiveMs": 169.548233,
+          "exclusiveMs": 169.548233
+        },
+        {
+          "label": "tree.leaf_sprays",
+          "count": 31,
+          "inclusiveMs": 130.88670900000002,
+          "exclusiveMs": 130.88670900000002
+        },
+        {
+          "label": "surface.gpu_skin",
+          "count": 5,
+          "inclusiveMs": 125.29593200000001,
+          "exclusiveMs": 125.29593200000001
+        },
+        {
+          "label": "surface.lookup_tables",
+          "count": 5,
+          "inclusiveMs": 120.849725,
+          "exclusiveMs": 120.849725
+        },
+        {
+          "label": "atlas.host_copy",
+          "count": 79,
+          "inclusiveMs": 112.28956,
+          "exclusiveMs": 112.28956
+        },
+        {
+          "label": "terrain.physical_advance",
+          "count": 60,
+          "inclusiveMs": 111.06048199999998,
+          "exclusiveMs": 111.06048199999998
+        },
+        {
+          "label": "surface.finish",
+          "count": 5,
+          "inclusiveMs": 86.05541,
+          "exclusiveMs": 86.05541
+        },
+        {
+          "label": "leaves.response_members",
+          "count": 5,
+          "inclusiveMs": 64.58260899999999,
+          "exclusiveMs": 64.58260899999999
+        },
+        {
+          "label": "leaves.shadow_proxies",
+          "count": 5,
+          "inclusiveMs": 61.998107000000005,
+          "exclusiveMs": 61.998107000000005
+        },
+        {
+          "label": "tree.quantize_render_leaves",
+          "count": 5,
+          "inclusiveMs": 37.30822,
+          "exclusiveMs": 37.30822
+        },
+        {
+          "label": "diagnostic.clearance_boundary_fixtures",
+          "count": 5,
+          "inclusiveMs": 29.701671,
+          "exclusiveMs": 29.701671
+        },
+        {
+          "label": "atlas.read",
+          "count": 79,
+          "inclusiveMs": 875.3843289999999,
+          "exclusiveMs": 27.220989
+        },
+        {
+          "label": "diagnostic.cache_material_diff",
+          "count": 1,
+          "inclusiveMs": 15.82895,
+          "exclusiveMs": 15.82895
+        },
+        {
+          "label": "tree.publish_leaves",
+          "count": 5,
+          "inclusiveMs": 145.98795399999997,
+          "exclusiveMs": 11.380773999999974
+        },
+        {
+          "label": "surface.prepare.forest2",
+          "count": 1,
+          "inclusiveMs": 997.080568,
+          "exclusiveMs": 10.218584999999962
+        },
+        {
+          "label": "surface.prepare.forest1",
+          "count": 1,
+          "inclusiveMs": 1602.991595,
+          "exclusiveMs": 9.842326999999841
+        },
+        {
+          "label": "surface.prepare.forest4",
+          "count": 1,
+          "inclusiveMs": 955.684044,
+          "exclusiveMs": 8.793336999999951
+        },
+        {
+          "label": "surface.prepare.forest3",
+          "count": 1,
+          "inclusiveMs": 1443.64289,
+          "exclusiveMs": 8.69573800000012
+        },
+        {
+          "label": "surface.prepare.forest5",
+          "count": 1,
+          "inclusiveMs": 1152.528963,
+          "exclusiveMs": 8.54462599999988
+        },
+        {
+          "label": "leaves.build_gpu_instances",
+          "count": 5,
+          "inclusiveMs": 8.026464,
+          "exclusiveMs": 8.026464
+        },
+        {
+          "label": "tree.compile_placement",
+          "count": 5,
+          "inclusiveMs": 254.70057100000002,
+          "exclusiveMs": 5.192197999999989
+        },
+        {
+          "label": "loading.step.colliders",
+          "count": 145,
+          "inclusiveMs": 3667.7823509999985,
+          "exclusiveMs": 4.30377400000002
+        },
+        {
+          "label": "startup.population",
+          "count": 1,
+          "inclusiveMs": 34321.491053,
+          "exclusiveMs": 4.112208999998984
+        },
+        {
+          "label": "surface.gpu_allocate",
+          "count": 5,
+          "inclusiveMs": 3.309602,
+          "exclusiveMs": 3.309602
+        },
+        {
+          "label": "courtyard.ginkgo",
+          "count": 1,
+          "inclusiveMs": 29003.927349,
+          "exclusiveMs": 1.7754789999999048
+        },
+        {
+          "label": "courtyard.root_soil",
+          "count": 1,
+          "inclusiveMs": 24.086034,
+          "exclusiveMs": 1.5115189999999998
+        },
+        {
+          "label": "surface.append.tree2",
+          "count": 4,
+          "inclusiveMs": 1.3801619999999999,
+          "exclusiveMs": 1.3801619999999999
+        },
+        {
+          "label": "loading.step.building",
+          "count": 32,
+          "inclusiveMs": 68.871925,
+          "exclusiveMs": 1.3503149999999988
+        },
+        {
+          "label": "surface.append.tree4",
+          "count": 2,
+          "inclusiveMs": 1.21479,
+          "exclusiveMs": 1.21479
+        },
+        {
+          "label": "surface.append.tree3",
+          "count": 3,
+          "inclusiveMs": 1.207455,
+          "exclusiveMs": 1.207455
+        },
+        {
+          "label": "surface.append.tree5",
+          "count": 1,
+          "inclusiveMs": 1.016895,
+          "exclusiveMs": 1.016895
+        },
+        {
+          "label": "tree.axes",
+          "count": 31,
+          "inclusiveMs": 0.8626450000000004,
+          "exclusiveMs": 0.8626450000000004
+        },
+        {
+          "label": "tree.generate.Ginkgo.Veteran",
+          "count": 6,
+          "inclusiveMs": 130.689157,
+          "exclusiveMs": 0.3873699999999971
+        },
+        {
+          "label": "tree.generate.AppleTree.Standard",
+          "count": 25,
+          "inclusiveMs": 1.75282,
+          "exclusiveMs": 0.30525300000000005
+        },
+        {
+          "label": "surface.wait_idle",
+          "count": 5,
+          "inclusiveMs": 0.24012599999999998,
+          "exclusiveMs": 0.24012599999999998
+        },
+        {
+          "label": "plant.AppleTree",
+          "count": 4,
+          "inclusiveMs": 4971.668185,
+          "exclusiveMs": 0.08326099999999315
+        },
+        {
+          "label": "plant.mature_bounds",
+          "count": 5,
+          "inclusiveMs": 23.364682999999996,
+          "exclusiveMs": 0.0450049999999984
+        },
+        {
+          "label": "plant.Ginkgo",
+          "count": 1,
+          "inclusiveMs": 28978.899902,
+          "exclusiveMs": 0.020661999998992542
+        }
+      ]
+    },
+    {
+      "name": "replay-seed7.log.gz",
+      "readyMs": 49119.7,
+      "pipelineCache": "hit",
+      "userSeconds": 46.56,
+      "systemSeconds": 2.24,
+      "stages": [
+        {
+          "stage": "window_vulkan",
+          "ms": 176.7
+        },
+        {
+          "stage": "swapchain_gui",
+          "ms": 6.5
+        },
+        {
+          "stage": "terrain_builders",
+          "ms": 293
+        },
+        {
+          "stage": "spatial_audio",
+          "ms": 80.4
+        },
+        {
+          "stage": "shader_modules",
+          "ms": 146.3
+        },
+        {
+          "stage": "renderer_resources",
+          "ms": 121.5
+        },
+        {
+          "stage": "compute_pipelines",
+          "ms": 115.2
+        },
+        {
+          "stage": "graphics_pipelines",
+          "ms": 28.6
+        },
+        {
+          "stage": "renderer_geometry",
+          "ms": 0.7
+        },
+        {
+          "stage": "scene_services",
+          "ms": 40
+        },
+        {
+          "stage": "terrain_and_model_caches",
+          "ms": 7407.5
+        },
+        {
+          "stage": "world_population_and_lighting",
+          "ms": 39717.8
+        },
+        {
+          "stage": "first_frame",
+          "ms": 985.4
+        }
+      ],
+      "partition": [
+        {
+          "key": "admission",
+          "name": "种植障碍检查",
+          "ms": 30028.109245000003
+        },
+        {
+          "key": "surfaces",
+          "name": "五次树木表面准备",
+          "ms": 7989.627654
+        },
+        {
+          "key": "terrain",
+          "name": "地形、模型预热与初始碰撞体",
+          "ms": 7407.5
+        },
+        {
+          "key": "init",
+          "name": "窗口、Vulkan、渲染器等初始化",
+          "ms": 1008.9999999999942
+        },
+        {
+          "key": "first_frame",
+          "name": "首帧准备与等待",
+          "ms": 985.4
+        },
+        {
+          "key": "other_population",
+          "name": "其它庭院填充、音频、提交与准备",
+          "ms": 787.8936899999995
+        },
+        {
+          "key": "trunks",
+          "name": "树干事务（地形写入及可见发布）",
+          "ms": 518.966393
+        },
+        {
+          "key": "placement_compile",
+          "name": "树形与放置数据编译",
+          "ms": 251.62703400000004
+        },
+        {
+          "key": "leaves",
+          "name": "叶片发布",
+          "ms": 141.57598399999998
+        }
+      ],
+      "admission": [
+        {
+          "ms": 30018.172241,
+          "generateMs": 23.53624,
+          "readMs": 483.1357960000001,
+          "cpuScanAndDistanceMs": 29010.842271
+        },
+        {
+          "ms": 2.307222,
+          "generateMs": 0.053434,
+          "readMs": 0.556633,
+          "cpuScanAndDistanceMs": 0.07931999999999961
+        },
+        {
+          "ms": 2.805799,
+          "generateMs": 0.053344,
+          "readMs": 0.697842,
+          "cpuScanAndDistanceMs": 0.37434699999999976
+        },
+        {
+          "ms": 2.35118,
+          "generateMs": 0.064383,
+          "readMs": 0.590077,
+          "cpuScanAndDistanceMs": 0.08239399999999986
+        },
+        {
+          "ms": 2.472803,
+          "generateMs": 0.055212,
+          "readMs": 0.493881,
+          "cpuScanAndDistanceMs": 0.13121599999999978
+        }
+      ],
+      "forest": [
+        {
+          "label": "surface.prepare.forest1",
+          "ms": 1573.946412,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.045262
+            },
+            {
+              "label": "atlas.read",
+              "ms": 75.104047
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 756.007987
+            },
+            {
+              "label": "surface.finish",
+              "ms": 14.903966
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 97.658485
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 422.740395
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 197.383811
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 28.441169
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 225.473999
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 24.105424
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.085766
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 105.138383
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest2",
+          "ms": 1674.044931,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.043285
+            },
+            {
+              "label": "atlas.read",
+              "ms": 65.054355
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 728.706264
+            },
+            {
+              "label": "atlas.read",
+              "ms": 1.066287
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 1.033777
+            },
+            {
+              "label": "surface.finish",
+              "ms": 18.112824
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 97.794462
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 549.156901
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 202.383468
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 28.911316
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 219.06143
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 24.551312
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 4.333486
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 230.058104
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest3",
+          "ms": 1532.875383,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.124503
+            },
+            {
+              "label": "atlas.read",
+              "ms": 50.188698
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 739.392048
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.528001
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.163243
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.410379
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 1.061614
+            },
+            {
+              "label": "surface.finish",
+              "ms": 10.897137
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 97.583949
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 424.131084
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 201.161105
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 28.277686
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 220.601049
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 27.396911
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.08734
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 109.714325
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest4",
+          "ms": 1689.763169,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.04429
+            },
+            {
+              "label": "atlas.read",
+              "ms": 49.535837
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 721.492462
+            },
+            {
+              "label": "atlas.read",
+              "ms": 1.018287
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.193184
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.717489
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 0.179928
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.816577
+            },
+            {
+              "label": "surface.append.tree4",
+              "ms": 1.267187
+            },
+            {
+              "label": "surface.finish",
+              "ms": 10.463587
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 97.623768
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 599.836806
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 199.58499
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 27.823073
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 221.996364
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 24.683392
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.083608
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 289.234269
+            }
+          ]
+        },
+        {
+          "label": "surface.prepare.forest5",
+          "ms": 1518.997759,
+          "components": [
+            {
+              "label": "surface.wait_idle",
+              "ms": 0.041604
+            },
+            {
+              "label": "atlas.read",
+              "ms": 63.869423
+            },
+            {
+              "label": "surface.append.tree1",
+              "ms": 711.663452
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.543467
+            },
+            {
+              "label": "surface.append.tree2",
+              "ms": 0.177306
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.32265
+            },
+            {
+              "label": "surface.append.tree3",
+              "ms": 0.14848
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.280558
+            },
+            {
+              "label": "surface.append.tree4",
+              "ms": 0.176134
+            },
+            {
+              "label": "atlas.read",
+              "ms": 0.264794
+            },
+            {
+              "label": "surface.append.tree5",
+              "ms": 0.94593
+            },
+            {
+              "label": "surface.finish",
+              "ms": 11.23033
+            },
+            {
+              "label": "surface.bind_and_cpu_plan",
+              "ms": 98.507146
+            },
+            {
+              "label": "surface.prepare_gpu_publication",
+              "ms": 423.035485
+            },
+            {
+              "label": "surface.physics_collision",
+              "ms": 198.990436
+            }
+          ],
+          "publication": [
+            {
+              "label": "surface.gpu_skin",
+              "ms": 27.325928
+            },
+            {
+              "label": "surface.scene_bvh",
+              "ms": 223.22448
+            },
+            {
+              "label": "surface.lookup_tables",
+              "ms": 27.029831
+            },
+            {
+              "label": "surface.gpu_allocate",
+              "ms": 0.083974
+            },
+            {
+              "label": "surface.gpu_upload",
+              "ms": 108.58756
+            }
+          ]
+        }
+      ],
+      "cache": [
+        {
+          "reused": 0,
+          "rebuilt": 1
+        },
+        {
+          "reused": 0,
+          "rebuilt": 2
+        },
+        {
+          "reused": 1,
+          "rebuilt": 2
+        },
+        {
+          "reused": 2,
+          "rebuilt": 2
+        },
+        {
+          "reused": 3,
+          "rebuilt": 2
+        }
+      ],
+      "counters": [
+        "materials=[0, 0, 134256, 0, 0, 0, 0, 1483056, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=Ginkgo cones=1074 candidates=1617312 distance_tests=1736993088 regions=64 bytes=66287760",
+        "materials=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=0 distance_tests=0 regions=1 bytes=90945",
+        "materials=[0, 0, 65, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=65 distance_tests=16250 regions=1 bytes=88872",
+        "materials=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=0 distance_tests=0 regions=1 bytes=103275",
+        "materials=[0, 0, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]",
+        "admission species=AppleTree cones=250 candidates=15 distance_tests=3750 regions=1 bytes=67158"
+      ],
+      "replay": [
+        "points=1617312 build_ms=0.244912 query_ms=477.443816 mismatches=0",
+        "boundary_fixtures=4296 mismatches=0",
+        "points=0 build_ms=0.048580 query_ms=0.000031 mismatches=0",
+        "boundary_fixtures=1000 mismatches=0",
+        "points=65 build_ms=0.065593 query_ms=0.052476 mismatches=0",
+        "boundary_fixtures=1000 mismatches=0",
+        "points=0 build_ms=0.049864 query_ms=0.000032 mismatches=0",
+        "boundary_fixtures=1000 mismatches=0",
+        "points=15 build_ms=0.049930 query_ms=0.017175 mismatches=0",
+        "boundary_fixtures=1000 mismatches=0"
+      ],
+      "summary": [
+        {
+          "label": "plant.space_clear",
+          "count": 5,
+          "inclusiveMs": 30028.109245000003,
+          "exclusiveMs": 29011.509548000005
+        },
+        {
+          "label": "surface.append.tree1",
+          "count": 5,
+          "inclusiveMs": 3657.262213,
+          "exclusiveMs": 3657.262213
+        },
+        {
+          "label": "terrain.collider_import",
+          "count": 141,
+          "inclusiveMs": 3549.1129280000005,
+          "exclusiveMs": 3549.1129280000005
+        },
+        {
+          "label": "courtyard.initialize_walls_and_soil",
+          "count": 1,
+          "inclusiveMs": 1721.05978,
+          "exclusiveMs": 1627.967576
+        },
+        {
+          "label": "loading.step.terrain",
+          "count": 32,
+          "inclusiveMs": 3241.217011,
+          "exclusiveMs": 1520.1572310000001
+        },
+        {
+          "label": "atlas.transfer_wait",
+          "count": 94,
+          "inclusiveMs": 1116.9020450000003,
+          "exclusiveMs": 1116.9020450000003
+        },
+        {
+          "label": "surface.scene_bvh",
+          "count": 5,
+          "inclusiveMs": 1110.357322,
+          "exclusiveMs": 1110.357322
+        },
+        {
+          "label": "surface.physics_collision",
+          "count": 5,
+          "inclusiveMs": 999.5038100000002,
+          "exclusiveMs": 999.5038100000002
+        },
+        {
+          "label": "surface.gpu_upload",
+          "count": 5,
+          "inclusiveMs": 842.7326409999998,
+          "exclusiveMs": 842.7326409999998
+        },
+        {
+          "label": "diagnostic.clearance_bvh_replay",
+          "count": 5,
+          "inclusiveMs": 478.007367,
+          "exclusiveMs": 478.007367
+        },
+        {
+          "label": "garden.establish",
+          "count": 1,
+          "inclusiveMs": 39713.795886,
+          "exclusiveMs": 463.3900349999967
+        },
+        {
+          "label": "surface.bind_and_cpu_plan",
+          "count": 5,
+          "inclusiveMs": 489.16781000000003,
+          "exclusiveMs": 431.003439
+        },
+        {
+          "label": "tree.apply_placement",
+          "count": 5,
+          "inclusiveMs": 9172.903728,
+          "exclusiveMs": 271.106663
+        },
+        {
+          "label": "surface.prepare_gpu_publication",
+          "count": 5,
+          "inclusiveMs": 2418.900671,
+          "exclusiveMs": 192.59049199999993
+        },
+        {
+          "label": "models.warmup_record_commands",
+          "count": 205,
+          "inclusiveMs": 188.05391300000016,
+          "exclusiveMs": 188.05391300000016
+        },
+        {
+          "label": "tree.canopy_descriptor",
+          "count": 5,
+          "inclusiveMs": 166.446707,
+          "exclusiveMs": 166.446707
+        },
+        {
+          "label": "surface.gpu_skin",
+          "count": 5,
+          "inclusiveMs": 140.77917200000002,
+          "exclusiveMs": 140.77917200000002
+        },
+        {
+          "label": "tree.leaf_sprays",
+          "count": 31,
+          "inclusiveMs": 130.76175800000001,
+          "exclusiveMs": 130.76175800000001
+        },
+        {
+          "label": "surface.lookup_tables",
+          "count": 5,
+          "inclusiveMs": 127.76687,
+          "exclusiveMs": 127.76687
+        },
+        {
+          "label": "tree.trunk_transaction",
+          "count": 5,
+          "inclusiveMs": 518.966393,
+          "exclusiveMs": 114.20440300000014
+        },
+        {
+          "label": "atlas.host_copy",
+          "count": 94,
+          "inclusiveMs": 107.436834,
+          "exclusiveMs": 107.436834
+        },
+        {
+          "label": "terrain.physical_advance",
+          "count": 49,
+          "inclusiveMs": 86.033083,
+          "exclusiveMs": 86.033083
+        },
+        {
+          "label": "surface.finish",
+          "count": 5,
+          "inclusiveMs": 65.607844,
+          "exclusiveMs": 65.607844
+        },
+        {
+          "label": "leaves.response_members",
+          "count": 5,
+          "inclusiveMs": 61.655589,
+          "exclusiveMs": 61.655589
+        },
+        {
+          "label": "leaves.shadow_proxies",
+          "count": 5,
+          "inclusiveMs": 61.368309,
+          "exclusiveMs": 61.368309
+        },
+        {
+          "label": "surface.mesh_bind",
+          "count": 5,
+          "inclusiveMs": 58.164370999999996,
+          "exclusiveMs": 58.164370999999996
+        },
+        {
+          "label": "tree.quantize_render_leaves",
+          "count": 5,
+          "inclusiveMs": 36.307619,
+          "exclusiveMs": 36.307619
+        },
+        {
+          "label": "diagnostic.clearance_boundary_fixtures",
+          "count": 5,
+          "inclusiveMs": 29.355488,
+          "exclusiveMs": 29.355488
+        },
+        {
+          "label": "atlas.read",
+          "count": 94,
+          "inclusiveMs": 1246.0203090000002,
+          "exclusiveMs": 21.68142999999995
+        },
+        {
+          "label": "tree.publish_leaves",
+          "count": 5,
+          "inclusiveMs": 141.57598399999998,
+          "exclusiveMs": 10.974399999999994
+        },
+        {
+          "label": "surface.prepare.forest2",
+          "count": 1,
+          "inclusiveMs": 1674.044931,
+          "exclusiveMs": 10.693307999999888
+        },
+        {
+          "label": "surface.prepare.forest1",
+          "count": 1,
+          "inclusiveMs": 1573.946412,
+          "exclusiveMs": 10.10245900000018
+        },
+        {
+          "label": "surface.prepare.forest5",
+          "count": 1,
+          "inclusiveMs": 1518.997759,
+          "exclusiveMs": 8.800563999999895
+        },
+        {
+          "label": "leaves.build_gpu_instances",
+          "count": 5,
+          "inclusiveMs": 7.577686,
+          "exclusiveMs": 7.577686
+        },
+        {
+          "label": "surface.prepare.forest3",
+          "count": 1,
+          "inclusiveMs": 1532.875383,
+          "exclusiveMs": 7.2336219999999685
+        },
+        {
+          "label": "surface.prepare.forest4",
+          "count": 1,
+          "inclusiveMs": 1689.763169,
+          "exclusiveMs": 6.988777000000027
+        },
+        {
+          "label": "tree.compile_placement",
+          "count": 5,
+          "inclusiveMs": 251.62703400000004,
+          "exclusiveMs": 6.329702000000013
+        },
+        {
+          "label": "surface.gpu_allocate",
+          "count": 5,
+          "inclusiveMs": 4.674173999999999,
+          "exclusiveMs": 4.674173999999999
+        },
+        {
+          "label": "startup.population",
+          "count": 1,
+          "inclusiveMs": 39717.78719,
+          "exclusiveMs": 3.991304000002856
+        },
+        {
+          "label": "loading.step.colliders",
+          "count": 141,
+          "inclusiveMs": 3551.682442999998,
+          "exclusiveMs": 2.569515000000011
+        },
+        {
+          "label": "courtyard.ginkgo",
+          "count": 1,
+          "inclusiveMs": 32547.88774,
+          "exclusiveMs": 1.8701969999965513
+        },
+        {
+          "label": "surface.append.tree2",
+          "count": 4,
+          "inclusiveMs": 1.56751,
+          "exclusiveMs": 1.56751
+        },
+        {
+          "label": "surface.append.tree4",
+          "count": 2,
+          "inclusiveMs": 1.443321,
+          "exclusiveMs": 1.443321
+        },
+        {
+          "label": "surface.append.tree3",
+          "count": 3,
+          "inclusiveMs": 1.390022,
+          "exclusiveMs": 1.390022
+        },
+        {
+          "label": "courtyard.root_soil",
+          "count": 1,
+          "inclusiveMs": 23.3362,
+          "exclusiveMs": 1.367473000000004
+        },
+        {
+          "label": "loading.step.building",
+          "count": 32,
+          "inclusiveMs": 60.09054599999998,
+          "exclusiveMs": 1.2265130000000006
+        },
+        {
+          "label": "surface.append.tree5",
+          "count": 1,
+          "inclusiveMs": 0.94593,
+          "exclusiveMs": 0.94593
+        },
+        {
+          "label": "tree.axes",
+          "count": 31,
+          "inclusiveMs": 0.8649779999999998,
+          "exclusiveMs": 0.8649779999999998
+        },
+        {
+          "label": "tree.generate.Ginkgo.Veteran",
+          "count": 6,
+          "inclusiveMs": 130.553738,
+          "exclusiveMs": 0.3530549999999941
+        },
+        {
+          "label": "surface.wait_idle",
+          "count": 5,
+          "inclusiveMs": 0.298944,
+          "exclusiveMs": 0.298944
+        },
+        {
+          "label": "tree.generate.AppleTree.Standard",
+          "count": 25,
+          "inclusiveMs": 1.717394,
+          "exclusiveMs": 0.291341
+        },
+        {
+          "label": "plant.AppleTree",
+          "count": 4,
+          "inclusiveMs": 6701.940426,
+          "exclusiveMs": 0.06860800000004019
+        },
+        {
+          "label": "plant.Ginkgo",
+          "count": 1,
+          "inclusiveMs": 32522.781985,
+          "exclusiveMs": 0.029762999998638406
+        },
+        {
+          "label": "plant.mature_bounds",
+          "count": 5,
+          "inclusiveMs": 23.611067,
+          "exclusiveMs": 0.02715199999999835
+        }
+      ]
+    }
+  ]
+}
