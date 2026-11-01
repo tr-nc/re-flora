@@ -64,6 +64,27 @@ impl VisibleTerrainChange {
         }
     }
 
+    fn grass_regions(&self) -> Result<Vec<UAabb3>> {
+        match &self.rebuild {
+            VisibleTerrainRebuild::PreserveFlora { bound, .. } => Ok(vec![*bound]),
+            VisibleTerrainRebuild::BuildEdits(edits) => {
+                let mut regions = Vec::new();
+                for edit in edits {
+                    match edit {
+                        BuildEdit::RebuildChunks(chunks)
+                        | BuildEdit::RebuildChunksWithoutFlora(chunks) => {
+                            for &chunk in chunks {
+                                regions.push(chunk_bound(&[chunk])?);
+                            }
+                        }
+                        _ => regions.push(build_edit_bound(edit)?),
+                    }
+                }
+                Ok(regions)
+            }
+        }
+    }
+
     fn affected_chunks(&self) -> Result<Vec<UVec3>> {
         let mut chunk_ids = match &self.rebuild {
             VisibleTerrainRebuild::BuildEdits(build_edits) => {
@@ -144,7 +165,7 @@ pub(super) trait VisibleTerrainPublicationHost {
         &mut self,
         publication: &mut physical_visible_terrain::PhysicalTerrainPublication,
     ) -> Result<physical_visible_terrain::PhysicalTerrainPublicationProgress>;
-    fn reconcile_grass_terrain(&mut self, affected_voxels: UAabb3) -> Result<()>;
+    fn reconcile_grass_terrain(&mut self, regions: &[UAabb3]) -> Result<()>;
     fn emissive_observe_change(&mut self, affected_voxels: UAabb3) -> Result<()>;
     fn invalidate_direct_sun_shadows(&mut self);
     fn visible_terrain_revision(&self) -> u32;
@@ -174,6 +195,7 @@ pub(super) struct VisibleTerrainPublication {
     physically_published_chunks: usize,
     chunk_count: usize,
     affected_voxels: UAabb3,
+    grass_regions: Vec<UAabb3>,
     terrain_changed: bool,
     mutation_elapsed: Duration,
     changed_revision: Option<u32>,
@@ -197,6 +219,7 @@ impl VisibleTerrainPublication {
         kind: VisibleTerrainPublicationKind,
     ) -> Result<Self> {
         let chunk_ids = change.affected_chunks()?;
+        let grass_regions = change.grass_regions()?;
         let physical = match change.rebuild {
             VisibleTerrainRebuild::BuildEdits(build_edits) => build_edits
                 .into_iter()
@@ -224,6 +247,7 @@ impl VisibleTerrainPublication {
             change.affected_voxels,
             change.terrain_changed,
             change.mutation_elapsed,
+            grass_regions,
         ))
     }
 
@@ -245,6 +269,7 @@ impl VisibleTerrainPublication {
             affected_voxels,
             false,
             Duration::ZERO,
+            Vec::new(),
         ))
     }
 
@@ -255,6 +280,7 @@ impl VisibleTerrainPublication {
         affected_voxels: UAabb3,
         terrain_changed: bool,
         mutation_elapsed: Duration,
+        grass_regions: Vec<UAabb3>,
     ) -> Self {
         debug_assert!(!physical.is_empty());
         Self {
@@ -264,6 +290,7 @@ impl VisibleTerrainPublication {
             physically_published_chunks: 0,
             chunk_count,
             affected_voxels,
+            grass_regions,
             terrain_changed,
             mutation_elapsed,
             changed_revision: None,
@@ -412,7 +439,7 @@ impl VisibleTerrainPublication {
     ) -> Result<()> {
         if self.terrain_changed {
             if self.kind == VisibleTerrainPublicationKind::Edit {
-                host.reconcile_grass_terrain(self.affected_voxels)?;
+                host.reconcile_grass_terrain(&self.grass_regions)?;
             }
             host.emissive_observe_change(self.affected_voxels)?;
         }
@@ -504,9 +531,9 @@ impl VisibleTerrainPublicationHost for App {
         ))
     }
 
-    fn reconcile_grass_terrain(&mut self, affected_voxels: UAabb3) -> Result<()> {
-        self.surface_builder.reconcile_grass_terrain(
-            affected_voxels,
+    fn reconcile_grass_terrain(&mut self, regions: &[UAabb3]) -> Result<()> {
+        self.surface_builder.reconcile_grass_terrain_regions(
+            regions,
             self.time_info.time_since_start_duration().as_millis() as u32,
         )
     }
@@ -727,7 +754,7 @@ mod tests {
             Ok(progress)
         }
 
-        fn reconcile_grass_terrain(&mut self, _affected_voxels: UAabb3) -> Result<()> {
+        fn reconcile_grass_terrain(&mut self, _regions: &[UAabb3]) -> Result<()> {
             self.events.push(Event::Grass);
             Ok(())
         }
@@ -822,6 +849,29 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn sparse_tree_publication_keeps_grass_validation_out_of_unmodified_chunks() {
+        let changed = [UVec3::new(0, 0, 0), UVec3::new(2, 0, 2)];
+        let change =
+            VisibleTerrainChange::from_build_edits(vec![BuildEdit::RebuildChunksWithoutFlora(
+                changed.to_vec(),
+            )])
+            .unwrap()
+            .unwrap();
+        let publication = VisibleTerrainPublication::edit(change).unwrap();
+        assert_eq!(publication.grass_regions.len(), 2);
+        for (region, chunk) in publication.grass_regions.iter().zip(changed) {
+            assert_eq!(region.min(), chunk * VOXEL_DIM_PER_CHUNK);
+            assert_eq!(region.max(), (chunk + UVec3::ONE) * VOXEL_DIM_PER_CHUNK);
+        }
+        let unrelated = Vec3::new(384., 128., 384.);
+        assert!(publication.affected_voxels.in_bound(unrelated.as_uvec3()));
+        assert!(!publication
+            .grass_regions
+            .iter()
+            .any(|r| r.in_bound(unrelated.as_uvec3())));
     }
 
     #[test]

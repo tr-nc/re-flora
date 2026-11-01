@@ -1478,37 +1478,56 @@ impl SurfaceBuilder {
     /// Independent survival stage. Bounds only choose candidates; deletion is
     /// decided from current atlas support and three voxels of contiguous cover.
     pub fn reconcile_grass_terrain(&mut self, changed: UAabb3, now_ms: u32) -> Result<()> {
-        self.soil_cover.terrain_changes.push(changed);
-        let min = changed.min().saturating_sub(UVec3::new(0, 3, 0));
-        let max = changed
-            .max()
-            .min(self.chunk_bound.max() * self.voxel_dim_per_chunk - UVec3::ONE);
-        let first = min / self.voxel_dim_per_chunk;
-        let last = max / self.voxel_dim_per_chunk;
-        for z in first.z..=last.z {
-            for y in first.y..=last.y {
-                for x in first.x..=last.x {
-                    let chunk = UVec3::new(x, y, z);
-                    let index = self.get_chunk_resource_index(chunk)?;
-                    let resources = &self.resources.instances.chunk_flora_instances[index].1;
-                    if resources.species_len(0) == 0 && resources.species_len(1) == 0 {
-                        continue;
+        self.reconcile_grass_terrain_regions(&[changed], now_ms)
+    }
+
+    /// Disjoint terrain edits must not validate grass in the gaps of their union
+    /// box. Keep the existing burial halo, but validate each candidate chunk once.
+    pub fn reconcile_grass_terrain_regions(
+        &mut self,
+        regions: &[UAabb3],
+        now_ms: u32,
+    ) -> Result<()> {
+        let mut chunks = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for &changed in regions {
+            self.soil_cover.terrain_changes.push(changed);
+            let min = changed.min().saturating_sub(UVec3::new(0, 3, 0));
+            let max = changed
+                .max()
+                .min(self.chunk_bound.max() * self.voxel_dim_per_chunk - UVec3::ONE);
+            let first = min / self.voxel_dim_per_chunk;
+            let last = max / self.voxel_dim_per_chunk;
+            for z in first.z..=last.z {
+                for y in first.y..=last.y {
+                    for x in first.x..=last.x {
+                        let chunk = UVec3::new(x, y, z);
+                        if seen.insert(chunk) {
+                            chunks.push(chunk);
+                        }
                     }
-                    self.run_occupancy_edit(
-                        chunk,
-                        Vec3::ZERO,
-                        Vec3::ZERO,
-                        0.,
-                        0,
-                        now_ms,
-                        0,
-                        species::FloraPaintSelection::GrassMix,
-                        0,
-                        species::GRASS_MIX_PAINT_BRUSH_SETTINGS,
-                        OccupancyEditMode::ValidateTerrain,
-                    )?;
                 }
             }
+        }
+        for chunk in chunks {
+            let index = self.get_chunk_resource_index(chunk)?;
+            let resources = &self.resources.instances.chunk_flora_instances[index].1;
+            if resources.species_len(0) == 0 && resources.species_len(1) == 0 {
+                continue;
+            }
+            self.run_occupancy_edit(
+                chunk,
+                Vec3::ZERO,
+                Vec3::ZERO,
+                0.,
+                0,
+                now_ms,
+                0,
+                species::FloraPaintSelection::GrassMix,
+                0,
+                species::GRASS_MIX_PAINT_BRUSH_SETTINGS,
+                OccupancyEditMode::ValidateTerrain,
+            )?;
         }
         Ok(())
     }
