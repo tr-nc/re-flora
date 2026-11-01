@@ -29,6 +29,20 @@ pub(super) fn planting_age(instant_mature: bool) -> f32 {
     }
 }
 
+// Admission bounds readback memory per batch, not the size of a valid tree.
+fn admission_regions(min: UVec3, max: UVec3) -> Vec<(UVec3, UVec3)> {
+    let mut regions = Vec::new();
+    for z in (min.z..max.z).step_by(128) {
+        for y in (min.y..max.y).step_by(128) {
+            for x in (min.x..max.x).step_by(128) {
+                let offset = UVec3::new(x, y, z);
+                regions.push((offset, (max - offset).min(UVec3::splat(128))));
+            }
+        }
+    }
+    regions
+}
+
 fn age_at(seconds: f32) -> f32 {
     let age = SAPLING_AGE + (1. - SAPLING_AGE) * (seconds / MATURATION_SECONDS).clamp(0., 1.);
     (age * AGE_STEPS).floor() / AGE_STEPS
@@ -167,27 +181,29 @@ impl App {
         let min = low.floor().as_uvec3();
         let max = high.ceil().as_uvec3().min(extent);
         let dim = max - min;
-        if dim.min_element() == 0 || dim.as_dvec3().element_product() > 8. * 1024. * 1024. {
+        if dim.min_element() == 0 {
             return Ok(false);
         }
-        let data = self.plain_builder.read_chunk_atlas_region(min, dim)?;
         let base_y = (position.y * 256.).floor() as u32;
-        for z in 0..dim.z {
-            for y in 0..dim.y {
-                for x in 0..dim.x {
-                    let material = data[((z * dim.y + y) * dim.x + x) as usize] & 15;
-                    let p = min + UVec3::new(x, y, z);
-                    if material == 0
-                        || material == VOXEL_TYPE_CHERRY_WOOD as u8
-                        || (material == crate::builder::VOXEL_TYPE_DIRT as u8 && p.y <= base_y)
-                    {
-                        continue;
-                    }
-                    if cones
-                        .iter()
-                        .any(|c| c.signed_distance(p.as_vec3() + Vec3::splat(0.5)) <= 0.)
-                    {
-                        return Ok(false);
+        for (offset, dim) in admission_regions(min, max) {
+            let data = self.plain_builder.read_chunk_atlas_region(offset, dim)?;
+            for z in 0..dim.z {
+                for y in 0..dim.y {
+                    for x in 0..dim.x {
+                        let material = data[((z * dim.y + y) * dim.x + x) as usize] & 15;
+                        let p = offset + UVec3::new(x, y, z);
+                        if material == 0
+                            || material == VOXEL_TYPE_CHERRY_WOOD as u8
+                            || (material == crate::builder::VOXEL_TYPE_DIRT as u8 && p.y <= base_y)
+                        {
+                            continue;
+                        }
+                        if cones
+                            .iter()
+                            .any(|c| c.signed_distance(p.as_vec3() + Vec3::splat(0.5)) <= 0.)
+                        {
+                            return Ok(false);
+                        }
                     }
                 }
             }
@@ -403,6 +419,26 @@ pub(super) fn validate_growth(age: f32, elapsed: Option<f32>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn large_tree_admission_covers_every_voxel_once_with_bounded_readbacks() {
+        for size in [UVec3::new(11, 7, 13), UVec3::new(141, 262, 319)] {
+            let min = UVec3::new(9, 37, 51);
+            let max = min + size;
+            let regions = admission_regions(min, max);
+            let mut volume = 0_u64;
+            for (i, &(offset, dim)) in regions.iter().enumerate() {
+                assert!(offset.cmpge(min).all() && (offset + dim).cmple(max).all());
+                assert!(dim.cmpgt(UVec3::ZERO).all() && dim.cmple(UVec3::splat(128)).all());
+                volume += dim.x as u64 * dim.y as u64 * dim.z as u64;
+                for &(other, extent) in &regions[..i] {
+                    assert!(
+                        !(offset.cmplt(other + extent).all() && other.cmplt(offset + dim).all())
+                    );
+                }
+            }
+            assert_eq!(volume, size.x as u64 * size.y as u64 * size.z as u64);
+        }
+    }
     #[test]
     fn growth_is_monotonic_bounded_staged_and_reaches_exact_maturity() {
         let ages = (0..=900).map(|s| age_at(s as f32)).collect::<Vec<_>>();
