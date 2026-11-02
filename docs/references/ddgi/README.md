@@ -15,6 +15,10 @@ removed at the project owner's request. This removes the current-tree copies,
 not historical Git objects. Do not add paper originals or full-text conversions;
 record their titles and official links instead.
 
+## Focused research
+
+- [Direct illumination in DDGI and shared light fields](direct-light-in-fields-research.md) — area-light emission in the original paper, later research, engine applications, and the limits of light-count-independent shading. [Visual summary](../../reports/ddgi-direct-light/index.html).
+
 ## Related implementation references
 
 - [Adding global illumination to my game engine w/ DDGI [Voxel Devlog #23]](https://www.youtube.com/watch?v=L1vhle74AEU), by Douglas — a voxel-engine DDGI integration walkthrough.

@@ -64,6 +64,10 @@ Important details:
 
 The paper uses an axis-aligned uniform 3D grid and associates each shading point with the eight vertices of its containing cell. It recommends at least one complete eight-probe cage inside each room-like region. For human-scale scenes, the authors found roughly 1–2 m spacing sufficient in their tests. That is empirical guidance, not a guarantee: the query still assumes surrounding probes capture comparable incident light when mutually visible.
 
+## Direct area lighting — §5.1, PDF p. 11
+
+The paper explicitly supports direct illumination from extended area lights through its probe pipeline by seeding it with the area's emission profile, rather than the directly lit surface profile used for a reflected bounce. Its bathroom/window example uses this approach. Point and directional lights still use separate deferred direct shading. Thus the field is not intrinsically restricted to indirect light; source representation and sampling determine which paths it contains. See the [focused direct-light research](direct-light-in-fields-research.md) for primary-source evidence and application boundaries.
+
 <a id="section-2019-query"></a>
 ## Visibility-aware diffuse query — §5.2, PDF pp. 12–15
 
