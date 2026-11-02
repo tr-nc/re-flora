@@ -475,9 +475,8 @@ float3 sampleGlassPathFallback(
         : glassSky(segmentDirection);
 }
 
-float3 sampleGlassUnrefractedRaster(
-    float2 sourceScreenUv, SceneQueryEvent event, float3 segmentDirection,
-    uint localInvocationIndex, out uint sourceProvenance)
+bool trySampleGlassUnrefractedRaster(
+    float2 sourceScreenUv, out float3 radiance, out uint sourceProvenance)
 {
     uint width;
     uint height;
@@ -494,9 +493,21 @@ float3 sampleGlassUnrefractedRaster(
         // SceneQuery has no representation for raster-only producers such as flora.
         // This source texel is valid only when its depth is authoritatively behind Glass.
         sourceProvenance = opaque_provenance_tex[coordinate];
-        return unified_opaque_hdr_tex.Load(int3(coordinate, 0)).rgb;
+        radiance = unified_opaque_hdr_tex.Load(int3(coordinate, 0)).rgb;
+        return true;
     }
+    radiance = float3(0.0);
     sourceProvenance = 0u;
+    return false;
+}
+
+float3 sampleGlassUnrefractedRaster(
+    float2 sourceScreenUv, SceneQueryEvent event, float3 segmentDirection,
+    uint localInvocationIndex, out uint sourceProvenance)
+{
+    float3 radiance;
+    if (trySampleGlassUnrefractedRaster(sourceScreenUv, radiance, sourceProvenance))
+        return radiance;
     return sampleGlassPathFallback(event, segmentDirection, localInvocationIndex);
 }
 
@@ -511,38 +522,43 @@ bool glassRefractionEnabled()
     return glass_voxel_cache_push.enable_refraction != 0u;
 }
 
-float3 sampleGlassConfiguredTerminalFallback(
+bool trySampleGlassConfiguredTerminalFallback(
     uint screenQueryMode, float2 sourceScreenUv,
-    SceneQueryEvent event, float3 segmentDirection,
-    uint localInvocationIndex, out uint terminalProvenance)
+    out float3 radiance, out uint terminalProvenance)
 {
     if (glassUnrefractedRasterFallbackEnabled(screenQueryMode))
-        return sampleGlassUnrefractedRaster(
-            sourceScreenUv, event, segmentDirection, localInvocationIndex, terminalProvenance);
+        return trySampleGlassUnrefractedRaster(
+            sourceScreenUv, radiance, terminalProvenance);
+    radiance = float3(0.0);
     terminalProvenance = 0u;
-    return sampleGlassPathFallback(event, segmentDirection, localInvocationIndex);
+    return false;
 }
 
-float3 sampleGlassTerminalRadiance(
+// Screen queries select immutable texels only. Do not evaluate world lighting in
+// their rejection branches: exhaustive SPIR-V inlining would duplicate the full
+// shadow/local-light transport graph at every rejection site and exhaust IDs.
+// The caller owns one shared world fallback after all screen queries fail.
+bool trySampleGlassTerminalRadiance(
     SceneQueryEvent event, uint screenQueryMode, float2 sourceScreenUv,
-    float3 segmentOrigin, float3 segmentDirection,
-    uint localInvocationIndex, out uint fallbackReason, out uint terminalProvenance)
+    float3 segmentOrigin, out float3 radiance,
+    out uint fallbackReason, out uint terminalProvenance)
 {
     bool opaqueTerminal = event.kind == SCENE_QUERY_EVENT_OPAQUE;
     fallbackReason = opaqueTerminal
         ? GLASS_FALLBACK_VOXEL
         : GLASS_FALLBACK_SKY;
     terminalProvenance = 0u;
+    radiance = float3(0.0);
     if (screenQueryMode == GLASS_SCREEN_QUERY_UNREFRACTED)
     {
-        float3 terminal = sampleGlassUnrefractedRaster(
-            sourceScreenUv, event, segmentDirection, localInvocationIndex, terminalProvenance);
+        bool found = trySampleGlassUnrefractedRaster(
+            sourceScreenUv, radiance, terminalProvenance);
         if (terminalProvenance != 0u)
             fallbackReason = GLASS_FALLBACK_SCREEN_HIT;
-        return terminal;
+        return found;
     }
     if (screenQueryMode == GLASS_SCREEN_QUERY_NONE)
-        return sampleGlassPathFallback(event, segmentDirection, localInvocationIndex);
+        return false;
 
     uint width;
     uint height;
@@ -561,21 +577,23 @@ float3 sampleGlassTerminalRadiance(
             glassUnrefractedRasterFallbackEnabled(screenQueryMode))
         {
             uint sourceProvenance;
-            float3 sourceColor = sampleGlassUnrefractedRaster(
-                sourceScreenUv, event, segmentDirection, localInvocationIndex, sourceProvenance);
+            float3 sourceColor;
+            trySampleGlassUnrefractedRaster(sourceScreenUv, sourceColor, sourceProvenance);
             // Raster-only producers are absent from the voxel SceneQuery. If refraction found
             // no raster surface, preserve one that is authoritatively visible behind this
             // Glass pixel instead of erasing it with the voxel terminal.
             if (sourceProvenance == OPAQUE_PROVENANCE_RASTER)
             {
                 terminalProvenance = sourceProvenance;
-                return sourceColor;
+                radiance = sourceColor;
+                return true;
             }
         }
         int2 segmentHitCoordinate = int2(segmentHitUv * float2(extent));
         // Depth and provenance validated this integer texel. A filtered read would blend
         // an unvalidated neighboring object across a silhouette.
-        return unified_opaque_hdr_tex.Load(int3(segmentHitCoordinate, 0)).rgb;
+        radiance = unified_opaque_hdr_tex.Load(int3(segmentHitCoordinate, 0)).rgb;
+        return true;
     }
 
     float2 uv;
@@ -585,15 +603,13 @@ float3 sampleGlassTerminalRadiance(
             event.position, extent, uv, terminalPixel, hitDepth))
     {
         fallbackReason = GLASS_FALLBACK_OFFSCREEN;
-        return sampleGlassConfiguredTerminalFallback(
-            screenQueryMode, sourceScreenUv, event, segmentDirection,
-            localInvocationIndex, terminalProvenance);
+        return trySampleGlassConfiguredTerminalFallback(
+            screenQueryMode, sourceScreenUv, radiance, terminalProvenance);
     }
 
     if (!opaqueTerminal)
-        return sampleGlassConfiguredTerminalFallback(
-            screenQueryMode, sourceScreenUv, event, segmentDirection,
-            localInvocationIndex, terminalProvenance);
+        return trySampleGlassConfiguredTerminalFallback(
+            screenQueryMode, sourceScreenUv, radiance, terminalProvenance);
 
     int2 coordinate = int2(uv * float2(width, height));
     uint provenance;
@@ -606,21 +622,34 @@ float3 sampleGlassTerminalRadiance(
         if (glassUnrefractedRasterFallbackEnabled(screenQueryMode))
         {
             uint sourceProvenance;
-            float3 sourceColor = sampleGlassUnrefractedRaster(
-                sourceScreenUv, event, segmentDirection, localInvocationIndex, sourceProvenance);
+            float3 sourceColor;
+            trySampleGlassUnrefractedRaster(sourceScreenUv, sourceColor, sourceProvenance);
             if (sourceProvenance == OPAQUE_PROVENANCE_RASTER)
             {
                 terminalProvenance = sourceProvenance;
-                return sourceColor;
+                radiance = sourceColor;
+                return true;
             }
         }
-        return unified_opaque_hdr_tex.Load(int3(coordinate, 0)).rgb;
+        radiance = unified_opaque_hdr_tex.Load(int3(coordinate, 0)).rgb;
+        return true;
     }
 
     fallbackReason = rejectionReason;
-    return sampleGlassConfiguredTerminalFallback(
-        screenQueryMode, sourceScreenUv, event, segmentDirection,
-        localInvocationIndex, terminalProvenance);
+    return trySampleGlassConfiguredTerminalFallback(
+        screenQueryMode, sourceScreenUv, radiance, terminalProvenance);
+}
+
+float3 sampleGlassTerminalRadiance(
+    SceneQueryEvent event, uint screenQueryMode, float2 sourceScreenUv,
+    float3 segmentOrigin, float3 segmentDirection,
+    uint localInvocationIndex, out uint fallbackReason, out uint terminalProvenance)
+{
+    float3 radiance;
+    if (trySampleGlassTerminalRadiance(event, screenQueryMode, sourceScreenUv,
+            segmentOrigin, radiance, fallbackReason, terminalProvenance))
+        return radiance;
+    return sampleGlassPathFallback(event, segmentDirection, localInvocationIndex);
 }
 
 void insertGlassPath(inout GlassActivePath paths[SCENE_QUERY_MAX_ACTIVE_PATHS],
