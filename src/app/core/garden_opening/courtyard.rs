@@ -186,16 +186,13 @@ impl App {
 mod tests {
     use super::*;
     #[test]
-    fn courtyard_wall_runs_follow_voxel_axes_instead_of_quantizing_long_diagonal_faces() {
+    fn courtyard_preserves_oblique_rear_runs_without_constraining_wall_directions() {
         for size in [Vec2::splat(2.), Vec2::splat(4.), Vec2::new(3., 4.)] {
-            for (start, end) in segments(size) {
-                let delta = (end - start).abs();
-                assert!(delta.max_element() > 0.);
-                assert!(
-                    delta.min_element() < 1e-6,
-                    "courtyard face would become a voxel staircase: {start:?} -> {end:?}"
-                );
-            }
+            let runs = segments(size);
+            assert!(runs.iter().all(|(a, b)| a.distance(*b) > 0.));
+            assert!(runs[..layout::REAR_WALL.len() - 1]
+                .iter()
+                .any(|(a, b)| (b - a).abs().min_element() > 0.001));
         }
     }
 
