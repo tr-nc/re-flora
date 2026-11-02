@@ -413,6 +413,16 @@ impl PipelineBuilder {
         )
         .unwrap();
 
+        let local_light_field_sm = ShaderModule::from_precompiled(
+            vulkan_ctx.device(),
+            if glass_experiment_enabled {
+                "shader/foliage/local_light_field_glass.comp"
+            } else {
+                "shader/foliage/local_light_field.comp"
+            },
+            "main",
+        )
+        .unwrap();
         let flora_lighting_cache_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             if glass_experiment_enabled {
@@ -751,6 +761,7 @@ impl PipelineBuilder {
             wind_volume_sm,
             vegetation_response_sm,
             flora_frag_sm,
+            local_light_field_sm,
             flora_lighting_cache_sm,
             tree_leaf_lighting_cache_sm,
             leaves_vert_sm,
@@ -921,6 +932,19 @@ impl PipelineBuilder {
                 ddgi_voxel_visibility,
             ],
         );
+        let local_light_field_ppl =
+            ComputePipeline::new_uninitialized(device, &shader_modules.local_light_field_sm, pool);
+        local_light_field_ppl
+            .initialize_descriptors(DescriptorUpdate::SetContaining {
+                anchor: "local_light_info",
+                providers: &[
+                    resources,
+                    contree_builder_resources,
+                    scene_accel_resources,
+                    plain_builder_resources,
+                ],
+            })
+            .expect("local light field scene descriptors");
         let flora_lighting_cache_ppl = ComputePipeline::new_uninitialized(
             device,
             &shader_modules.flora_lighting_cache_sm,
@@ -1223,6 +1247,7 @@ impl PipelineBuilder {
             raster_tree_lighting_ppl,
             tree_skin_ppl,
             tree_refit_ppl,
+            local_light_field_ppl,
             flora_lighting_cache_ppl,
             flora_lighting_band_cache_ppl,
             grass_visibility_ppl,
@@ -2492,6 +2517,14 @@ impl PipelineTopology {
         }
 
         retire_compute(
+            &self.compute.local_light_field_ppl,
+            DescriptorUpdate::SetContaining {
+                anchor: "local_light_info",
+                providers: &all_resources,
+            },
+            "local light field extent descriptors must resolve",
+        );
+        retire_compute(
             &self.compute.sprinkler_wetting_ppl,
             DescriptorUpdate::SetContaining {
                 anchor: "chunk_atlas",
@@ -3123,6 +3156,7 @@ pub struct ShaderModules {
     pub wind_volume_sm: ShaderModule,
     pub vegetation_response_sm: ShaderModule,
     pub flora_frag_sm: ShaderModule,
+    pub local_light_field_sm: ShaderModule,
     pub flora_lighting_cache_sm: ShaderModule,
     pub tree_leaf_lighting_cache_sm: ShaderModule,
     pub leaves_vert_sm: ShaderModule,
@@ -3204,6 +3238,7 @@ pipeline_collection! {
         raster_tree_lighting_ppl,
         tree_skin_ppl,
         tree_refit_ppl,
+        local_light_field_ppl,
         flora_lighting_cache_ppl,
         flora_lighting_band_cache_ppl,
         grass_visibility_ppl,

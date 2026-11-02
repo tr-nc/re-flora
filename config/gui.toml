@@ -458,6 +458,15 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "grass_local_light_field"
+kind = "bool"
+label = "Grass: Shared Local Light Field (A/B)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
 id = "grass_band_pose_reuse"
 kind = "bool"
 label = "Grass: reuse GPU-prepared band pose (plain mesh)"

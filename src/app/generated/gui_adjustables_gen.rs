@@ -194,6 +194,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "grass_local_light_field",
+        kind: "bool",
+        label: "Grass: Shared Local Light Field (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "grass_band_pose_reuse",
         kind: "bool",
         label: "Grass: reuse GPU-prepared band pose (plain mesh)",
@@ -1826,6 +1832,7 @@ pub struct GuiAdjustables {
     pub scene_supersampling_quality: crate::gui_adjustables::ChoiceParam,
     pub scene_pixel_resolve_mode: crate::gui_adjustables::ChoiceParam,
     pub grass_band_pixelization: crate::gui_adjustables::BoolParam,
+    pub grass_local_light_field: crate::gui_adjustables::BoolParam,
     pub grass_band_pose_reuse: crate::gui_adjustables::BoolParam,
     pub flower_stem_model_resolution: crate::gui_adjustables::UintParam,
     pub flower_stem_cell_height_voxels: crate::gui_adjustables::FloatParam,
@@ -2134,6 +2141,7 @@ impl GuiAdjustables {
         let mut scene_supersampling_quality_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut scene_pixel_resolve_mode_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut grass_band_pixelization_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut grass_local_light_field_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut grass_band_pose_reuse_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flower_stem_model_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut flower_stem_cell_height_voxels_field: Option<crate::gui_adjustables::FloatParam> = None;
@@ -2581,6 +2589,11 @@ impl GuiAdjustables {
                     "grass_band_pixelization" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             grass_band_pixelization_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "grass_local_light_field" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            grass_local_light_field_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "grass_band_pose_reuse" => {
@@ -4392,6 +4405,7 @@ impl GuiAdjustables {
             scene_supersampling_quality: scene_supersampling_quality_field.expect("Missing parameter: scene_supersampling_quality"),
             scene_pixel_resolve_mode: scene_pixel_resolve_mode_field.expect("Missing parameter: scene_pixel_resolve_mode"),
             grass_band_pixelization: grass_band_pixelization_field.expect("Missing parameter: grass_band_pixelization"),
+            grass_local_light_field: grass_local_light_field_field.expect("Missing parameter: grass_local_light_field"),
             grass_band_pose_reuse: grass_band_pose_reuse_field.expect("Missing parameter: grass_band_pose_reuse"),
             flower_stem_model_resolution: flower_stem_model_resolution_field.expect("Missing parameter: flower_stem_model_resolution"),
             flower_stem_cell_height_voxels: flower_stem_cell_height_voxels_field.expect("Missing parameter: flower_stem_cell_height_voxels"),
@@ -4950,6 +4964,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "stone_place_slab" => Some(&adjustables.stone_place_slab),
         "scene_supersampling_enabled" => Some(&adjustables.scene_supersampling_enabled),
         "grass_band_pixelization" => Some(&adjustables.grass_band_pixelization),
+        "grass_local_light_field" => Some(&adjustables.grass_local_light_field),
         "grass_band_pose_reuse" => Some(&adjustables.grass_band_pose_reuse),
         "flower_stem_test_branches" => Some(&adjustables.flower_stem_test_branches),
         "apple_cache_enabled" => Some(&adjustables.apple_cache_enabled),
@@ -5292,6 +5307,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "stone_place_slab" => Some(&mut adjustables.stone_place_slab),
         "scene_supersampling_enabled" => Some(&mut adjustables.scene_supersampling_enabled),
         "grass_band_pixelization" => Some(&mut adjustables.grass_band_pixelization),
+        "grass_local_light_field" => Some(&mut adjustables.grass_local_light_field),
         "grass_band_pose_reuse" => Some(&mut adjustables.grass_band_pose_reuse),
         "flower_stem_test_branches" => Some(&mut adjustables.flower_stem_test_branches),
         "apple_cache_enabled" => Some(&mut adjustables.apple_cache_enabled),

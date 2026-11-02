@@ -70,6 +70,13 @@ const GROUPS: &[ControlGroup] = &[
     },
     ControlGroup {
         parent: None,
+        title: "Local Lighting",
+        description: "Grass unchecked: original per-receiver local lighting. Checked: direct light projected at DDGI probes, shared by grass. Preserves finite emitters and glass transport; sun and bounce history are unchanged. Default probe spacing reduces some near-lamp warmth; spatial interpolation can soften shadows or miss near-light peaks. Unavailable probes use the original path. Saved experiment; visual approval pending.",
+        initially_open: false,
+        params: &["grass_local_light_field"],
+    },
+    ControlGroup {
+        parent: None,
         title: "Stem Geometry & Color Bands",
         description: "Grass unchecked: original voxel geometry. Checked: square color-band stems with flat color and lighting, hardware depth and no spherical caps. All objects use the scene-wide pixel grid. Growth and wind stay live.",
         initially_open: false,

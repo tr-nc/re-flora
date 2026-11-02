@@ -13,9 +13,11 @@ public struct LocalEmitterSample
     public float irradiance_per_intensity;
 };
 
-public LocalEmitterSample sampleLocalEmitter(
+// Incident response excludes receiver cosine, so a probe connection can be
+// shared across all output normal directions without repeating transport.
+public LocalEmitterSample sampleLocalEmitterIncident(
     float3 center, float3 halfExtents, float range,
-    float3 receiver, float3 receiverNormal, uint index)
+    float3 receiver, uint index)
 {
     LocalEmitterSample result;
     result.position = center;
@@ -40,13 +42,26 @@ public LocalEmitterSample sampleLocalEmitter(
     if (distanceSquared <= 1.0e-12) return result;
     float3 direction = segment * rsqrt(distanceSquared);
     float emitterCosine = max(0.0, dot(result.normal, -direction));
-    float receiverCosine = max(0.0, dot(normalize(receiverNormal), direction));
     float meanProjectedArea = 2.0 * (halfExtents.x * halfExtents.y +
         halfExtents.x * halfExtents.z + halfExtents.y * halfExtents.z);
     // Face area is 4*h[u]*h[v]; each quadrature point owns one quarter.
     float areaWeight = halfExtents[u] * halfExtents[v] / meanProjectedArea;
     float window = max(0.0, 1.0 - pow(normalizedDistance, 4.0));
-    result.irradiance_per_intensity = areaWeight * emitterCosine * receiverCosine *
+    result.irradiance_per_intensity = areaWeight * emitterCosine *
         window * window / distanceSquared;
+    return result;
+}
+
+public LocalEmitterSample sampleLocalEmitter(
+    float3 center, float3 halfExtents, float range,
+    float3 receiver, float3 receiverNormal, uint index)
+{
+    LocalEmitterSample result = sampleLocalEmitterIncident(
+        center, halfExtents, range, receiver, index);
+    float3 segment = result.position - receiver;
+    float distanceSquared = dot(segment, segment);
+    if (distanceSquared > 1.0e-12)
+        result.irradiance_per_intensity *= max(0.0,
+            dot(normalize(receiverNormal), segment * rsqrt(distanceSquared)));
     return result;
 }

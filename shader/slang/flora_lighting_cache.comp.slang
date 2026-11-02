@@ -24,6 +24,7 @@ import surface_flora_vertex;
 import grass_moisture_material;
 import vegetation_response_sample;
 import local_lighting;
+import ddgi_query;
 
 [[vk::binding(43, 0)]] StructuredBuffer<U_LightGpu> local_lights;
 [[vk::binding(44, 0)]] StructuredBuffer<ContreeNode> contree_node_data;
@@ -42,6 +43,8 @@ readonly GLSLShaderStorageBuffer<B_ManualFloraInstances, Std430DataLayout>
 
 [[vk::binding(2, 1)]]
 RWStructuredBuffer<float4> flora_lighting_cache;
+
+[[vk::binding(11, 1)]] Sampler2D local_light_field;
 
 [shader("compute")]
 [numthreads(8, 4, 1)]
@@ -84,7 +87,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         ? float3(0.0)
         : sampleFloraEnvironment(
             prepared.voxel_position, prepared.shading_normal);
-    if (!prepared.should_trim)
+    float3 sharedDirect;
+    bool usedDirectField = !prepared.should_trim && gui_input.grass_local_light_field != 0u &&
+        trySampleDdgiDirectResponse(shading_info, local_light_field,
+            prepared.voxel_position, prepared.shading_normal, sharedDirect);
+    if (usedDirectField) irradiance += sharedDirect;
+    if (!prepared.should_trim && !usedDirectField)
     {
 #if RE_FLORA_GLASS_TRANSPORT
         irradiance += evaluateVoxelGlassVisibleLocalLightIrradiance(

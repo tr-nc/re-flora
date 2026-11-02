@@ -1367,6 +1367,21 @@ public float3 ddgiDominantProbeDebugColor(DdgiQueryResult result)
                   (value >> 16u) & 255u) / 255.0;
 }
 
+// A direct-only response has no sky fallback and never enters transport history.
+// Missing/invalidated support explicitly falls back to the original receiver path.
+public bool trySampleDdgiDirectResponse(
+    U_ShadingInfo lighting, Sampler2D directAtlas,
+    float3 position, float3 normal, out float3 response)
+{
+    response = float3(0.0);
+    DdgiQueryInfo query = ddgiConsumerQueryInfo(lighting);
+    if (ddgiQueryDomain(query, position) != DDGI_QUERY_DOMAIN_LOCAL) return false;
+    DdgiQueryResult result = sampleDdgiDiffuseEnvironmentFromAtlas(query, directAtlas, position, normal);
+    if (result.accumulated_weight <= DDGI_QUERY_WEIGHT_EPSILON) return false;
+    response = result.irradiance;
+    return true;
+}
+
 public float3 sampleDdgiIrradianceAtlasDebug(float2 screenUv)
 {
     return max(float3(0.0),

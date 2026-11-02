@@ -88,7 +88,9 @@ pub use model_surface_cache::Options as ModelSurfaceCacheOptions;
 pub(crate) mod model_pixel_views;
 pub use dynamic_fruit_resources::*;
 
+use crate::resource::ResourceContainer;
 mod flora_lighting_cache;
+mod local_light_field;
 use flora_lighting_cache::FloraLightingCache;
 mod fruit_release;
 mod vegetation_response;
@@ -1516,6 +1518,7 @@ pub struct FloraAppearanceFrameInput {
     pub model_flowers: crate::flora::models::Settings,
     pub stem_experiment: crate::flora::models::StemExperiment,
     pub grass_band_pose_reuse: bool,
+    pub grass_local_light_field: bool,
     pub grass_band_pixelization: bool,
     pub grass_moisture_response: bool,
     pub growth_override_enabled: bool,
@@ -1797,6 +1800,8 @@ pub struct Tracer {
     glass_sampling_pattern: u32,
     environment_lighting: AuthoredEnvironmentLighting,
     flora_lighting_cache: FloraLightingCache,
+    local_light_field: local_light_field::LocalLightField,
+    grass_local_light_field: bool,
     grass_band_cache: grass_band_cache::GrassBandCache,
     grass_visibility: grass_visibility::GrassVisibility,
     vegetation_response: VegetationResponse,
@@ -2187,6 +2192,8 @@ impl Tracer {
             glass_sampling_pattern: 0,
             environment_lighting: AuthoredEnvironmentLighting::default(),
             flora_lighting_cache: FloraLightingCache::default(),
+            local_light_field: local_light_field::LocalLightField::default(),
+            grass_local_light_field: false,
             grass_band_cache: grass_band_cache::GrassBandCache::default(),
             grass_visibility: grass_visibility::GrassVisibility::default(),
             vegetation_response: VegetationResponse::new(chunk_bound),
@@ -3328,6 +3335,10 @@ impl Tracer {
             );
         }
         self.grass_band_pose_reuse = vegetation.appearance.grass_band_pose_reuse;
+        if self.grass_local_light_field != vegetation.appearance.grass_local_light_field {
+            log::info!("[LOCAL_LIGHT_FIELD] enabled={} update=full_live_frame transport_history=unchanged unavailable_support=original", vegetation.appearance.grass_local_light_field);
+        }
+        self.grass_local_light_field = vegetation.appearance.grass_local_light_field;
         self.flower_spawn_overshoot_voxels = vegetation
             .growth
             .spawn_overshoot_min_voxels
@@ -4992,6 +5003,99 @@ impl Tracer {
         } else {
             None
         };
+        let field_status = self.ddgi_runtime.status();
+        let field_grid = field_status.active().grid;
+        let field_audit_enabled = local_light_field::LocalLightField::audit_enabled();
+        let field_enabled =
+            self.grass_local_light_field && (lighting_cache_enabled || field_audit_enabled);
+        let direct_field = self.local_light_field.ensure(
+            self.vulkan_ctx.device().clone(),
+            self.allocator.clone(),
+            gpu_profiler_frame_slot,
+            field_grid.probe_count(),
+            field_enabled,
+        );
+        if field_enabled {
+            let audit_key = field_audit_enabled.then(|| {
+                (
+                    self.local_light_live_publication
+                        .observation()
+                        .live_revision
+                        .unwrap_or(0),
+                    self.ddgi_voxel_visibility.published_revision().unwrap_or(0),
+                    field_status.active_token_serial().unwrap_or(0),
+                    field_status.active_consumers_are_available(),
+                )
+            });
+            let (audit_buffer, audit) = self.local_light_field.prepare_audit(
+                self.vulkan_ctx.device().clone(),
+                self.allocator.clone(),
+                gpu_profiler_frame_slot,
+                audit_key,
+            );
+            if audit {
+                audit_buffer.record_fill(cmdbuf, 0, 16, 0);
+            }
+            let pipeline = &self.pipeline_topology.compute().local_light_field_ppl;
+            pipeline.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+            let active = self.ddgi_runtime.active_resources();
+            let crate::resource::ResourceLookup::Unique(metadata) =
+                active.resolve_resource("ddgi_probe_metadata")
+            else {
+                panic!("active DDGI probe metadata must resolve");
+            };
+            let layout = crate::ddgi::DdgiAtlasLayout::new(
+                field_grid.probe_count(),
+                crate::ddgi::DDGI_IRRADIANCE_INTERIOR_SIDE,
+            )
+            .expect("direct field layout");
+            let scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
+                profiler.begin_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    "graphics.local_light_field",
+                    PipelineStage::ALL_COMMANDS,
+                )
+            });
+            // Vulkan guarantees at least 65535 groups per dimension.
+            for first_probe in (0..field_grid.probe_count()).step_by(65_535) {
+                let count = (field_grid.probe_count() - first_probe).min(65_535);
+                let push = local_light_field::FieldPush {
+                    first_probe,
+                    probe_count: field_grid.probe_count(),
+                    tile_columns: layout.tile_grid().x,
+                    audit: u32::from(audit),
+                };
+                pipeline
+                    .record_with_descriptors(
+                        cmdbuf,
+                        &[
+                            (
+                                "local_light_field",
+                                DescriptorResource::Texture(&direct_field),
+                            ),
+                            ("ddgi_probe_metadata", metadata),
+                            (
+                                "local_light_field_audit",
+                                DescriptorResource::Buffer(&audit_buffer),
+                            ),
+                        ],
+                        Extent3D::new(count * 128, 1, 1),
+                        Some(bytemuck::bytes_of(&push)),
+                    )
+                    .expect("direct light field descriptors");
+            }
+            self.local_light_field
+                .record_audit_readback(cmdbuf, gpu_profiler_frame_slot);
+            if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), scope) {
+                profiler.end_scope(
+                    gpu_profiler_frame_slot,
+                    cmdbuf,
+                    scope,
+                    PipelineStage::ALL_COMMANDS,
+                );
+            }
+        }
         let flora_cache_buffer = if lighting_cache_enabled {
             self.flora_lighting_cache.ensure_capacity(
                 self.vulkan_ctx.device().clone(),
@@ -5048,6 +5152,10 @@ impl Tracer {
                 let cached = band_cache_buffer.is_some()
                     && species::is_grass_species_index(species_index as u32);
                 let mut descriptors = vec![
+                    (
+                        "local_light_field",
+                        DescriptorResource::Texture(&direct_field),
+                    ),
                     (
                         "grass_visible_instances",
                         DescriptorResource::Buffer(&visible_grass),

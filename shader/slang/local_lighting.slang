@@ -6,6 +6,7 @@ import scene_query;
 import scene_marching;
 import terrain_ray_origin;
 import local_emitter;
+import local_light_math;
 
 public static const uint LOCAL_LIGHT_GPU_ABI_VERSION = 3u;
 public static const uint LOCAL_LIGHT_KIND_POINT = 1u;
@@ -131,11 +132,7 @@ public LocalPointLightSample evaluateUnshadowedPointLight(
     float cosine = max(0.0, dot(receiverNormal * rsqrt(normalLengthSquared), direction));
     if (cosine <= 0.0) return result;
 
-    float normalizedDistance = distance / light.range;
-    float rangeBase = max(0.0, 1.0 - pow(normalizedDistance, 4.0));
-    float rangeWindow = rangeBase * rangeBase;
-    float attenuation = rangeWindow /
-        max(distanceSquared, light.source_radius * light.source_radius);
+    float attenuation = pointLightIncidentWeight(distanceSquared, light.source_radius, light.range);
     result.irradiance = light.color * light.intensity * cosine * attenuation;
     result.direction_to_light = direction;
     result.distance_to_light = distance;

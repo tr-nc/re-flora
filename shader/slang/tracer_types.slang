@@ -4,6 +4,7 @@ public struct U_GuiInput
 {
     public uint grass_stem_pixelization; // shared analytic/raster presentation control; flower policy remains separate
     public uint grass_moisture_response;
+    public uint grass_local_light_field;
     public uint flora_growth_override_enabled;
     public float flora_growth_override;
     public uint raster_tree_static;

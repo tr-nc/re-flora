@@ -256,6 +256,18 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Fragment,
     },
     ShaderConfig {
+        logical_path: "shader/foliage/local_light_field.comp",
+        source_path: "shader/slang/local_light_field.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/foliage/local_light_field_glass.comp",
+        source_path: "shader/slang/local_light_field_glass.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/foliage/flora_lighting_cache.comp",
         source_path: "shader/slang/flora_lighting_cache.comp.slang",
         module_path: "shader/slang",
