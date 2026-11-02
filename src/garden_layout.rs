@@ -12,26 +12,29 @@ pub const REVIEW_PRESETS: &[&str] = &[
     "garden-overview",
     "courtyard-tree",
     "courtyard-tiles",
+    "courtyard-rear-wall",
     "temple-statue",
 ];
 pub fn is_review_preset(name: &str) -> bool {
     REVIEW_PRESETS.contains(&name)
 }
-pub const VERSION: u32 = 11;
+pub const VERSION: u32 = 12;
 // Keep the established flower stream stable when only the tree/grass recipe changes.
 const FLOWER_SEED_SALT: u32 = 1;
 pub const DEFAULT_SEED: u32 = 20260519;
 pub const ARRIVAL: Vec2 = Vec2::new(0.50, 0.82);
 pub const POCKET: Vec2 = Vec2::new(0.50, 0.49);
 pub const TEMPLE_CENTER: Vec2 = Vec2::new(0.50, 0.30);
-/// The rear enclosure keeps the temple inside the small hillside courtyard.
+/// Keep authored plaster runs on voxel axes: oblique faces become stair-stepped
+/// geometry and alternating shading bands. Short right-angle returns retain depth
+/// without smoothing away the editable voxel surfaces or restricting the wall tool.
 pub const REAR_WALL: [Vec2; 6] = [
-    Vec2::new(0.10, 0.23),
-    Vec2::new(0.23, 0.19),
-    Vec2::new(0.39, 0.18),
-    Vec2::new(0.62, 0.18),
-    Vec2::new(0.77, 0.205),
-    Vec2::new(0.90, 0.23),
+    Vec2::new(0.10, 0.22),
+    Vec2::new(0.28, 0.22),
+    Vec2::new(0.28, 0.18),
+    Vec2::new(0.72, 0.18),
+    Vec2::new(0.72, 0.22),
+    Vec2::new(0.90, 0.22),
 ];
 
 pub const ROUTE: [Vec2; 4] = [

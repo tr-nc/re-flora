@@ -192,6 +192,21 @@ impl App {
         }
         let world = self.world_chunk_dim * VOXEL_DIM_PER_CHUNK;
         let size = Vec2::new(world.x as f32, world.z as f32) / 256.;
+        if preset.as_deref() == Some("courtyard-rear-wall") {
+            let xz = size * Vec2::new(0.79, 0.37);
+            let eye = Vec3::new(xz.x, self.query_terrain_height_cpu(xz) + 0.20, xz.y);
+            let ground = self.query_terrain_height_cpu(size * Vec2::new(0.79, 0.265));
+            let target = Vec3::new(xz.x, ground + 0.15, size.y * 0.205);
+            let direction = target - eye;
+            self.tracer.apply_camera_pose(CameraPose {
+                position: eye,
+                yaw_deg: direction.x.atan2(-direction.z).to_degrees(),
+                pitch_deg: direction.y.atan2(direction.xz().length()).to_degrees(),
+                fov_deg: 55.,
+            });
+            self.camera_control.apply_snapshot_mode(true);
+            return;
+        }
         if preset.as_deref() == Some("courtyard-tiles") {
             let ground = self.query_terrain_height_cpu(size * Vec2::new(0.72, 0.98));
             let eye = Vec3::new(size.x * 0.72, ground + 0.44, size.y * 0.98);

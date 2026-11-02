@@ -186,6 +186,20 @@ impl App {
 mod tests {
     use super::*;
     #[test]
+    fn courtyard_wall_runs_follow_voxel_axes_instead_of_quantizing_long_diagonal_faces() {
+        for size in [Vec2::splat(2.), Vec2::splat(4.), Vec2::new(3., 4.)] {
+            for (start, end) in segments(size) {
+                let delta = (end - start).abs();
+                assert!(delta.max_element() > 0.);
+                assert!(
+                    delta.min_element() < 1e-6,
+                    "courtyard face would become a voxel staircase: {start:?} -> {end:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn courtyard_keeps_the_temple_clear_and_the_centered_front_gate() {
         let size = Vec2::splat(2.);
         let sides = segments(size);
