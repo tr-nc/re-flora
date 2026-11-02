@@ -14,6 +14,7 @@ public struct U_GuiInput
     public uint path_tracing_max_bounces;
     public float terrain_ray_origin_offset_world;
     public float terrain_self_shadow_tolerance_voxels;
+    public uint planar_plaster_normals;
     public float apple_size_scale;
     public float apple_environment_fill;
     public float3 flower_stem_bottom;

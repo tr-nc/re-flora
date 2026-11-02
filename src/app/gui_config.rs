@@ -1624,6 +1624,56 @@ mod search_tests {
     }
 
     #[test]
+    fn planar_normals_checkbox_is_searchable_editable_and_saved() {
+        let mut settings = DebugSettings::load();
+        assert!(!settings.adjustables.planar_plaster_normals.value);
+        settings.search.query = "surface normals plaster".to_owned();
+        let context = egui::Context::default();
+        let mut draw = |events| {
+            let output = context.run_ui(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    settings.draw(ui, |_, _| {});
+                },
+            );
+            assert_eq!(settings.search_matches, 1);
+            output
+                .shapes
+                .iter()
+                .find_map(|shape| {
+                    text_rect(
+                        &shape.shape,
+                        "Plaster: planar normals (A/B; off = original)",
+                    )
+                })
+                .expect("declared planar-normal checkbox")
+                .center()
+        };
+        draw(vec![]);
+        let point = draw(vec![]);
+        for pressed in [true, false] {
+            draw(vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
+        }
+        assert!(settings.adjustables.planar_plaster_normals.value);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert!(loaded.adjustables.planar_plaster_normals.value);
+    }
+
+    #[test]
     fn sculpture_glass_checkbox_is_searchable_editable_and_saved() {
         let mut settings = DebugSettings::load();
         assert!(!settings.adjustables.temple_statue_glass.value);

@@ -91,6 +91,7 @@ pub(super) fn freeze_render_frame_inputs(
         model_pixel_view_count: model_cache.views,
         model_surface_cache: model_cache.surfaces,
         self_shadow_tolerance_voxels: gui.terrain_self_shadow_tolerance_voxels.value,
+        planar_plaster_normals: gui.planar_plaster_normals.value,
         edit_preview_center: live.terrain_edit_preview_center,
         edit_preview_radius: live.terrain_edit_preview_radius,
         edit_preview_shape: live.terrain_edit_preview_shape,
@@ -374,8 +375,8 @@ mod tests {
     }
 
     #[test]
-    fn normal_render_inputs_always_use_original_mist() {
-        let settings = DebugSettings::load();
+    fn planar_normals_switch_live_without_changing_other_render_inputs() {
+        let mut settings = DebugSettings::load();
         let freeze = |s: &DebugSettings| {
             freeze_render_frame_inputs(
                 s,
@@ -395,7 +396,19 @@ mod tests {
                 },
             )
         };
-        assert!(!freeze(&settings).environment.sprinkler_mist_air);
+        let original = freeze(&settings);
+        assert!(!original.environment.sprinkler_mist_air);
+        for enabled in [false, true, false] {
+            settings.adjustables.planar_plaster_normals.value = enabled;
+            let frame = freeze(&settings);
+            let mut expected = original.terrain;
+            expected.planar_plaster_normals = enabled;
+            assert_eq!(frame.terrain, expected);
+            assert_eq!(frame.materials, original.materials);
+            assert_eq!(frame.vegetation, original.vegetation);
+            assert_eq!(frame.environment, original.environment);
+            assert_eq!(frame.wind, original.wind);
+        }
     }
 
     #[test]
@@ -498,6 +511,7 @@ mod tests {
         gui.glass_refraction_enabled.value = false;
         gui.glass_unrefracted_raster_fallback.value = true;
         gui.glass_stored_voxel_normal.value = false;
+        gui.planar_plaster_normals.value = true;
         gui.glass_reduced_sampling.value = true;
         gui.glass_sampling_pattern.value = 2;
         let terrain_material = TerrainMaterialParams {
@@ -630,6 +644,7 @@ mod tests {
                 model_pixel_view_count: 37,
                 model_surface_cache: model_cache_inputs(&settings).surfaces,
                 self_shadow_tolerance_voxels: terrain_self_shadow_tolerance_voxels,
+                planar_plaster_normals: true,
                 edit_preview_center: live.terrain_edit_preview_center,
                 edit_preview_radius: live.terrain_edit_preview_radius,
                 edit_preview_shape: live.terrain_edit_preview_shape,

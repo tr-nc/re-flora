@@ -1513,6 +1513,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         label: "Worm Noise Detail Weight",
     },
     GeneratedGuiParamDescriptor {
+        section: "Surface Normals",
+        id: "planar_plaster_normals",
+        kind: "bool",
+        label: "Plaster: planar normals (A/B; off = original)",
+    },
+    GeneratedGuiParamDescriptor {
         section: "Sculpture Material",
         id: "temple_statue_glass",
         kind: "bool",
@@ -2040,6 +2046,7 @@ pub struct GuiAdjustables {
     pub butterfly_worm_noise_frequency: crate::gui_adjustables::FloatParam,
     pub butterfly_worm_noise_detail_frequency: crate::gui_adjustables::FloatParam,
     pub butterfly_worm_noise_detail_weight: crate::gui_adjustables::FloatParam,
+    pub planar_plaster_normals: crate::gui_adjustables::BoolParam,
     pub temple_statue_glass: crate::gui_adjustables::BoolParam,
     pub rooftop_voxel_scene: crate::gui_adjustables::BoolParam,
     pub voxel_dirt_color: crate::gui_adjustables::ColorParam,
@@ -2347,6 +2354,7 @@ impl GuiAdjustables {
         let mut butterfly_worm_noise_frequency_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut butterfly_worm_noise_detail_frequency_field: Option<crate::gui_adjustables::FloatParam> = None;
         let mut butterfly_worm_noise_detail_weight_field: Option<crate::gui_adjustables::FloatParam> = None;
+        let mut planar_plaster_normals_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut temple_statue_glass_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut rooftop_voxel_scene_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut voxel_dirt_color_field: Option<crate::gui_adjustables::ColorParam> = None;
@@ -4047,6 +4055,11 @@ impl GuiAdjustables {
                             butterfly_worm_noise_detail_weight_field = Some(crate::gui_adjustables::FloatParam::new(*value, min..=max));
                         }
                     }
+                    "planar_plaster_normals" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            planar_plaster_normals_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
                     "temple_statue_glass" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             temple_statue_glass_field = Some(crate::gui_adjustables::BoolParam::new(*value));
@@ -4599,6 +4612,7 @@ impl GuiAdjustables {
             butterfly_worm_noise_frequency: butterfly_worm_noise_frequency_field.expect("Missing parameter: butterfly_worm_noise_frequency"),
             butterfly_worm_noise_detail_frequency: butterfly_worm_noise_detail_frequency_field.expect("Missing parameter: butterfly_worm_noise_detail_frequency"),
             butterfly_worm_noise_detail_weight: butterfly_worm_noise_detail_weight_field.expect("Missing parameter: butterfly_worm_noise_detail_weight"),
+            planar_plaster_normals: planar_plaster_normals_field.expect("Missing parameter: planar_plaster_normals"),
             temple_statue_glass: temple_statue_glass_field.expect("Missing parameter: temple_statue_glass"),
             rooftop_voxel_scene: rooftop_voxel_scene_field.expect("Missing parameter: rooftop_voxel_scene"),
             voxel_dirt_color: voxel_dirt_color_field.expect("Missing parameter: voxel_dirt_color"),
@@ -4957,6 +4971,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "terrain_harvest_particles_enabled" => Some(&adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&adjustables.butterflies_enabled),
         "butterfly_mesh_preview" => Some(&adjustables.butterfly_mesh_preview),
+        "planar_plaster_normals" => Some(&adjustables.planar_plaster_normals),
         "temple_statue_glass" => Some(&adjustables.temple_statue_glass),
         "rooftop_voxel_scene" => Some(&adjustables.rooftop_voxel_scene),
         "tree_randomize_new" => Some(&adjustables.tree_randomize_new),
@@ -5298,6 +5313,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "terrain_harvest_particles_enabled" => Some(&mut adjustables.terrain_harvest_particles_enabled),
         "butterflies_enabled" => Some(&mut adjustables.butterflies_enabled),
         "butterfly_mesh_preview" => Some(&mut adjustables.butterfly_mesh_preview),
+        "planar_plaster_normals" => Some(&mut adjustables.planar_plaster_normals),
         "temple_statue_glass" => Some(&mut adjustables.temple_statue_glass),
         "rooftop_voxel_scene" => Some(&mut adjustables.rooftop_voxel_scene),
         "tree_randomize_new" => Some(&mut adjustables.tree_randomize_new),

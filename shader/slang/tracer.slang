@@ -6,6 +6,7 @@ import local_lighting;
 import marching_result;
 import noise_tex;
 import packer;
+import planar_surface_normal;
 import ray;
 import scene_query;
 import scene_marching;
@@ -575,6 +576,12 @@ void getPixelColor(out float3 color, out float depth,
         environmentIrradiance = float3(0.0);
         return;
     }
+
+    if (gui_input.planar_plaster_normals != 0u &&
+        gui_input.path_tracing_reference == 0u &&
+        shading_info.ddgi_debug_view == DDGI_DEBUG_FINAL)
+        result.normal = planarPlasterSurfaceNormal(contree_node_data,
+            contree_leaf_data, scene_tex, result, localInvocationIndex);
 
     terrainHit = 1.0;
     environmentCaptureReceiver = float4(result.center_position, -1.0);

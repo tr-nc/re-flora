@@ -2902,6 +2902,18 @@ min = 0
 max = 2
 
 [[section]]
+name = "Surface Normals"
+
+[[section.param]]
+id = "planar_plaster_normals"
+kind = "bool"
+label = "Plaster: planar normals (A/B; off = original)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section]]
 name = "Sculpture Material"
 
 [[section.param]]

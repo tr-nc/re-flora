@@ -1488,6 +1488,7 @@ pub struct TerrainFrameInput {
     pub model_pixel_view_count: u32,
     pub model_surface_cache: ModelSurfaceCacheOptions,
     pub self_shadow_tolerance_voxels: f32,
+    pub planar_plaster_normals: bool,
     pub edit_preview_center: Option<Vec3>,
     pub edit_preview_radius: f32,
     pub edit_preview_shape: TerrainEditPreviewShape,

@@ -1303,6 +1303,15 @@ impl App {
         )?;
 
         let mut debug_settings = DebugSettings::load();
+        // Automated native captures use the same live field as the saved checkbox.
+        if let Ok(value) = std::env::var("RE_FLORA_PLASTER_NORMALS") {
+            anyhow::ensure!(
+                matches!(value.as_str(), "on" | "off"),
+                "RE_FLORA_PLASTER_NORMALS must be on or off"
+            );
+            debug_settings.adjustables.planar_plaster_normals.value = value == "on";
+            log::info!("[PLANAR_NORMALS] mode={value} render_only=true");
+        }
         // Session-only live review preset; edits the real saved-field controls,
         // never writes their file. The user can compare modes and explicitly Save.
         if std::env::var_os("RE_FLORA_SCENE_PIXEL_TRYOUT").is_some() {
