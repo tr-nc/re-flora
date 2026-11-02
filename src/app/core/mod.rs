@@ -455,6 +455,7 @@ pub struct App {
     cursor_position_physical: Option<Vec2>,
     wind_prototype: wind_prototype::WindPrototype,
     cottage_base_y: Option<f32>,
+    temple_statue: Option<garden_opening::TempleStatue>,
     rooftop_scene: Option<rooftop_scene::RooftopScene>,
     world_chunk_dim: UVec3,
     camera_control: CameraControlRuntime,
@@ -1342,7 +1343,7 @@ impl App {
                     )
                 ),
                 glass_experiment_enabled,
-                dedicated_glass_enabled: rooftop_poc,
+                dedicated_glass_enabled: launch_owners.dedicated_glass_enabled(),
                 glass_debug_view: glass_debug_view.as_u32(),
             },
         )?;
@@ -1539,6 +1540,7 @@ impl App {
         let mut app = Self {
             cottage_base_y: None,
             rooftop_scene: None,
+            temple_statue: None,
             world_chunk_dim,
             vulkan_ctx,
             egui_renderer: renderer,
@@ -3254,6 +3256,12 @@ impl App {
                 self.process_environment_lighting_test_scene();
                 self.process_hybrid_transparency_test_scene();
                 self.process_glass_voxel_test_scene();
+                if let Err(error) = self.sync_temple_statue_material() {
+                    log::error!("[TEMPLE_STATUE] material switch failed: {error:#}");
+                    if let Some(statue) = &self.temple_statue {
+                        self.debug_settings.adjustables.temple_statue_glass.value = statue.glass;
+                    }
+                }
                 self.tracer.drive_pending_ddgi_rebuild();
 
                 if self.render_start_time.is_some() {

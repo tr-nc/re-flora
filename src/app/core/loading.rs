@@ -435,6 +435,8 @@ impl App {
             .unwrap_or_else(|err| panic!("[LOW_WALL_REVIEW] failed: {err:#}"));
         self.seed_stone_lantern_review()
             .expect("stone lantern review");
+        self.review_temple_statue()
+            .expect("temple sculpture review");
         self.seed_garden_fence_review()
             .expect("garden fence review");
         self.seed_soil_movement_review()

@@ -1,8 +1,12 @@
 //! Small timber hall, stamped into ordinary editable terrain before publication.
 //! Dimensions are native terrain voxels; the foundation samples the real substrate.
+use super::statue::TempleStatue;
 use crate::{
     app::{path_band::CellSolid, world_edits::VoxelEdit},
-    builder::{ModelTriangleGpu, VOXEL_TYPE_ASPHALT, VOXEL_TYPE_LIMESTONE, VOXEL_TYPE_OAK_WOOD},
+    builder::{
+        ModelTriangleGpu, VOXEL_TYPE_ASPHALT, VOXEL_TYPE_EMISSIVE, VOXEL_TYPE_LIMESTONE,
+        VOXEL_TYPE_OAK_WOOD,
+    },
     garden_layout,
     geom::{build_bvh, Cuboid, RoundCone},
 };
@@ -56,10 +60,16 @@ fn roof_height(p: Vec2) -> f32 {
         + 9. * (p.x / 120.).abs().powi(6) * (p.y / 96.).abs().powi(6)
 }
 
+pub(super) struct Plan {
+    pub edits: Vec<VoxelEdit>,
+    pub statue: TempleStatue,
+}
+
 pub(super) fn plan(
     world: UVec3,
+    glass_statue: bool,
     mut ground: impl FnMut(UVec2) -> Result<f32>,
-) -> Result<Vec<VoxelEdit>> {
+) -> Result<Plan> {
     let (mut origin, scale) = placement(world);
     let column = |x, z| {
         let p = origin + Vec3::new(x, 0., z) * scale;
@@ -92,6 +102,32 @@ pub(super) fn plan(
         stone.push(box_at(
             Vec3::new(-30., bottom.min((h - origin.y) / scale - 3.), z),
             Vec3::new(30., top, z + 8.),
+        ));
+    }
+    // Two votive lamps light the interior focus without changing the global lighting rig.
+    let mut flames = Vec::new();
+    for x in [-47., 47.] {
+        stone.push(box_at(
+            Vec3::new(x - 6., 3., -3.),
+            Vec3::new(x + 6., 6., 9.),
+        ));
+        stone.push(box_at(
+            Vec3::new(x - 2., 6., 1.),
+            Vec3::new(x + 2., 28., 5.),
+        ));
+        stone.push(box_at(
+            Vec3::new(x - 5., 28., -2.),
+            Vec3::new(x + 5., 30., 8.),
+        ));
+        for dx in [-4., 4.] {
+            stone.push(box_at(
+                Vec3::new(x + dx - 1., 30., -2.),
+                Vec3::new(x + dx + 1., 32., 8.),
+            ));
+        }
+        flames.push(box_at(
+            Vec3::new(x - 1.5, 30., 1.5),
+            Vec3::new(x + 1.5, 34., 4.5),
         ));
     }
     // Continuous backing keeps sub-voxel board joints from becoming holes to the sky.
@@ -151,18 +187,6 @@ pub(super) fn plan(
             ));
         }
     }
-    // A modest timber altar and back screen give the small hall an interior focus.
-    wood.push(box_at(
-        Vec3::new(-25., 22., -42.),
-        Vec3::new(25., 25., -24.),
-    ));
-    for x in [-21., 21.] {
-        wood.push(beam(Vec3::new(x, 3., -33.), Vec3::new(x, 22., -33.), 2.));
-    }
-    wood.push(box_at(
-        Vec3::new(-16., 25., -46.),
-        Vec3::new(16., 50., -43.),
-    ));
     // Exposed rafters under the tiled hips.
     for x in (-108..=108).step_by(12) {
         for sign in [-1., 1.] {
@@ -179,7 +203,11 @@ pub(super) fn plan(
             }
         }
     }
-    for cuboid in wood.iter_mut().chain(stone.iter_mut()) {
+    for cuboid in wood
+        .iter_mut()
+        .chain(stone.iter_mut())
+        .chain(flames.iter_mut())
+    {
         cuboid.scale(Vec3::splat(scale));
         cuboid.transform(origin);
         ensure!(
@@ -190,6 +218,7 @@ pub(super) fn plan(
     let mut edits = vec![
         cuboids(stone, VOXEL_TYPE_LIMESTONE)?,
         cuboids(wood, VOXEL_TYPE_OAK_WOOD)?,
+        cuboids(flames, VOXEL_TYPE_EMISSIVE)?,
     ];
     let mut roof = Vec::new();
     let mut rolls = Vec::new();
@@ -238,7 +267,11 @@ pub(super) fn plan(
         voxel_type: VOXEL_TYPE_ASPHALT,
     });
     log::info!("[HILLSIDE_TEMPLE] timber_hall=true bays=3 open_door=true veranda=true curved_hip_roof=true stairs=8 foundation_y={:.2} natural_surface={low:.2}..{high:.2} editable=true", origin.y);
-    Ok(edits)
+    let statue = TempleStatue::new(origin, scale, glass_statue);
+    statue.validate(world)?;
+    edits.push(statue.initial_edit());
+    log::info!("[TEMPLE_STATUE] original_guardian=true crowned=true carved_face=true sword=true aureole=true glass={glass_statue} editable=true");
+    Ok(Plan { edits, statue })
 }
 
 #[cfg(test)]
@@ -249,7 +282,7 @@ mod tests {
     fn hall_is_grounded_editable_and_has_an_open_entrance() {
         for world in [UVec3::new(512, 512, 512), UVec3::new(1024, 512, 1024)] {
             let ground = |p: UVec2| 130. + (p.x / 32 + p.y / 64) as f32;
-            let plan = plan(world, |p| Ok(ground(p))).unwrap();
+            let plan = plan(world, false, |p| Ok(ground(p))).unwrap().edits;
             let wood = plan
                 .iter()
                 .find_map(|edit| match edit {

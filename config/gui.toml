@@ -2902,6 +2902,18 @@ min = 0
 max = 2
 
 [[section]]
+name = "Sculpture Material"
+
+[[section.param]]
+id = "temple_statue_glass"
+kind = "bool"
+label = "Temple guardian: Glass (A/B; off = limestone)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section]]
 name = "Voxel"
 
 [[section.param]]

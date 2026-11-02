@@ -3,7 +3,9 @@ mod approach;
 mod audit;
 mod courtyard;
 mod grass_review;
+mod statue;
 mod temple;
+pub(super) use statue::TempleStatue;
 #[cfg(test)]
 mod tree_settings_tests;
 use super::{planting::AuthoredFloraPlacementBatch, App, VOXEL_DIM_PER_CHUNK};
@@ -180,6 +182,13 @@ impl App {
         let explicit_review = preset.as_deref().is_some_and(is_review_preset);
         if !explicit_review && (preset.is_some() || self.fresh_garden_seed.is_none()) {
             return;
+        }
+        if preset.as_deref() == Some("temple-statue") {
+            if let Some(statue) = &self.temple_statue {
+                self.tracer.apply_camera_pose(statue.camera());
+                self.camera_control.apply_snapshot_mode(true);
+                return;
+            }
         }
         let world = self.world_chunk_dim * VOXEL_DIM_PER_CHUNK;
         let size = Vec2::new(world.x as f32, world.z as f32) / 256.;

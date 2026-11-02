@@ -1624,6 +1624,56 @@ mod search_tests {
     }
 
     #[test]
+    fn sculpture_glass_checkbox_is_searchable_editable_and_saved() {
+        let mut settings = DebugSettings::load();
+        assert!(!settings.adjustables.temple_statue_glass.value);
+        settings.search.query = "sculpture material temple guardian".to_owned();
+        let context = egui::Context::default();
+        let mut draw = |events| {
+            let output = context.run_ui(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    settings.draw(ui, |_, _| {});
+                },
+            );
+            assert_eq!(settings.search_matches, 1);
+            output
+                .shapes
+                .iter()
+                .find_map(|shape| {
+                    text_rect(
+                        &shape.shape,
+                        "Temple guardian: Glass (A/B; off = limestone)",
+                    )
+                })
+                .expect("declared material checkbox")
+                .center()
+        };
+        draw(vec![]);
+        let point = draw(vec![]);
+        for pressed in [true, false] {
+            draw(vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
+        }
+        assert!(settings.adjustables.temple_statue_glass.value);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert!(loaded.adjustables.temple_statue_glass.value);
+    }
+
+    #[test]
     fn stone_search_checkbox_edit_save_and_reload_are_the_real_saved_fields() {
         let mut settings = DebugSettings::load();
         settings.adjustables.stone_place_slab.value = false;

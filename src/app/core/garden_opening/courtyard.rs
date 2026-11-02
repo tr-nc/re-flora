@@ -147,29 +147,35 @@ impl App {
         // One atlas read for the whole foundation, not one GPU readback per column.
         let (offset, extent) = super::temple::ground_region(dim);
         let bytes = self.plain_builder.read_chunk_atlas_region(offset, extent)?;
-        edits.extend(super::temple::plan(dim, |column| {
-            let x = column
-                .x
-                .checked_sub(offset.x)
-                .context("temple sample outside region")?;
-            let z = column
-                .y
-                .checked_sub(offset.z)
-                .context("temple sample outside region")?;
-            ensure!(x < extent.x && z < extent.z, "temple sample outside region");
-            (0..extent.y)
-                .rev()
-                .find(|&y| {
-                    let index = ((z * extent.y + y) * extent.x + x) as usize;
-                    matches!(
-                        u32::from(voxel_type_from_atlas_byte(bytes[index])),
-                        VOXEL_TYPE_DIRT | VOXEL_TYPE_SAND
-                    )
-                })
-                .map(|y| y as f32 + 1.)
-                .context("temple has no natural soil support")
-        })?);
+        let temple = super::temple::plan(
+            dim,
+            self.debug_settings.adjustables.temple_statue_glass.value,
+            |column| {
+                let x = column
+                    .x
+                    .checked_sub(offset.x)
+                    .context("temple sample outside region")?;
+                let z = column
+                    .y
+                    .checked_sub(offset.z)
+                    .context("temple sample outside region")?;
+                ensure!(x < extent.x && z < extent.z, "temple sample outside region");
+                (0..extent.y)
+                    .rev()
+                    .find(|&y| {
+                        let index = ((z * extent.y + y) * extent.x + x) as usize;
+                        matches!(
+                            u32::from(voxel_type_from_atlas_byte(bytes[index])),
+                            VOXEL_TYPE_DIRT | VOXEL_TYPE_SAND
+                        )
+                    })
+                    .map(|y| y as f32 + 1.)
+                    .context("temple has no natural soil support")
+            },
+        )?;
+        edits.extend(temple.edits);
         self.execute_world_edit(WorldEditTransaction::during_loading(edits))?;
+        self.temple_statue = Some(temple.statue);
         self.plain_builder.mark_all_solid_workgroups_dirty();
         log::info!("[COURTYARD] initialized columns={columns} wall=chinese_red tile_cap=pitched gate_width=0.26 editable=true fresh_only=true");
         Ok(())

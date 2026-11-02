@@ -15,11 +15,12 @@ pub const REVIEW_PRESETS: &[&str] = &[
     "garden-overview",
     "courtyard-tree",
     "courtyard-tiles",
+    "temple-statue",
 ];
 pub fn is_review_preset(name: &str) -> bool {
     REVIEW_PRESETS.contains(&name)
 }
-pub const VERSION: u32 = 9;
+pub const VERSION: u32 = 10;
 // Keep the established flower stream stable when only the tree/grass recipe changes.
 const FLOWER_SEED_SALT: u32 = 1;
 pub const DEFAULT_SEED: u32 = 20260519;

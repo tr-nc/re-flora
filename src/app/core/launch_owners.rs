@@ -220,6 +220,20 @@ pub(super) enum LaunchMode {
 }
 
 impl LaunchOwners {
+    /// Ordinary worlds can load or preview canonical Glass after startup. Reserve the
+    /// optical pipeline independently of the selected material or a test-scene owner.
+    pub(super) fn dedicated_glass_enabled(&self) -> bool {
+        matches!(
+            &self.mode,
+            LaunchMode::General {
+                scenario: ScenarioOwner::Standard(StandardScenarioOwner::World(
+                    WorldScenarioOwner::Garden | WorldScenarioOwner::Rooftop
+                )),
+                ..
+            }
+        )
+    }
+
     /// Garden loading is also used by fixtures; only the ordinary world owns this recipe.
     pub(super) fn permits_fresh_garden(&self) -> bool {
         matches!(&self.mode, LaunchMode::General {
@@ -814,6 +828,21 @@ mod tests {
 
     fn launch_for(scenario: Scenario) -> LaunchOwners {
         prepare_startup_owners(AutomationPlan::default(), scenario).unwrap()
+    }
+
+    #[test]
+    fn ordinary_worlds_reserve_glass_rendering_before_runtime_material_changes_or_loads() {
+        assert!(launch_for(Scenario::Garden).dedicated_glass_enabled());
+        assert!(launch_for(Scenario::Rooftop).dedicated_glass_enabled());
+        assert!(
+            !launch_for(Scenario::Garden).glass_experiment_enabled(),
+            "Sand must remain Sand"
+        );
+        assert!(!launch_for(Scenario::WaterEditSoak).dedicated_glass_enabled());
+        assert!(
+            !launch_for(Scenario::House).dedicated_glass_enabled(),
+            "house owns its existing optical pipeline"
+        );
     }
 
     #[test]

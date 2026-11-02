@@ -27,6 +27,8 @@ pub(super) struct GardenSnapshot {
     economy: garden_economy::GardenEconomy,
     #[serde(default)]
     hives: garden_bees::HiveSnapshot,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    temple_statue: Option<garden_opening::TempleStatue>,
 }
 
 impl GardenSnapshot {
@@ -52,6 +54,9 @@ impl GardenSnapshot {
         self.carried_soil.validate()?;
         self.economy.validate()?;
         self.hives.validate(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)?;
+        if let Some(statue) = &self.temple_statue {
+            statue.validate(CHUNK_DIM * VOXEL_DIM_PER_CHUNK)?;
+        }
         anyhow::ensure!(
             self.economy
                 .harvest_receipts()
@@ -417,6 +422,7 @@ impl App {
             carried_soil: self.soil_shovel.carry.clone(),
             economy: self.garden_economy.clone(),
             hives: self.garden_bees.saved.clone(),
+            temple_statue: self.temple_statue.clone(),
         };
         garden.validate()?;
         let (flora_count, authored_count) = garden.flora.counts();
@@ -575,6 +581,11 @@ impl App {
         self.restore_soft_ropes(garden.soft_ropes)?;
         self.garden_fence.restore(garden.fences);
         self.garden_bees.restore(garden.hives);
+        self.temple_statue = garden.temple_statue;
+        if let Some(statue) = &self.temple_statue {
+            // Saved terrain wins over GUI preferences: loading never repaints the statue.
+            self.debug_settings.adjustables.temple_statue_glass.value = statue.glass;
+        }
         self.soil_shovel.cancel_gesture();
         self.soil_shovel.carry = garden.carried_soil;
         Ok(())
