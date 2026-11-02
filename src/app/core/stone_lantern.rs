@@ -77,7 +77,7 @@ fn parts(scale: f32) -> Vec<Part> {
     }
     p
 }
-struct Plan {
+pub(super) struct Plan {
     base: IVec3,
     bound: UAabb3,
     parts: Vec<Part>,
@@ -224,7 +224,7 @@ impl App {
             log::warn!("[STONE_LANTERN] placement rejected: {e:#}");
         }
     }
-    fn place_stone_lantern(&mut self, hit: Vec3) -> Result<Plan> {
+    pub(super) fn place_stone_lantern(&mut self, hit: Vec3) -> Result<Plan> {
         let plan = Plan::new(
             hit,
             self.world_chunk_dim * super::VOXEL_DIM_PER_CHUNK,

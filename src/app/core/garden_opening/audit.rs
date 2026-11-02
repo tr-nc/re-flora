@@ -41,7 +41,12 @@ impl App {
             layout::TEMPLE_CENTER + Vec2::new(0., 0.08),
             layout::TEMPLE_CENTER,
         ];
-        for destination in layout::ROUTE[1..].iter().chain(temple_approach.iter()) {
+        let route = layout::route_samples();
+        for destination in route
+            .iter()
+            .filter(|p| p.y < layout::ARRIVAL.y)
+            .chain(temple_approach.iter())
+        {
             let target = ground(*destination, self);
             for _ in 0..300 {
                 let horizontal = Vec3::new(target.x - eye.x, 0., target.z - eye.z);

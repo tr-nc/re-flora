@@ -2,6 +2,9 @@
 //! See docs/research/garden-spatial-ecology.md for evidence and transfer limits.
 use glam::{UVec2, UVec3, Vec2, Vec3Swizzles};
 
+mod approach;
+pub use approach::{approach_path, lantern_pairs, route_samples};
+
 pub const REVIEW_PRESETS: &[&str] = &[
     "garden-arrival",
     "garden-corridor",
@@ -13,7 +16,7 @@ pub const REVIEW_PRESETS: &[&str] = &[
 pub fn is_review_preset(name: &str) -> bool {
     REVIEW_PRESETS.contains(&name)
 }
-pub const VERSION: u32 = 7;
+pub const VERSION: u32 = 8;
 // Keep the established flower stream stable when only the tree/grass recipe changes.
 const FLOWER_SEED_SALT: u32 = 1;
 pub const DEFAULT_SEED: u32 = 20260519;
@@ -78,7 +81,7 @@ fn ellipse(p: Vec2, center: Vec2, radius: Vec2) -> f32 {
     ((p - center) / radius).length()
 }
 pub fn route_distance(p: Vec2) -> f32 {
-    ROUTE
+    route_samples()
         .windows(2)
         .map(|s| {
             let d = s[1] - s[0];
@@ -288,7 +291,7 @@ mod tests {
 
     #[test]
     fn route_is_connected_clear_and_walkable() {
-        for s in ROUTE.windows(2) {
+        for s in route_samples().windows(2) {
             for i in 0..100 {
                 let p = s[0].lerp(s[1], i as f32 / 100.);
                 assert!(reserved(p));

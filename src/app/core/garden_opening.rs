@@ -1,4 +1,5 @@
 //! One-time adapter from the pure opening recipe into ordinary editing transactions.
+mod approach;
 mod audit;
 mod courtyard;
 mod grass_review;
@@ -122,19 +123,7 @@ impl App {
             }
         }
         self.publish_tree_planting_batch(tree_batch)?;
-        // Actual mow/removal paths, not a shader-only exclusion: persists in snapshots,
-        // and subsequent player edits/planting remain free to replace these patches.
-        for segment in layout::ROUTE.windows(2) {
-            let ground = |p: Vec2, app: &Self| {
-                let xz = p * size;
-                Vec3::new(xz.x, app.query_terrain_height_cpu(xz), xz.y)
-            };
-            self.apply_surface_flora_removal(TerrainBrushEdit {
-                start: ground(segment[0], self),
-                end: ground(segment[1], self),
-                radius: 0.085,
-            })?;
-        }
+        self.establish_temple_approach(size)?;
         for (p, radius) in [(layout::ARRIVAL, 0.18), (layout::POCKET, 0.14)] {
             let xz = p * size;
             let center = Vec3::new(xz.x, self.query_terrain_height_cpu(xz), xz.y);
