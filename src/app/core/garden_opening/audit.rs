@@ -35,7 +35,13 @@ impl App {
             .recover_walk_entry(eye, 0.08)?
             .ok_or_else(|| anyhow::anyhow!("arrival capsule is blocked"))?;
         let mut steps = 0;
-        for destination in &layout::ROUTE[1..] {
+        // Continue along the actual stairs, veranda and open door, not a roof ray.
+        let temple_approach = [
+            layout::TEMPLE_CENTER + Vec2::new(0., 0.14),
+            layout::TEMPLE_CENTER + Vec2::new(0., 0.08),
+            layout::TEMPLE_CENTER,
+        ];
+        for destination in layout::ROUTE[1..].iter().chain(temple_approach.iter()) {
             let target = ground(*destination, self);
             for _ in 0..300 {
                 let horizontal = Vec3::new(target.x - eye.x, 0., target.z - eye.z);
@@ -60,7 +66,7 @@ impl App {
                 "corridor capsule blocked before {target:?}: eye={eye:?}"
             );
         }
-        log::info!("[GARDEN_AUDIT] arrival_and_corridor=walked capsule=true steps={steps} final_eye={eye:?}");
+        log::info!("[GARDEN_AUDIT] arrival_and_corridor=walked temple_stairs_and_door=walked capsule=true steps={steps} final_eye={eye:?}");
 
         // Ordinary edit paths in a temporary generated world, well away from arrival.
         let patch = ground(Vec2::new(0.45, 0.78), self);

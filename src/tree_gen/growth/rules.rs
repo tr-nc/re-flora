@@ -8,7 +8,6 @@ pub(in crate::tree_gen) enum Architecture {
     LegacyConifer,
     Spreading(&'static SpreadingCrown),
     Layered(&'static LayeredCrown),
-    Veteran,
 }
 
 #[derive(Clone, Copy)]
@@ -16,7 +15,6 @@ pub(in crate::tree_gen) enum FoliageRule {
     RecursiveDepth,
     TwigTips,
     TwigAxes,
-    SpurAxes,
 }
 
 #[derive(Clone, Copy)]

@@ -28,7 +28,7 @@ pub(super) struct GrowthSkeleton {
 }
 
 pub(super) fn generate(desc: &TreeDesc) -> GrowthSkeleton {
-    let rule = desc.species.growth_rule_for(desc);
+    let rule = desc.species.growth_rule(desc.axis_model);
     let (branches, axes) = if let Some(skeleton) = axis::generate(desc, rule.architecture) {
         (skeleton.segments, skeleton.metadata)
     } else {
@@ -66,17 +66,10 @@ pub(super) fn generate(desc: &TreeDesc) -> GrowthSkeleton {
         .filter(|(i, _)| visible[*i])
         .filter(|(i, branch)| match rule.foliage {
             rules::FoliageRule::RecursiveDepth => branch.level.saturating_add(1) == leaf_level,
-            rules::FoliageRule::TwigTips
-            | rules::FoliageRule::TwigAxes
-            | rules::FoliageRule::SpurAxes => {
+            rules::FoliageRule::TwigTips | rules::FoliageRule::TwigAxes => {
                 let axis = &axes[*i];
-                let leafy_twig = if matches!(rule.foliage, rules::FoliageRule::SpurAxes) {
-                    axis.order >= 3
-                } else {
-                    axis.order == 2
-                        && (matches!(rule.foliage, rules::FoliageRule::TwigAxes)
-                            || axis.u_end == 1.)
-                };
+                let leafy_twig = axis.order == 2
+                    && (matches!(rule.foliage, rules::FoliageRule::TwigAxes) || axis.u_end == 1.);
                 leafy_twig || Some(*i) == last_visible_trunk
             }
         })

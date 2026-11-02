@@ -19,27 +19,10 @@ fn mature_tree_growth_age() -> f32 {
     1.0
 }
 
-/// A captured architectural form, independent of the tree's simulated age.
-/// Missing form in old snapshots reconstructs the previous species geometry.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TreeForm {
-    #[default]
-    Standard,
-    Veteran,
-}
-impl TreeForm {
-    fn is_standard(&self) -> bool {
-        *self == Self::Standard
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default = "TreeDesc::legacy_wire_defaults")]
 pub struct TreeDesc {
     pub species: super::TreeSpecies,
-    #[serde(default, skip_serializing_if = "TreeForm::is_standard")]
-    pub form: TreeForm,
     /// Legacy Conifer A/B architecture, retained by garden snapshots. Current species always
     /// use their own axes. Missing species is a decode-only retired-tree migration marker.
     pub axis_model: bool,

@@ -2,7 +2,6 @@ use super::launch_owners;
 mod fruit_attachment;
 mod growth;
 use fruit_attachment::bind_fruit_attachments;
-pub(super) use growth::TreePlantingBatch;
 mod planting_settings;
 pub(super) use planting_settings::planting_description;
 mod snapshot;
@@ -1166,21 +1165,6 @@ pub(super) struct GardenTrees {
 }
 
 impl GardenTrees {
-    /// Stable authored-specimen anchor, independent of current posed wood or terrain rays.
-    pub(super) fn specimen_position(
-        &self,
-        species: crate::tree_gen::TreeSpecies,
-        form: crate::tree_gen::TreeForm,
-    ) -> Option<Vec3> {
-        self.records
-            .iter()
-            .filter(|(_, record)| {
-                record.mature_desc.species == species && record.mature_desc.form == form
-            })
-            .min_by_key(|(id, _)| *id)
-            .map(|(_, record)| record.position)
-    }
-
     pub(super) fn new(leaf_emitter_desc: LeafEmitterDesc) -> Self {
         Self {
             records: HashMap::new(),

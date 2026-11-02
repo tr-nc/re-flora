@@ -31,7 +31,6 @@ impl TreeDesc {
     pub(crate) fn legacy_wire_defaults() -> Self {
         TreeDesc {
             species: super::TreeSpecies::RetiredGardenTree,
-            form: super::TreeForm::Standard,
             axis_model: false,
             branching: legacy_branching_wire_defaults(),
             growth_age: 1.0,

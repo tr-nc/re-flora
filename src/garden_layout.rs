@@ -13,24 +13,20 @@ pub const REVIEW_PRESETS: &[&str] = &[
 pub fn is_review_preset(name: &str) -> bool {
     REVIEW_PRESETS.contains(&name)
 }
-pub const VERSION: u32 = 6;
+pub const VERSION: u32 = 7;
 // Keep the established flower stream stable when only the tree/grass recipe changes.
 const FLOWER_SEED_SALT: u32 = 1;
 pub const DEFAULT_SEED: u32 = 20260519;
-pub const ARRIVAL: Vec2 = Vec2::new(0.36, 0.73);
-pub const POCKET: Vec2 = Vec2::new(0.62, 0.40);
+pub const ARRIVAL: Vec2 = Vec2::new(0.50, 0.82);
+pub const POCKET: Vec2 = Vec2::new(0.50, 0.49);
+pub const TEMPLE_CENTER: Vec2 = Vec2::new(0.50, 0.30);
 pub const ROUTE: [Vec2; 4] = [
     ARRIVAL,
-    Vec2::new(0.43, 0.62),
-    Vec2::new(0.55, 0.53),
+    Vec2::new(0.44, 0.71),
+    Vec2::new(0.51, 0.60),
     POCKET,
 ];
-pub const TREE_CENTERS: [Vec2; 4] = [
-    Vec2::new(0.23, 0.32),
-    Vec2::new(0.36, 0.22),
-    Vec2::new(0.78, 0.57),
-    Vec2::new(0.80, 0.30),
-];
+pub const TREE_CENTERS: [Vec2; 2] = [Vec2::new(0.28, 0.46), Vec2::new(0.72, 0.46)];
 pub const FLOWER_KEYS: [&str; 3] = ["wild-geranium", "forget-me-not", "oxeye-daisy"];
 pub const MAX_ATTEMPTS: u32 = 2304;
 
@@ -94,15 +90,19 @@ pub fn reserved(p: Vec2) -> bool {
     ellipse(p, ARRIVAL, Vec2::new(0.13, 0.10)) < 1.
         || ellipse(p, POCKET, Vec2::new(0.105, 0.08)) < 1.
         || route_distance(p) < 0.045
+        || ((p - TEMPLE_CENTER).abs().cmplt(Vec2::new(0.15, 0.15))).all()
 }
-/// Broad unequal rises; finite differences stay well below the walking slope limit.
+/// One small hill with an off-axis crest, a lower shoulder and a shallow swale.
+/// The temple gets a local foundation, not a flattened world or a second height map.
 pub fn height_voxels(p: Vec2, seed: u32) -> u32 {
     let lobe = |c, r| (-ellipse(p, c, r).powi(2)).exp();
     let shift = (unit(seed) - 0.5) * 0.04;
-    (126.
-        + 17. * lobe(Vec2::new(0.23 + shift, 0.28), Vec2::new(0.30, 0.26))
-        + 9. * lobe(Vec2::new(0.82, 0.43), Vec2::new(0.24, 0.34))
-        - 3. * lobe(ARRIVAL, Vec2::splat(0.22)))
+    (116.
+        + 67. * lobe(Vec2::new(0.48 + shift, 0.29), Vec2::new(0.32, 0.35))
+        + 22. * lobe(Vec2::new(0.76, 0.52), Vec2::new(0.18, 0.24))
+        + 12. * lobe(Vec2::new(0.27, 0.61), Vec2::new(0.20, 0.22))
+        - 10. * lobe(Vec2::new(0.35, 0.52), Vec2::new(0.10, 0.25))
+        - 5. * lobe(ARRIVAL, Vec2::splat(0.18)))
     .round() as u32
 }
 
@@ -216,55 +216,72 @@ mod tests {
         }
     }
     #[test]
-    fn opening_apples_fit_borders_and_clearings_at_the_original_positions() {
+    fn two_ordinary_ginkgo_flank_the_temple_and_clear_the_approach() {
         assert_eq!(
             TREE_CENTERS,
-            [
-                Vec2::new(0.23, 0.32),
-                Vec2::new(0.36, 0.22),
-                Vec2::new(0.78, 0.57),
-                Vec2::new(0.80, 0.30),
-            ]
+            [Vec2::new(0.28, 0.46), Vec2::new(0.72, 0.46),]
         );
         for seed in [DEFAULT_SEED, 0, u32::MAX, 7, 122, 907] {
             for (i, p) in TREE_CENTERS.iter().enumerate() {
-                let mut desc = crate::tree_gen::TreeDesc::default();
+                let mut desc = crate::tree_gen::TreeSpecies::Ginkgo.default_desc();
                 desc.branching.seed = tree_individual(seed, i);
-                assert_eq!(desc.species, crate::tree_gen::TreeSpecies::AppleTree);
+                assert_eq!(desc.species, crate::tree_gen::TreeSpecies::Ginkgo);
                 assert_eq!(
                     desc.branching.seed,
                     hash(seed ^ i as u32 ^ 0x74726565) as u64
                 );
-                assert_eq!(
-                    desc.fruit_spawn_probability,
-                    crate::tree_gen::TreeDesc::default().fruit_spawn_probability
-                );
-                assert!(desc.fruit_spawn_probability > 0.);
+                assert_eq!(desc.fruit_spawn_probability, 0.);
                 assert_eq!(
                     serde_json::to_value(&desc).unwrap(),
                     serde_json::to_value(tree_descriptor(
                         seed,
                         i,
-                        crate::tree_gen::TreeDesc::default()
+                        crate::tree_gen::TreeSpecies::Ginkgo.default_desc()
                     ))
                     .unwrap()
                 );
                 let height = crate::tree_gen::Tree::new(desc.clone()).height_voxels();
                 assert!(
-                    (38.0..=49.0).contains(&height),
+                    (80.0..=180.0).contains(&height),
                     "seed={seed} tree={i} height={height}"
                 );
-                let defaults = crate::tree_gen::TreeDesc::default();
+                let defaults = crate::tree_gen::TreeSpecies::Ginkgo.default_desc();
                 assert_eq!(desc.leaves_size_level, defaults.leaves_size_level);
                 assert_eq!(
                     desc.fruit_down_offset_voxels,
                     defaults.fruit_down_offset_voxels
                 );
                 let radius = tree_radius_voxels(&desc);
-                assert!(radius <= 46.);
+                assert!(radius <= 110.);
                 assert!(p.min_element() * 512. > radius + 4.);
                 assert!((1. - p.max_element()) * 512. > radius + 4.);
-                assert!(route_distance(*p) * 512. > radius + 24.);
+                assert!(route_distance(*p) * 1024. > radius + 24.);
+            }
+        }
+    }
+
+    #[test]
+    fn hill_has_clear_relief_without_cliffs_or_a_flattened_summit() {
+        for seed in [DEFAULT_SEED, 0, 7, u32::MAX] {
+            let crest = height_voxels(TEMPLE_CENTER, seed);
+            assert!(crest > height_voxels(ARRIVAL, seed) + 50);
+            assert!(
+                height_voxels(Vec2::new(0.76, 0.52), seed)
+                    > height_voxels(Vec2::new(0.94, 0.70), seed) + 20
+            );
+            assert_ne!(
+                height_voxels(TEMPLE_CENTER - Vec2::splat(0.08), seed),
+                crest
+            );
+            for y in 0..512 {
+                for x in 0..512 {
+                    let p = Vec2::new(x as f32, y as f32) / 512.;
+                    let h = height_voxels(p, seed) as i32;
+                    assert!((110..=195).contains(&h));
+                    for d in [Vec2::X, Vec2::Y] {
+                        assert!((height_voxels(p + d / 512., seed) as i32 - h).abs() <= 1);
+                    }
+                }
             }
         }
     }

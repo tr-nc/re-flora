@@ -229,6 +229,16 @@ fn ginkgo_has_a_tapered_upright_crown_fan_sprays_and_no_apples() {
 }
 
 #[test]
+fn retired_form_metadata_loads_through_the_ordinary_species_generator() {
+    let desc = TreeSpecies::Ginkgo.default_desc();
+    let mut saved = serde_json::to_value(&desc).unwrap();
+    saved["form"] = serde_json::json!("veteran");
+    let restored: TreeDesc = serde_json::from_value(saved).unwrap();
+    assert_eq!(restored, desc);
+    assert_eq!(Tree::new(restored).branches(), Tree::new(desc).branches());
+}
+
+#[test]
 fn species_profiles_are_switching_defaults_not_overrides_of_live_authoring() {
     for species in TreeSpecies::PLANTABLE {
         let mut authored = species.mature_desc(&TreeDesc::default());

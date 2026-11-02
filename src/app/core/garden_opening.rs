@@ -2,6 +2,7 @@
 mod audit;
 mod courtyard;
 mod grass_review;
+mod temple;
 #[cfg(test)]
 mod tree_settings_tests;
 use super::{planting::AuthoredFloraPlacementBatch, App, VOXEL_DIM_PER_CHUNK};
@@ -11,16 +12,37 @@ use crate::{
     garden_layout as layout,
     tree_gen::{TreeDesc, TreeSpecies},
 };
-use glam::{Vec2, Vec3};
+use glam::{Vec2, Vec3, Vec3Swizzles};
 
 pub(super) use crate::garden_layout::is_review_preset;
 
 fn opening_tree_description(settings: &DebugSettings, seed: u32, index: usize) -> TreeDesc {
     super::vegetation::planting_description(
         settings,
-        TreeSpecies::AppleTree,
+        TreeSpecies::Ginkgo,
         layout::tree_individual(seed, index),
     )
+}
+
+fn opening_tree_position(
+    tree: &crate::tree_gen::Tree,
+    xz: Vec2,
+    mut ground: impl FnMut(Vec2) -> f32,
+) -> Vec3 {
+    let mut height = ground(xz);
+    // The planting adapter chooses a supported anchor; Grow still owns material
+    // protection. A center ray alone can put an uphill soil voxel above base_y.
+    let root = tree.trunks()[0].aabb();
+    let min = (root.min().xz() + xz * 256.).floor().as_uvec2();
+    let max = (root.max().xz() + xz * 256.).ceil().as_uvec2();
+    for z in min.y..=max.y {
+        for x in min.x..=max.x {
+            height = height.max(ground(
+                (Vec2::new(x as f32, z as f32) + Vec2::splat(0.5)) / 256.,
+            ));
+        }
+    }
+    Vec3::new(xz.x, height, xz.y)
 }
 
 impl App {
@@ -63,7 +85,6 @@ impl App {
             )?;
         }
         let mut tree_batch = self.begin_tree_planting_batch();
-        self.prepare_courtyard_ginkgo(seed, size, &mut tree_batch)?;
         // Sample the same saved recipe/maturity as Grow, without charging inventory.
         // Once published, each tree owns its description and optional growth clock.
         let instant_mature = self
@@ -71,22 +92,23 @@ impl App {
             .adjustables
             .tree_planting_instant_mature
             .value;
-        let mut placed_trees = 1; // The mature courtyard ginkgo was prepared above.
+        let mut placed_trees = 0;
         for (i, p) in layout::TREE_CENTERS.iter().enumerate() {
             let xz = *p * size;
-            let y = self.query_terrain_height_cpu(xz);
             let desc = opening_tree_description(&self.debug_settings, seed, i);
+            let planting_tree = crate::tree_gen::Tree::new(desc.at_age(if instant_mature {
+                1.
+            } else {
+                super::vegetation::SAPLING_AGE
+            }));
+            let position =
+                opening_tree_position(&planting_tree, xz, |p| self.query_terrain_height_cpu(p));
             let radius = layout::tree_radius_voxels(&desc);
             let height = crate::tree_gen::Tree::new(desc.clone()).height_voxels();
             log::info!("[GARDEN_OPENING] tree={i} species={} seed={} size={:.3} crown_radius_voxels={radius:.3} height_voxels={height:.3} position={:?} apple_probability={} appearance={:?} instant_mature={instant_mature}",
                 desc.species.label(), desc.branching.seed, desc.size,
-                Vec3::new(xz.x, y, xz.y), desc.fruit_spawn_probability, desc.appearance);
-            match self.prepare_tree_planting(
-                &mut tree_batch,
-                desc,
-                Vec3::new(xz.x, y, xz.y),
-                instant_mature,
-            ) {
+                position, desc.fruit_spawn_probability, desc.appearance);
+            match self.prepare_tree_planting(&mut tree_batch, desc, position, instant_mature) {
                 Ok(id) => {
                     placed_trees += 1;
                     log::info!("[GARDEN_OPENING] prepared_tree={i} id={id}");
@@ -172,49 +194,30 @@ impl App {
         }
         let world = self.world_chunk_dim * VOXEL_DIM_PER_CHUNK;
         let size = Vec2::new(world.x as f32, world.z as f32) / 256.;
-        if matches!(
-            preset.as_deref(),
-            Some("courtyard-tree" | "courtyard-tiles")
-        ) {
-            // The saved specimen owns its root height. A terrain ray at its
-            // center after reload can hit the trunk/crown instead of the soil.
-            let ground = self
-                .trees
-                .specimen_position(TreeSpecies::Ginkgo, crate::tree_gen::TreeForm::Veteran)
-                .map(|position| position.y)
-                .unwrap_or_else(|| self.query_terrain_height_cpu(size * Vec2::new(0.5, 0.70)));
-            let (eye, target, fov) = if preset.as_deref() == Some("courtyard-tiles") {
-                (
-                    Vec3::new(size.x * 0.72, ground + 0.44, size.y * 0.98),
-                    Vec3::new(size.x * 0.72, ground + 0.22, size.y * 0.90),
-                    55.,
-                )
-            } else {
-                (
-                    Vec3::new(size.x * 0.68, ground + 0.72, size.y * 0.80),
-                    Vec3::new(size.x * 0.50, ground + 0.58, size.y * 0.43),
-                    70.,
-                )
-            };
-            let d = target - eye;
+        if preset.as_deref() == Some("courtyard-tiles") {
+            let ground = self.query_terrain_height_cpu(size * Vec2::new(0.72, 0.98));
+            let eye = Vec3::new(size.x * 0.72, ground + 0.44, size.y * 0.98);
+            let target = Vec3::new(size.x * 0.72, ground + 0.22, size.y * 0.90);
+            let direction = target - eye;
             self.tracer.apply_camera_pose(CameraPose {
                 position: eye,
-                yaw_deg: d.x.atan2(-d.z).to_degrees(),
-                pitch_deg: d.y.atan2(Vec2::new(d.x, d.z).length()).to_degrees(),
-                fov_deg: fov,
+                yaw_deg: direction.x.atan2(-direction.z).to_degrees(),
+                pitch_deg: direction.y.atan2(direction.xz().length()).to_degrees(),
+                fov_deg: 55.,
             });
             self.camera_control.apply_snapshot_mode(true);
             return;
         }
         let (p, target, overhead) = match preset.as_deref() {
-            Some("garden-overview") => (Vec2::new(0.95, 1.25), Vec2::new(0.46, 0.43), true),
+            Some("garden-overview") => (Vec2::new(0.85, 1.05), layout::TEMPLE_CENTER, true),
+            Some("courtyard-tree") => (Vec2::new(0.45, 0.69), layout::TREE_CENTERS[0], false),
             Some("garden-reverse") => (layout::POCKET, layout::ARRIVAL, false),
             Some("garden-corridor") => (layout::ROUTE[1], layout::POCKET, false),
-            _ => (layout::ARRIVAL, Vec2::new(0.52, 0.39), false),
+            _ => (layout::ARRIVAL, layout::TEMPLE_CENTER, false),
         };
         let xz = p * size;
         let y = if overhead {
-            2.7
+            1.9
         } else {
             self.query_terrain_height_cpu(xz) + 0.08
         };
@@ -222,7 +225,7 @@ impl App {
         self.tracer.apply_camera_pose(CameraPose {
             position: Vec3::new(xz.x, y, xz.y),
             yaw_deg: direction.x.atan2(-direction.y).to_degrees(),
-            pitch_deg: if overhead { -39. } else { -8. },
+            pitch_deg: if overhead { -25. } else { 7. },
             fov_deg: 60.,
         });
         self.camera_control.apply_snapshot_mode(overhead);

@@ -1,5 +1,8 @@
 # Courtyard visual reference study
 
+Historical research for the November 1–2 courtyard experiment. The veteran-form proposal below
+was subsequently withdrawn; retain it as art-direction evidence, not an implementation requirement.
+
 ## Evidence and limits
 
 - [Getty Art & Architecture Thesaurus: iron oxide red](https://www.getty.edu/vow/AATFullDisplay?find=300310162&logic=AND&note=&subjectid=300013537): search-index passage identifies hematite / iron-oxide earth reds. [Getty conservation spectroscopy](https://www.getty.edu/conservation/publications_resources/pdf_publications/pdf/infrared_spectroscopy.pdf) identifies red hematite as Fe₂O₃. Magnetite (Fe₃O₄) is black, not the red pigment being sought. These are pigment identities, **not calibrated wall RGB measurements**.
