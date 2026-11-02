@@ -186,7 +186,7 @@ impl App {
 mod tests {
     use super::*;
     #[test]
-    fn foothill_wall_separates_the_temple_from_the_mountain_and_keeps_the_front_gate() {
+    fn courtyard_keeps_the_temple_clear_and_the_centered_front_gate() {
         let size = Vec2::splat(2.);
         let sides = segments(size);
         let gate_side = layout::REAR_WALL.len();
