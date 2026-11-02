@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>让点光源进入光场 · Re: Flora</title>
+<style>
+:root{--ink:#203b36;--muted:#5e6e67;--paper:#f6f4ed;--card:#fffef9;--line:#d8dfd5;--green:#285f50;--pale:#e7eee3;--gold:#946821;--warm:#f7edda}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.8 system-ui,-apple-system,"Noto Sans CJK SC","Microsoft YaHei",sans-serif}main{max-width:1120px;padding:40px 36px 64px;margin:auto}a{color:var(--green);text-underline-offset:4px}a:hover{color:#102f26}nav{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding-bottom:18px;font-size:13px;color:var(--muted)}header{padding:58px 0 38px}.kicker{font-size:12px;font-weight:700;letter-spacing:2px;color:var(--green)}h1{font-size:clamp(36px,5.6vw,62px);line-height:1.25;letter-spacing:-1.5px;margin:16px 0 24px}h1 em{font-style:normal;color:var(--green)}h2{font-size:28px;line-height:1.4;margin:8px 0 22px}h3{font-size:19px;line-height:1.5;margin:8px 0 12px}p{margin:10px 0 16px}.lede{max-width:850px;color:var(--muted);font-size:20px}.verdict{padding:28px 32px;background:var(--green);color:#fffef9;border-radius:4px;margin-bottom:36px}.verdict .kicker{color:#cee4c5}.verdict blockquote{font:23px/1.6 Georgia,serif;margin:12px 0 16px}.verdict a{color:#e3efca}.verdict p:last-child{margin-bottom:0}section{padding:35px 0;border-top:1px solid var(--line)}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.card{border:1px solid var(--line);background:var(--card);padding:24px;border-radius:4px}.card p:last-child{margin-bottom:0}.tag{display:inline-block;background:var(--pale);color:var(--green);padding:3px 8px;border-radius:3px;font-size:12px;font-weight:650}.tag.warm{background:var(--warm);color:var(--gold)}.small{font-size:13px;color:var(--muted)}.callout{border-left:3px solid var(--gold);background:var(--warm);padding:16px 20px;margin:22px 0}.callout p{margin:0}.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:24px 0}.step{padding:20px;background:var(--pale);border-top:3px solid var(--green)}.step b{display:block;font-size:18px}.number{color:var(--green);font-size:32px;font-weight:650;line-height:1.2;margin-bottom:12px}.equation{background:var(--ink);color:#f8f5e9;border-radius:4px;padding:22px 24px;font:16px/1.9 ui-monospace,monospace;overflow-wrap:anywhere;margin:24px 0}.equation span{color:#d2e1ba}code{font:0.9em ui-monospace,monospace;overflow-wrap:anywhere}.options{display:grid;grid-template-columns:140px 1fr;gap:0 24px}.option-label{padding:22px 0;color:var(--green);font-weight:700}.option{padding:18px 0;border-bottom:1px solid var(--line)}.option p{margin-bottom:6px}.option:last-child{border-bottom:0}.ownership{padding:25px;background:var(--pale);border-top:3px solid var(--green)}.flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:15px 0}.flow b{border:1px solid var(--line);padding:8px 12px;font-size:14px;font-weight:550;background:var(--card)}.flow span{color:var(--muted)}ol,ul{padding-left:23px}li{margin:8px 0}.sources{display:grid;grid-template-columns:1fr 1fr;gap:8px 28px;font-size:13px}.sources p{border-bottom:1px solid var(--line);padding:10px 0;margin:0;overflow-wrap:anywhere}.sources a{font-weight:650}footer{padding-top:24px;font-size:12px;color:var(--muted)}@media(max-width:680px){main{padding:24px 20px 40px}header{padding-top:36px}.lede{font-size:18px}.grid,.steps,.sources{grid-template-columns:1fr}.options{grid-template-columns:1fr;gap:0}.option-label{padding:18px 0 0}.option{padding-top:4px}.verdict{padding:23px}.verdict blockquote{font-size:20px}section{padding:28px 0}.card{padding:21px}.equation{font-size:14px;padding:18px}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}@media print{body{background:white}main{max-width:none}.card,.step,.verdict{break-inside:avoid}}
+</style>
+</head>
+<body><main>
+<nav aria-label="报告导航"><span>RE: FLORA / RENDERING RESEARCH</span><a href="../ddgi-direct-light/index.html">上一份：直接光与光场</a><a href="../../references/ddgi/analytic-point-light-injection-research.md">完整证据笔记 ↗</a></nav>
+<header><div class="kicker">ANALYTIC LIGHTS → SHARED IRRADIANCE</div><h1>点光源不用变成球，<br>也能进入<em>光场。</em></h1><p class="lede">在探针处主动连接光源，计算方向、衰减与遮挡，再写入方向相关的照明响应。<strong>让大量草复用这份结果，而不是每份草样本都重新问每盏灯。</strong></p></header>
+<div class="verdict"><div class="kicker">实际先例 · UNITY 官方代码</div><blockquote>“With the normalized direction and the attenuation, the point light is equivalent to a directional light in the context of a light probe.”</blockquote><p>官方示例逐探针计算点光的方向与衰减，再调用 <code>AddDirectionalLight</code>。可用于编辑器或运行时。<strong>示例没有做遮挡查询；它证明注入方式，不证明阴影质量。</strong> <a href="https://docs.unity3d.com/2020.3/Documentation/ScriptReference/LightProbes-bakedProbes.html">查看完整示例 ↗</a></p></div>
+<section id="mechanism"><div class="kicker">01 / 怎样写进去</div><h2>不等射线撞上点光，直接算它的贡献</h2><p>理想点光是 delta 光源。普通随机方向命中它的概率为零；增加普通 DDGI 射线也解决不了。正确做法是显式光源采样／解析连接。<a href="https://www.pbr-book.org/4ed/Light_Sources/Point_Lights">PBRT 原理与代码 ↗</a></p>
+<div class="steps"><article class="step"><div class="number">01</div><b>探针连接到灯</b><p>得到光照方向、距离衰减，以及一次遮挡／RGB 透光结果。</p></article><article class="step"><div class="number">02</div><b>展开方向响应</b><p>把该贡献乘以各法线方向的余弦，累加到现有八面体图集。</p></article><article class="step"><div class="number">03</div><b>草只查询合成场</b><p>按位置与法线插值，不再为这些光源逐灯做可见性查询。</p></article></div>
+<div class="equation">E(p, n) = Σ <span>透光率 × 光强 / 距离²</span> × max(0, n·光照方向)</div>
+<p class="small">公式使用物理光强；游戏的范围窗、近场钳制与亮度单位需要沿用并校准。探针没有实体表面，注入不会凭空增加一次物理反射。</p>
+<div class="callout"><p><strong>无需换成球谐。</strong>Unity 用 SH，我们已经有八面体 irradiance atlas，两者都可以表示漫反射方向响应。昂贵的遮挡应每条探针—光源连接算一次，再让多个方向 texel 复用。</p></div>
+</section>
+<section id="options"><div class="kicker">02 / 路线比较</div><h2>先解决“能否正确表示”，再解决“很多灯”</h2><div class="options">
+<div class="option-label">首选 · 直接注入</div><article class="option"><h3>每个更新中的探针，连接相关光源</h3><p>当前有效 GPU 灯列表上限为 8，先全量计算最易建立正确参考。没有漏选点光的采样噪声，但更新成本仍随灯数增长。</p></article>
+<div class="option-label">第二步 · 重要性采样</div><article class="option"><h3>每个探针只采固定数量的灯</h3><p>按光强／距离／空间分布挑灯，并以正确概率加权。可以借鉴 PBRT 的 light BVH、RTXDI 的 ReGIR；代价是噪声、更新与收敛压力。</p></article>
+<div class="option-label">不是等价转换</div><article class="option"><h3>把点光做成有限大小发光球</h3><p>能复用 emission 路径，但改变近场和半影。小而亮的球依然可能漏采。只有确实想改变光源形状时，才应这么做。</p></article>
+</div><div class="callout"><p><strong>ReGIR 是“帮你选灯”，不是“照明已经算好”。</strong>NVIDIA 明确把 RTXGI 探针命中面着色列为用例，也明确说明采样函数不算阴影。把它用于探针中心的直接光注入，是这里提出的组合方案，不是现成 SDK 功能。</p></div></section>
+<section id="limits"><div class="kicker">03 / 最重要的质量边界</div><h2>解析注入解决漏采，不解决空间分辨率</h2><div class="grid">
+<article class="card"><span class="tag warm">近场</span><h3>灯很近，亮度和方向变化很快</h3><p>探针之间可能有一块很亮的区域，但探针本身都没采到它。增加角度分辨率不能恢复缺失的空间峰值；需要局部更密的探针或明确的混合策略。</p></article>
+<article class="card"><span class="tag warm">遮挡</span><h3>探针能看见，不代表草能看见</h3><p>薄墙、灯底座和地面附近的草可能处于另一侧。DDGI 的可见性插值有帮助，但不能恢复每片草到灯的精确阴影边界。</p></article>
+<article class="card"><span class="tag warm">动态</span><h3>灯关掉，直接光不能慢慢残留</h3><p>灯移动和挖墙都会让连接失效。直接光需要明确的失效／重算／发布规则，不能只依赖用于间接光收敛的历史混合。</p></article>
+<article class="card"><span class="tag warm">玻璃</span><h3>必须保留当前透光语义</h3><p>这里的昂贵路径包含玻璃传输。把 RGB 透光改成二值阴影会改变画面，不能算等价优化；直线透光近似也不等于完整折射焦散。</p></article>
+</div></section>
+<section id="ownership"><div class="kicker">04 / 当前代码的关键接缝</div><h2>比“写进图集”更重要的是：别算两次</h2><p>当前 DDGI 命中面会同时读取历史光场与显式局部光。如果直接把点光注入这份历史，再保留原有显式项，同一束直接光会在<strong>下一次反弹着色</strong>里重复。</p>
+<div class="grid"><article class="ownership"><span class="tag">建议的逻辑分工</span><h3>共享探针布局，区分直接贡献</h3><div class="flow"><b>原有传输历史</b><span>＋</span><b>直接光通道</b><span>→</span><b>最终草着色</b></div><p>直接通道不作为额外间接光再次喂回原有反弹计算。是否增加 atlas 由存储与发布要求决定，不需要另建探针系统。</p></article><article class="card"><span class="tag warm">还有两个陷阱</span><h3>单位与可见性数据不能混用</h3><p>现有图集的滤波量是 <strong>E/π</strong>，定向样本不能套用均匀球面的 <code>4/N</code> 权重。现有灯强还要做单位校准，不能机械除 π。</p><p>光源距离也不能作为普通场景距离样本写进 DDGI visibility moments。</p></article></div>
+<div class="callout"><p><strong>代码名不等于物理光型。</strong>当前 <code>PointLight</code> 也承载 voxel emitter 的有限发光包围盒。石灯不应因为类型叫 PointLight，就在 A/B 中被无声改成理想点光；几何 emission 与代理灯的贡献也必须避免重复。</p></div></section>
+<section id="experiment"><div class="kicker">05 / 推荐的下一步 · 尚未实现</div><h2>先做可解释的 A/B，不先上完整 ReSTIR</h2><ol>
+<li><strong>单灯基准：</strong>用无几何 emission 的解析点光，检查探针处／探针之间的亮度、法线响应、近场钳制与范围边界。</li>
+<li><strong>补齐困难场景：</strong>薄墙、灯底座、彩色玻璃、灯开关／移动和挖墙；记录阴影误差与响应时间。</li>
+<li><strong>保持可比：</strong>太阳原有直接阴影不动；Debug checkbox 未勾选为原有逐草局部光，勾选为共享场。真实石灯另测有限形状与 emission 分工。</li>
+<li><strong>视觉确认后量性能：</strong>分别记录草查询、直接场更新、原有 DDGI 更新和整帧耗时。先 1／8 个有效灯，再明确扩容后测 32／128。</li>
+</ol><div class="equation"><span>昂贵连接次数的目标</span><br>草样本数 × 灯数 → 本帧更新探针数 × 灯数</div><p>这才是第一阶段要验证的共享收益。固定数量的草查询可以做到；整个光照系统与灯数完全无关，不能据此保证。若探针更新成为瓶颈，再增加选灯与重采样。</p></section>
+<section id="sources"><div class="kicker">第一方依据</div><h2>能证明什么，也注明不能证明什么</h2><div class="sources">
+<p><a href="https://docs.unity3d.com/2020.3/Documentation/ScriptReference/LightProbes-bakedProbes.html">Unity · LightProbes.bakedProbes</a><br>直接点光注入的实际代码；示例不含遮挡。</p>
+<p><a href="https://www.pbr-book.org/4ed/Light_Sources/Point_Lights">PBRT · Point Lights</a><br>delta 光源、显式采样、距离平方衰减。</p>
+<p><a href="https://www.pbr-book.org/4ed/Light_Sources/Light_Sampling">PBRT · Light Sampling</a><br>均匀、功率与空间层次选灯。</p>
+<p><a href="https://github.com/NVIDIA-RTX/RTXDI/blob/main/Doc/Integration.md#regir">NVIDIA · RTXDI / ReGIR</a><br>世界空间选灯与探针命中面应用；阴影另算。</p>
+<p><a href="https://allenliuzihao.github.io/IS-DDGI/">IS-DDGI · 2023</a><br>相关研究：重要性射线分配。仅核实作者摘要，不据此声称现成点光缓存。</p>
+<p><a href="../../references/ddgi/analytic-point-light-injection-research.md">完整研究笔记</a><br>公式、代码观察、重复计数、局限与来源定位。</p>
+</div></section>
+<footer>研究快照 · 2026-11-03 · 代码 c4a8f953 · 本轮未修改渲染或配置。<br>提出的是实验设计，不是已验证的视觉效果或性能收益。无外部图片资源；完整论文不存入仓库。</footer>
+</main></body></html>

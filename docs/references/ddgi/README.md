@@ -17,6 +17,7 @@ record their titles and official links instead.
 
 ## Focused research
 
+- [Analytic point lights in a shared DDGI field](analytic-point-light-injection-research.md) — explicit probe-side injection, Unity's runtime example, many-light sampling, and visibility/feedback ownership. [Visual summary](../../reports/ddgi-point-lights/index.html).
 - [Direct illumination in DDGI and shared light fields](direct-light-in-fields-research.md) — area-light emission in the original paper, later research, engine applications, and the limits of light-count-independent shading. [Visual summary](../../reports/ddgi-direct-light/index.html).
 
 ## Related implementation references
