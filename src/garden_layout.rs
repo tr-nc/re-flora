@@ -3,7 +3,10 @@
 use glam::{UVec2, UVec3, Vec2, Vec3Swizzles};
 
 mod approach;
+mod terrain;
 pub use approach::{approach_path, lantern_pairs, route_samples};
+#[cfg(test)]
+pub use terrain::height_voxels;
 
 pub const REVIEW_PRESETS: &[&str] = &[
     "garden-arrival",
@@ -16,13 +19,31 @@ pub const REVIEW_PRESETS: &[&str] = &[
 pub fn is_review_preset(name: &str) -> bool {
     REVIEW_PRESETS.contains(&name)
 }
-pub const VERSION: u32 = 8;
+pub const VERSION: u32 = 9;
 // Keep the established flower stream stable when only the tree/grass recipe changes.
 const FLOWER_SEED_SALT: u32 = 1;
 pub const DEFAULT_SEED: u32 = 20260519;
 pub const ARRIVAL: Vec2 = Vec2::new(0.50, 0.82);
 pub const POCKET: Vec2 = Vec2::new(0.50, 0.49);
 pub const TEMPLE_CENTER: Vec2 = Vec2::new(0.50, 0.30);
+/// The rear enclosure follows the foothills, leaving a separate mountain garden behind it.
+pub const REAR_WALL: [Vec2; 6] = [
+    Vec2::new(0.10, 0.23),
+    Vec2::new(0.23, 0.19),
+    Vec2::new(0.39, 0.18),
+    Vec2::new(0.62, 0.18),
+    Vec2::new(0.77, 0.205),
+    Vec2::new(0.90, 0.23),
+];
+
+pub fn rear_wall_z(x: f32) -> f32 {
+    let next = REAR_WALL
+        .partition_point(|p| p.x < x)
+        .clamp(1, REAR_WALL.len() - 1);
+    let a = REAR_WALL[next - 1];
+    let b = REAR_WALL[next];
+    a.y + (b.y - a.y) * ((x - a.x) / (b.x - a.x)).clamp(0., 1.)
+}
 pub const ROUTE: [Vec2; 4] = [
     ARRIVAL,
     Vec2::new(0.44, 0.71),
@@ -95,20 +116,6 @@ pub fn reserved(p: Vec2) -> bool {
         || route_distance(p) < 0.045
         || ((p - TEMPLE_CENTER).abs().cmplt(Vec2::new(0.15, 0.15))).all()
 }
-/// One small hill with an off-axis crest, a lower shoulder and a shallow swale.
-/// The temple gets a local foundation, not a flattened world or a second height map.
-pub fn height_voxels(p: Vec2, seed: u32) -> u32 {
-    let lobe = |c, r| (-ellipse(p, c, r).powi(2)).exp();
-    let shift = (unit(seed) - 0.5) * 0.04;
-    (116.
-        + 67. * lobe(Vec2::new(0.48 + shift, 0.29), Vec2::new(0.32, 0.35))
-        + 22. * lobe(Vec2::new(0.76, 0.52), Vec2::new(0.18, 0.24))
-        + 12. * lobe(Vec2::new(0.27, 0.61), Vec2::new(0.20, 0.22))
-        - 10. * lobe(Vec2::new(0.35, 0.52), Vec2::new(0.10, 0.25))
-        - 5. * lobe(ARRIVAL, Vec2::splat(0.18)))
-    .round() as u32
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Flower {
     pub column: UVec2,
@@ -184,12 +191,12 @@ pub fn terrain_chunk(offset: UVec3, dim: UVec3, world: UVec3, seed: u32) -> Vec<
                 (offset.x + x) as f32 / world.x as f32,
                 (offset.z + z) as f32 / world.z as f32,
             );
-            let height = height_voxels(p, seed);
+            let column = terrain::column(p, seed);
             for y in 0..dim.y {
-                let depth = height as i32 - (offset.y + y) as i32;
+                let depth = column.height as i32 - (offset.y + y) as i32;
                 bytes[(x + dim.x * (y + dim.y * z)) as usize] = if depth < 0 {
                     0
-                } else if depth < 30 {
+                } else if depth < column.soil_depth as i32 {
                     2
                 } else {
                     7
@@ -264,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn hill_has_clear_relief_without_cliffs_or_a_flattened_summit() {
+    fn foreground_hill_stays_gentle_without_a_flattened_summit() {
         for seed in [DEFAULT_SEED, 0, 7, u32::MAX] {
             let crest = height_voxels(TEMPLE_CENTER, seed);
             assert!(crest > height_voxels(ARRIVAL, seed) + 50);
@@ -279,6 +286,9 @@ mod tests {
             for y in 0..512 {
                 for x in 0..512 {
                     let p = Vec2::new(x as f32, y as f32) / 512.;
+                    if p.y < 0.24 {
+                        continue;
+                    }
                     let h = height_voxels(p, seed) as i32;
                     assert!((110..=195).contains(&h));
                     for d in [Vec2::X, Vec2::Y] {

@@ -15,18 +15,22 @@ use glam::UVec3;
 const WALL_WIDTH: f32 = 0.08;
 const WALL_HEIGHT: f32 = 0.24;
 
-fn segments(size: Vec2) -> [(Vec2, Vec2); 5] {
-    let min = size * 0.10;
+fn segments(size: Vec2) -> Vec<(Vec2, Vec2)> {
+    let back = layout::REAR_WALL.map(|p| p * size);
     let max = size * 0.90;
     let gate = size.x * 0.5;
     let half_gate = 0.13;
-    [
-        (min, Vec2::new(max.x, min.y)),
-        (Vec2::new(max.x, min.y), max),
+    let mut sides: Vec<_> = back.windows(2).map(|s| (s[0], s[1])).collect();
+    sides.extend([
+        (back[back.len() - 1], max),
         (max, Vec2::new(gate + half_gate, max.y)),
-        (Vec2::new(gate - half_gate, max.y), Vec2::new(min.x, max.y)),
-        (Vec2::new(min.x, max.y), min),
-    ]
+        (
+            Vec2::new(gate - half_gate, max.y),
+            Vec2::new(back[0].x, max.y),
+        ),
+        (Vec2::new(back[0].x, max.y), back[0]),
+    ]);
+    sides
 }
 
 impl App {
@@ -176,15 +180,22 @@ impl App {
 mod tests {
     use super::*;
     #[test]
-    fn courtyard_is_square_with_a_walkable_centered_front_gate() {
-        let sides = segments(Vec2::splat(2.));
-        assert_eq!(sides[0], (Vec2::splat(0.2), Vec2::new(1.8, 0.2)));
-        assert_eq!(sides[1].1, sides[2].0);
-        assert_eq!(sides[3].1, sides[4].0);
-        assert_eq!(sides[4].1, sides[0].0);
-        let gap = sides[2].1.x - sides[3].0.x;
+    fn foothill_wall_separates_the_temple_from_the_mountain_and_keeps_the_front_gate() {
+        let size = Vec2::splat(2.);
+        let sides = segments(size);
+        let gate_side = layout::REAR_WALL.len();
+        for (i, pair) in sides.windows(2).enumerate() {
+            if i != gate_side {
+                assert_eq!(pair[0].1, pair[1].0);
+            }
+        }
+        assert_eq!(sides.last().unwrap().1, sides[0].0);
+        let gap = sides[gate_side].1.x - sides[gate_side + 1].0.x;
         assert!((gap - 0.26).abs() < 1e-6);
-        assert!((sides[2].1.x + sides[3].0.x - 2.).abs() < 1e-6);
+        assert!((sides[gate_side].1.x + sides[gate_side + 1].0.x - 2.).abs() < 1e-6);
         assert!(gap - WALL_WIDTH > 0.1);
+        for point in layout::REAR_WALL {
+            assert!(point.y < layout::TEMPLE_CENTER.y - 0.065);
+        }
     }
 }
