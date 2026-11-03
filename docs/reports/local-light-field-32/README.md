@@ -1,13 +1,16 @@
 # Fixed-32 local-light experiment — evidence and provenance
 
-Dated evidence: 2026-11-03. **[View the visual report](index.html).**
+Historical second-round evidence: 2026-11-03. **[View the visual report](index.html).**
+For the later source-space visibility candidate and its still-failing performance,
+see the [third-round report](../source-space-visibility/index.html). Statements
+about delivery below describe this rejected round, not the later runtime.
 
 This is a rejected experiment, not a feature specification or a claim of a
 quality-preserving optimization. Probe spacing stayed at **32 voxels** throughout.
 The runtime candidate is preserved in local commit **`0567fe61`** and withdrawn by
-**`95cb32bb`**. Current runtime sources are restored to the starting
-`74fdbf6b` implementation. Its previous shared-field experiment remains available
-and off by default; the current checkbox does **not** run the rejected candidate.
+**`95cb32bb`**. At the end of this round runtime sources were restored to the
+starting `74fdbf6b` implementation, with its previous shared-field experiment
+available and off by default. The checkbox never runs this rejected candidate.
 No push was performed.
 
 ## Findings and limits

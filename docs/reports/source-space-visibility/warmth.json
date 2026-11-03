@@ -1,0 +1,18 @@
+{
+  "reference": {
+    "file": "docs/reports/source-space-visibility/original.png",
+    "width": 2560,
+    "height": 1440,
+    "roi": "614x138+102+922",
+    "warmth": 0.00475864
+  },
+  "candidate": {
+    "file": "docs/reports/source-space-visibility/candidate.png",
+    "width": 2560,
+    "height": 1440,
+    "roi": "614x138+102+922",
+    "warmth": 0.00526236
+  },
+  "warmthRatio": 1.1058537733470066,
+  "minimumRetainedWarmth": 0.95
+}

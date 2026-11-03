@@ -5,6 +5,8 @@ Historical first-round evidence: 2026-11-03, implementation `74fdbf6b`.
 receiver-factorization experiment and its rejection, see the
 [follow-up HTML report](../local-light-field-32/index.html). The runtime candidate
 from that follow-up was withdrawn; this bundle remains first-round evidence.
+The [third-round source-space candidate](../source-space-visibility/index.html)
+now replaces the runtime experiment, still off by default and without a speed win.
 
 This bundle records an experimental result, not a claim of visual acceptance.
 The checkbox remains off by default. Near-lamp warmth is reduced at the default

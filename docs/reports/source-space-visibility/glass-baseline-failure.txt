@@ -1,0 +1,8 @@
+
+audit-seed7-glass
+thread 'main' (3735774) panicked at src/app/core/mod.rs:3710:22:
+called `Result::unwrap()` on an `Err` value: DDGI trace produced non-finite records: DdgiTraceStats { ray_records: 32768, valid_probe_rays: 25600, misses: 16459, frontface_hits: 9077, backface_hits: 64, non_finite_records: 1, invalid_probe_rays: 7168, local_light_candidates: 0, local_light_visible: 0, local_light_occluded: 0, local_light_irradiance_luma_q8: 0, emissive_surface_hits: 0, emissive_surface_radiance_luma_q8: 0, filter_raw: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], history_diagnostics: [0, 0, 0, 0, 0] }
+
+baseline-seed7-glass
+thread 'main' (3738870) panicked at src/app/core/mod.rs:3710:22:
+called `Result::unwrap()` on an `Err` value: DDGI trace produced non-finite records: DdgiTraceStats { ray_records: 32768, valid_probe_rays: 25600, misses: 16459, frontface_hits: 9077, backface_hits: 64, non_finite_records: 1, invalid_probe_rays: 7168, local_light_candidates: 0, local_light_visible: 0, local_light_occluded: 0, local_light_irradiance_luma_q8: 0, emissive_surface_hits: 0, emissive_surface_radiance_luma_q8: 0, filter_raw: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], history_diagnostics: [0, 0, 0, 0, 0] }
