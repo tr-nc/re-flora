@@ -1,0 +1,12 @@
+[12:51:29.865 INFO re_flora::tracer::local_light_field] [LOCAL_LIGHT_FIELD][AUDIT] key=(1, 11, 1, false, 0) samples=875328 failures=0 max_absolute_error=0.00000023841858 nonzero=3787
+[12:51:29.865 INFO re_flora::tracer::local_light_field] [LOCAL_LIGHT_FIELD][RECEIVERS] sampled_lights=5865 shared_nonzero=0 original_nonzero=0 shared_accepted=0 original_queries=5865 errors_over_5pct=0 max_absolute_error=0 max_relative_error=0
+[12:51:30.303 INFO re_flora::tracer::local_light_field] [LOCAL_LIGHT_FIELD][AUDIT] key=(2, 11, 1, false, 0) samples=875328 failures=0 max_absolute_error=0.000000022351742 nonzero=7593
+[12:51:30.303 INFO re_flora::tracer::local_light_field] [LOCAL_LIGHT_FIELD][RECEIVERS] sampled_lights=9368 shared_nonzero=0 original_nonzero=98 shared_accepted=0 original_queries=9368 errors_over_5pct=0 max_absolute_error=0 max_relative_error=0
+[12:51:30.776 INFO re_flora::tracer::local_light_field] [LOCAL_LIGHT_FIELD][AUDIT] key=(3, 11, 1, false, 0) samples=875328 failures=0 max_absolute_error=0.000000044703484 nonzero=7688
+[12:51:30.776 INFO re_flora::tracer::local_light_field] [LOCAL_LIGHT_FIELD][RECEIVERS] sampled_lights=9368 shared_nonzero=0 original_nonzero=68 shared_accepted=0 original_queries=9368 errors_over_5pct=0 max_absolute_error=0 max_relative_error=0
+[12:51:30.852 INFO re_flora::tracer::local_light_field] [LOCAL_LIGHT_FIELD][AUDIT] key=(4, 11, 1, false, 0) samples=875328 failures=0 max_absolute_error=0.000000044703484 nonzero=6877
+[12:51:30.852 INFO re_flora::tracer::local_light_field] [LOCAL_LIGHT_FIELD][RECEIVERS] sampled_lights=9368 shared_nonzero=0 original_nonzero=58 shared_accepted=0 original_queries=9368 errors_over_5pct=0 max_absolute_error=0 max_relative_error=0
+[12:51:31.994 INFO re_flora::tracer::local_light_field] [LOCAL_LIGHT_FIELD][AUDIT] key=(4, 11, 1, true, 0) samples=875328 failures=0 max_absolute_error=0.000000044703484 nonzero=6877
+[12:51:31.994 INFO re_flora::tracer::local_light_field] [LOCAL_LIGHT_FIELD][RECEIVERS] sampled_lights=9368 shared_nonzero=0 original_nonzero=58 shared_accepted=0 original_queries=9368 errors_over_5pct=0 max_absolute_error=0 max_relative_error=0
+[12:51:38.984 INFO re_flora::tracer::local_light_field] [LOCAL_LIGHT_FIELD][AUDIT] key=(4, 11, 1, true, 1) samples=875328 failures=0 max_absolute_error=0.000000044703484 nonzero=6877
+[12:51:38.984 INFO re_flora::tracer::local_light_field] [LOCAL_LIGHT_FIELD][RECEIVERS] sampled_lights=9376 shared_nonzero=0 original_nonzero=58 shared_accepted=9295 original_queries=81 errors_over_5pct=0 max_absolute_error=0 max_relative_error=0

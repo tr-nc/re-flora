@@ -1,6 +1,10 @@
 # Shared local-light field experiment — evidence and capture provenance
 
-Dated evidence: 2026-11-03. [View the HTML comparison](index.html).
+Historical first-round evidence: 2026-11-03, implementation `74fdbf6b`.
+[View the original HTML comparison](index.html). For the later fixed-32
+receiver-factorization experiment and its rejection, see the
+[follow-up HTML report](../local-light-field-32/index.html). The runtime candidate
+from that follow-up was withdrawn; this bundle remains first-round evidence.
 
 This bundle records an experimental result, not a claim of visual acceptance.
 The checkbox remains off by default. Near-lamp warmth is reduced at the default
@@ -12,7 +16,7 @@ All four PNGs are **original app screenshots**, copied byte-for-byte from
 `target/local-light-field/`; no crops, resizing, exposure correction, color
 processing or AI image generation were applied. Native dimensions: 1600×1000,
 PNG. Source: the local Re: Flora Release renderer, working changes based on
-`e1389288`; this commit contains those changes. Camera: `garden-arrival`.
+`e1389288`; `74fdbf6b` contains those changes. Camera: `garden-arrival`.
 No external images were imported. Existing scene assets retain their existing
 license/attribution requirements; their rights were not separately audited here.
 There is no external source URL or generation-service prompt/model/seed.

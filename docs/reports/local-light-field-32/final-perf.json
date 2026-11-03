@@ -1,0 +1,71 @@
+{
+  "original": {
+    "elapsedMs": 5956,
+    "frameAdvancement": 94,
+    "actualFps": 15.782404298186702,
+    "gpu": {
+      "frame.render": {
+        "samples": 3,
+        "medianMs": 57.48
+      },
+      "graphics.flora_lighting_cache": {
+        "samples": 3,
+        "medianMs": 36.729
+      },
+      "graphics.local_light_field": {
+        "samples": 0,
+        "medianMs": null
+      },
+      "ddgi.probe_trace": {
+        "samples": 3,
+        "medianMs": 2.017
+      }
+    }
+  },
+  "irradiance": {
+    "elapsedMs": 5979,
+    "frameAdvancement": 186,
+    "actualFps": 31.108881083793275,
+    "gpu": {
+      "frame.render": {
+        "samples": 6,
+        "medianMs": 27.424500000000002
+      },
+      "graphics.flora_lighting_cache": {
+        "samples": 6,
+        "medianMs": 4.9190000000000005
+      },
+      "graphics.local_light_field": {
+        "samples": 6,
+        "medianMs": 1.682
+      },
+      "ddgi.probe_trace": {
+        "samples": 6,
+        "medianMs": 2.1525
+      }
+    }
+  },
+  "connections": {
+    "elapsedMs": 5989,
+    "frameAdvancement": 63,
+    "actualFps": 10.519285356486893,
+    "gpu": {
+      "frame.render": {
+        "samples": 2,
+        "medianMs": 87.872
+      },
+      "graphics.flora_lighting_cache": {
+        "samples": 2,
+        "medianMs": 65.06299999999999
+      },
+      "graphics.local_light_field": {
+        "samples": 2,
+        "medianMs": 0.9695
+      },
+      "ddgi.probe_trace": {
+        "samples": 2,
+        "medianMs": 2.82
+      }
+    }
+  }
+}
