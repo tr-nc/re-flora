@@ -6,6 +6,15 @@ module local_emitter;
 // for a Lambertian closed box, mean projected area is surface area / four.
 public static const uint LOCAL_EMITTER_SAMPLE_COUNT = 12u;
 
+// Ownership is an entire authored voxel, not a grown endpoint epsilon. A frame,
+// foreign edit or neighbouring emitter outside this box remains a blocker.
+public bool localEmitterContainsVoxel(float3 center, float3 halfExtents, float3 voxelCenter)
+{
+    float3 halfVoxel=float3(0.5/256.0);
+    return all(voxelCenter-halfVoxel>=center-halfExtents) &&
+           all(voxelCenter+halfVoxel<=center+halfExtents);
+}
+
 public struct LocalEmitterSample
 {
     public float3 position;

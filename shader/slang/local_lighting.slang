@@ -7,6 +7,7 @@ import scene_marching;
 import terrain_ray_origin;
 import local_emitter;
 import local_light_math;
+import voxel_types;
 
 public static const uint LOCAL_LIGHT_GPU_ABI_VERSION = 3u;
 public static const uint LOCAL_LIGHT_KIND_POINT = 1u;
@@ -139,6 +140,40 @@ public LocalPointLightSample evaluateUnshadowedPointLight(
     return result;
 }
 
+public bool finiteEmitterOwnsHit(U_LightGpu light, uint material, float3 voxelCenter)
+{
+    return light.shape_params.w>0.5 && material==VOXEL_TYPE_EMISSIVE &&
+        localEmitterContainsVoxel(light.position,light.shape_params.xyz,voxelCenter);
+}
+
+public float3 traceVoxelEmitterConnection(
+    U_LightGpu light, StructuredBuffer<ContreeNode> nodes, StructuredBuffer<uint> leaves,
+    readonly RWTexture3D<uint2> scene, float3 origin, float3 endpoint, uint lane)
+{
+    float3 segment=endpoint-origin;
+    float distance=length(segment);
+    float3 direction=segment/max(distance,1.0e-12);
+    MarchingResult hit=marchScene(nodes,leaves,scene,origin,direction,1.0/direction,lane);
+    return !hit.is_hit || hit.distance>=distance-1.0e-5 ||
+        finiteEmitterOwnsHit(light,hit.voxel_type,hit.center_position) ? float3(1.0) : float3(0.0);
+}
+
+public float3 traceVoxelGlassEmitterConnection(
+    U_LocalLightInfo info, U_LightGpu light, StructuredBuffer<ContreeNode> nodes, StructuredBuffer<uint> leaves,
+    readonly RWTexture3D<uint2> scene, readonly RWTexture3D<uint> atlas,
+    float3 origin, float3 endpoint, uint lane)
+{
+    float3 segment=endpoint-origin;
+    float distance=length(segment);
+    SceneStraightTransport t=traceVoxelStraightTransport(nodes,leaves,scene,atlas,
+        origin,segment/max(distance,1.0e-12),max(distance-1.0e-5,1.0e-6),
+        (info.flags & LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS)!=0u,lane);
+    bool ownSource=t.terminal.kind==SCENE_QUERY_EVENT_OPAQUE &&
+        finiteEmitterOwnsHit(light,t.terminal.to_voxel_type,(float3(t.terminal.to_cell)+0.5)/256.0);
+    return t.exhausted!=0u || (t.terminal.kind==SCENE_QUERY_EVENT_OPAQUE && !ownSource)
+        ? float3(0.0) : t.transmittance;
+}
+
 // Finite-emitter visibility uses the same published scene and finite segments as
 // analytic points. No screen-space blur, ambient fill, or shadow-strength floor.
 LocalLightVoxelEvaluation evaluateVoxelFiniteEmitter(
@@ -158,13 +193,9 @@ LocalLightVoxelEvaluation evaluateVoxelFiniteEmitter(
             light.range, receiverPosition, receiverNormal, tap);
         if (sample.irradiance_per_intensity <= 0.0) continue;
         result.candidates = 1u;
-        float3 segment = sample.position - origin;
-        float distance = length(segment);
-        float3 direction = segment / max(distance, 1.0e-12);
-        MarchingResult hit = marchScene(nodeData, leafData, sceneTexture,
-            origin, direction, 1.0 / direction, localInvocationIndex);
-        if (!hit.is_hit || hit.distance >= distance - 1.0e-5)
-            result.irradiance += light.color * light.intensity * sample.irradiance_per_intensity;
+        result.irradiance += light.color * light.intensity * sample.irradiance_per_intensity *
+            traceVoxelEmitterConnection(light, nodeData, leafData, sceneTexture,
+                origin, sample.position, localInvocationIndex);
     }
     result.visible = any(result.irradiance > float3(0.0)) ? 1u : 0u;
     result.occluded = result.candidates - result.visible;
@@ -311,14 +342,8 @@ LocalLightVoxelEvaluation evaluateVoxelGlassFiniteEmitter(
             light.range, receiverPosition, receiverNormal, tap);
         if (sample.irradiance_per_intensity <= 0.0) continue;
         result.candidates = 1u;
-        float3 segment = sample.position - origin;
-        float distance = length(segment);
-        SceneStraightTransport transport = traceVoxelStraightTransport(
-            nodeData, leafData, sceneTexture, chunkAtlas, origin, segment / max(distance, 1.0e-12),
-            max(distance - 1.0e-5, 1.0e-6), (info.flags & LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS) != 0u,
-            localInvocationIndex);
-        float3 transmittance = transport.exhausted != 0u ||
-            transport.terminal.kind == SCENE_QUERY_EVENT_OPAQUE ? float3(0.0) : transport.transmittance;
+        float3 transmittance = traceVoxelGlassEmitterConnection(info, light,
+            nodeData, leafData, sceneTexture, chunkAtlas, origin, sample.position, localInvocationIndex);
         result.irradiance += light.color * light.intensity * sample.irradiance_per_intensity * transmittance;
     }
     result.visible = any(result.irradiance > float3(0.0)) ? 1u : 0u;
