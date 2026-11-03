@@ -116,7 +116,7 @@ fn sample_percentile(
     percentile(samples.iter().copied().map(project).collect(), quantile)
 }
 
-fn add_scaling_light(app: &mut App, index: usize) -> LightId {
+fn scaling_light_position(index: usize) -> Vec3 {
     let ring = [
         Vec3::ZERO,
         Vec3::new(0.018, 0.0, 0.0),
@@ -127,9 +127,15 @@ fn add_scaling_light(app: &mut App, index: usize) -> LightId {
         Vec3::new(-0.012, 0.0, 0.012),
         Vec3::new(0.012, 0.0, -0.012),
     ];
+    POINT_LIGHT_ADD_POSITION
+        + ring[index % ring.len()]
+        + Vec3::Y * (0.002 * (index / ring.len()) as f32)
+}
+
+fn add_scaling_light(app: &mut App, index: usize) -> LightId {
     app.local_lights.add(LocalLight::Point(
         PointLight::new(
-            POINT_LIGHT_ADD_POSITION + ring[index],
+            scaling_light_position(index),
             Vec3::new(1.0, 0.45, 0.2),
             0.035,
             POINT_LIGHT_SOURCE_RADIUS_WORLD,
@@ -420,6 +426,20 @@ mod tests {
         assert_eq!(next_scaling_count_index(3, 64), Some(4));
         assert_eq!(next_scaling_count_index(7, 64), None);
         const { assert!(LOCAL_LIGHT_SCALING_SAMPLE_FRAMES >= 32) };
+    }
+
+    #[test]
+    fn scaling_positions_cover_every_uploaded_light_without_indexing_a_small_n_ring() {
+        let positions: Vec<_> = (0..LOCAL_LIGHT_GPU_CAPACITY)
+            .map(scaling_light_position)
+            .collect();
+        for (i, position) in positions.iter().enumerate() {
+            assert!(position.is_finite());
+            assert!(position.distance(POINT_LIGHT_ADD_POSITION) < 0.03);
+            assert!(!positions[..i].contains(position));
+        }
+        assert_eq!(positions[0], POINT_LIGHT_ADD_POSITION);
+        assert_eq!(positions[1], POINT_LIGHT_ADD_POSITION + Vec3::X * 0.018);
     }
 
     #[test]
