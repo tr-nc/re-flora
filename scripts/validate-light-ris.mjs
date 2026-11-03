@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 
-const help = `Usage: node scripts/validate-light-ris.mjs [--case perf|audit|scaling|capture] [--output NEW_DIR] [--repeats N] [--seconds N]
+const help = `Usage: node scripts/validate-light-ris.mjs [--case perf|audit|scaling|capture] [--output NEW_DIR] [--repeats N] [--seconds N] [--light-budget N]
 Uses target/release/re-flora, hidden/muted native rendering, spacing 32 and night 0.95.
 Temporarily changes config/gui.toml and restores its exact bytes, including on failure.
 Do not overlap app/build/GPU jobs. Build with cargo build --release first.
@@ -23,6 +23,8 @@ Do not overlap app/build/GPU jobs. Build with cargo build --release first.
   capture: original/RIS garden-arrival screenshots at 6s; default 10s/run.
 --output must not exist (default: timestamped target/light-ris/ directory).
 --repeats applies only to perf; --seconds >=12 for perf, >=8 otherwise.
+--light-budget 1..64 (default 8) applies to perf/audit/capture; scaling forces 64.
+A higher budget does not invent lights: metrics report the actual final uploaded count.
 Exit 0: evidence collected (perf regression is reported as performancePassed=false).
 Exit 1: native/validation failure; inspect retained .log files before retrying in a NEW_DIR.
 Exit 2: invalid arguments. No visible game is launched and nothing is pushed.
@@ -49,7 +51,7 @@ export function nativeChecks(text) {
   assert.doesNotMatch(text,/\bERROR\b|VUID-|SYNC-HAZARD|panicked at|non_finite=[1-9]/);
   assert.match(text,/Application exited successfully/);
 }
-export function perfMetrics(text, minimumSamples=50) {
+export function perfMetrics(text, minimumSamples=50, minimumLights=8) {
   nativeChecks(text);
   assert.doesNotMatch(text,/\[LIGHT_RIS\]\[RECEIVERS\]/,'Never time audit programs');
   const dimensions=text.match(/screen=(\d+x\d+) scene=(\d+x\d+)/);
@@ -67,8 +69,9 @@ export function perfMetrics(text, minimumSamples=50) {
   assert.ok(values.length>=minimumSamples,`Only ${values.length} GPU samples`);
   assert.ok(last.n>first.n && last.t>first.t,'No real frame advancement');
   const counts=[...text.matchAll(/\[LOCAL_LIGHT\]\[LIVE\].*? count=(\d+) capacity=(\d+)/g)];
-  assert.ok(counts.some(m=>+m[1]===8),'Actual eight-light upload was not observed');
-  return {screen:dimensions[1],scene:dimensions[2],grassGpuMs:median(values),gpuSamples:values.length,
+  const uploadedLights=+(counts.at(-1)?.[1]??0);
+  assert.ok(uploadedLights>=minimumLights,'Actual selected-light upload was not observed');
+  return {screen:dimensions[1],scene:dimensions[2],uploadedLights,grassGpuMs:median(values),gpuSamples:values.length,
     actualFps:1000*(last.n-first.n)/(last.t-first.t),
     wholeProfiledFps:1000*(last.n-began.n)/(last.t-began.t)};
 }
@@ -111,13 +114,15 @@ function main() {
   let options;
   try {
     options=parseArgs({options:{case:{type:'string',default:'perf'},output:{type:'string'},
-      repeats:{type:'string',default:'3'},seconds:{type:'string'},help:{type:'boolean',short:'h'}}}).values;
+      repeats:{type:'string',default:'3'},seconds:{type:'string'},'light-budget':{type:'string',default:'8'},help:{type:'boolean',short:'h'}}}).values;
     if(options.help) {console.log(help);return;}
     assert.ok(['perf','audit','scaling','capture'].includes(options.case),'Unknown --case');
     options.seconds=+(options.seconds ?? ({perf:20,audit:10,scaling:180,capture:10}[options.case]));
     assert.ok(Number.isInteger(+options.repeats) && +options.repeats>=1,'--repeats must be an integer >=1');
     assert.ok(Number.isFinite(options.seconds) && options.seconds>=(options.case==='perf'?12:8),'Invalid --seconds');
     assert.ok(options.case==='perf' || !process.argv.includes('--repeats'),'--repeats only applies to perf');
+    assert.ok(Number.isInteger(+options['light-budget']) && +options['light-budget']>=1 && +options['light-budget']<=64,'--light-budget must be an integer in 1..64');
+    assert.ok(options.case!=='scaling' || !process.argv.includes('--light-budget'),'scaling forces --light-budget 64');
   } catch(error) {console.error(`${error.message}\n${help}`);process.exitCode=2;return;}
   const output=path.resolve(options.output ?? `target/light-ris/${options.case}-${new Date().toISOString().replaceAll(':','-')}`);
   const config='config/gui.toml', binary=path.resolve('target/release/re-flora');
@@ -131,7 +136,7 @@ function main() {
     const binaryHash=hash(binary),cameraHash=hash('config/camera_snapshots.toml'), rows=[];
     let base=original.toString();
     for(const [id,value] of Object.entries({time_of_day:0.95,grass_local_light_field:false,
-      local_light_budget:options.case==='scaling'?64:8,grass_light_ris_rays:4,grass_light_ris_candidates:8}))
+      local_light_budget:options.case==='scaling'?64:+options['light-budget'],grass_light_ris_rays:4,grass_light_ris_candidates:8}))
       base=setSavedValue(base,id,String(value));
     const run=(name,on,extra=[],seed=20260519)=>{
       const saved=setSavedValue(base,'grass_light_ris',String(on));
@@ -154,11 +159,11 @@ function main() {
     };
     if(options.case==='perf') {
       for(let repeat=0;repeat<+options.repeats;repeat++) for(const mode of repeat%2?['on','off']:['off','on']) {
-        const row={repeat,mode,...perfMetrics(run(`${repeat}-${mode}`,mode==='on',['--perf']))};
+        const row={repeat,mode,...perfMetrics(run(`${repeat}-${mode}`,mode==='on',['--perf']),50,Math.min(8,+options['light-budget']))};
         rows.push(row);console.log(JSON.stringify(row));
         writeFileSync(path.join(output,'runs.json'),JSON.stringify({binaryHash,cameraHash,rows},null,2));
       }
-      assert.ok(rows.every(r=>r.screen===rows[0].screen && r.scene===rows[0].scene),'A/B dimensions differ');
+      assert.ok(rows.every(r=>r.screen===rows[0].screen && r.scene===rows[0].scene && r.uploadedLights===rows[0].uploadedLights),'A/B dimensions or uploaded light counts differ');
       const summary=Object.fromEntries(['off','on'].map(mode=>[mode,Object.fromEntries(
         ['grassGpuMs','actualFps','wholeProfiledFps'].map(key=>[key,median(rows.filter(r=>r.mode===mode).map(r=>r[key]))]))]));
       const performancePassed=summary.on.grassGpuMs<=summary.off.grassGpuMs && summary.on.actualFps>=summary.off.actualFps && summary.on.wholeProfiledFps>=summary.off.wholeProfiledFps;

@@ -7,7 +7,7 @@ const cli=(...args)=>spawnSync(process.execPath,['scripts/validate-light-ris.mjs
 
 test('help and invalid invocations explain recovery without starting a game',()=>{
   assert.equal(cli('--help').status,0);
-  for(const args of [['--case','oops'],['--seconds','0'],['--case','audit','--repeats','2'],['--unknown']]) {
+  for(const args of [['--case','oops'],['--seconds','0'],['--case','audit','--repeats','2'],['--light-budget','65'],['--case','scaling','--light-budget','8'],['--unknown']]) {
     const run=cli(...args);assert.equal(run.status,2);assert.match(run.stderr,/Usage:.*validate-light-ris/);
   }
 });
