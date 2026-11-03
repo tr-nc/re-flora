@@ -71,7 +71,7 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Local Lighting",
-        description: "Grass unchecked: original per-receiver local lighting. Checked: direct light projected at DDGI probes, shared by grass. Preserves finite emitters and glass transport; sun and bounce history are unchanged. Default probe spacing reduces some near-lamp warmth; spatial interpolation can soften shadows or miss near-light peaks. Unavailable probes use the original path. Saved experiment; visual approval pending.",
+        description: "Grass unchecked: original per-receiver local lighting. Checked: share conservative source-space terrain visibility certificates; attenuation and the original finite-emitter samples stay at each receiver. Uncertain and glass connections use original transport; moving trees are queried live. Rebuilt on live-light or published-geometry changes, not from DDGI history. Probe spacing and indirect lighting are unchanged. Saved, default-off experiment; visual approval pending.",
         initially_open: false,
         params: &["grass_local_light_field"],
     },

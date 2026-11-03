@@ -44,7 +44,9 @@ readonly GLSLShaderStorageBuffer<B_ManualFloraInstances, Std430DataLayout>
 [[vk::binding(2, 1)]]
 RWStructuredBuffer<float4> flora_lighting_cache;
 
-[[vk::binding(11, 1)]] Sampler2D local_light_field;
+[[vk::binding(11, 1)]] StructuredBuffer<float4> local_light_field;
+[[vk::binding(12, 1)]] RWStructuredBuffer<uint> local_light_field_audit;
+#include "local_visibility_query.slang"
 
 [shader("compute")]
 [numthreads(8, 4, 1)]
@@ -87,12 +89,16 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_Gro
         ? float3(0.0)
         : sampleFloraEnvironment(
             prepared.voxel_position, prepared.shading_normal);
-    float3 sharedDirect;
-    bool usedDirectField = !prepared.should_trim && gui_input.grass_local_light_field != 0u &&
-        trySampleDdgiDirectResponse(shading_info, local_light_field,
-            prepared.voxel_position, prepared.shading_normal, sharedDirect);
-    if (usedDirectField) irradiance += sharedDirect;
-    if (!prepared.should_trim && !usedDirectField)
+    bool sharedVisibility = gui_input.grass_local_light_field != 0u;
+    if (!prepared.should_trim && sharedVisibility)
+    {
+        bool audit=local_light_field_audit[15]!=0u &&
+            ((localInstanceIndex*1664525u+dispatchThreadId.x*1013904223u)&1023u)==0u;
+        irradiance += evaluateCachedLocalVisibility(floraLocalLightInfo(),
+            shading_info.ddgi_geometry_revision, prepared.voxel_position,
+            prepared.shading_normal, floraTerrainRayOriginOffsetWorld(), localIndex, audit);
+    }
+    if (!prepared.should_trim && !sharedVisibility)
     {
 #if RE_FLORA_GLASS_TRANSPORT
         irradiance += evaluateVoxelGlassVisibleLocalLightIrradiance(

@@ -460,7 +460,7 @@ value = false
 [[section.param]]
 id = "grass_local_light_field"
 kind = "bool"
-label = "Grass: Shared Local Light Field (A/B)"
+label = "Grass: Source Visibility Cache (A/B)"
 type = "Bool"
 
 [section.param.data]

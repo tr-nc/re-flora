@@ -196,7 +196,7 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
         section: "Debug",
         id: "grass_local_light_field",
         kind: "bool",
-        label: "Grass: Shared Local Light Field (A/B)",
+        label: "Grass: Source Visibility Cache (A/B)",
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",

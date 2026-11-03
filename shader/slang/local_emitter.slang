@@ -22,6 +22,26 @@ public struct LocalEmitterSample
     public float irradiance_per_intensity;
 };
 
+// Stable identities over all six faces. Receivers still integrate only their
+// original three facing faces (12 taps); the visibility cache needs fixed origins.
+public LocalEmitterSample localEmitterSource(float3 center, float3 halfExtents, uint id)
+{
+    LocalEmitterSample r = {};
+    uint axis=id/8u, u=(axis+1u)%3u, v=(axis+2u)%3u;
+    float side=(id & 4u)!=0u ? 1.0 : -1.0;
+    r.position=center;
+    r.normal[axis]=side;
+    r.position[axis]+=side*halfExtents[axis];
+    r.position[u]+=((id & 1u)!=0u ? 1.0 : -1.0)*0.57735026919*halfExtents[u];
+    r.position[v]+=((id & 2u)!=0u ? 1.0 : -1.0)*0.57735026919*halfExtents[v];
+    return r;
+}
+
+public uint localEmitterSourceId(float3 center, float3 receiver, uint tap)
+{
+    return (tap/4u)*8u + (receiver[tap/4u]>=center[tap/4u] ? 4u : 0u) + (tap & 3u);
+}
+
 // Incident response excludes receiver cosine, so a probe connection can be
 // shared across all output normal directions without repeating transport.
 public LocalEmitterSample sampleLocalEmitterIncident(
@@ -39,13 +59,7 @@ public LocalEmitterSample sampleLocalEmitterIncident(
     uint axis = index / 4u;
     uint u = (axis + 1u) % 3u;
     uint v = (axis + 2u) % 3u;
-    float side = receiver[axis] >= center[axis] ? 1.0 : -1.0;
-    result.normal[axis] = side;
-    result.position[axis] += side * halfExtents[axis];
-    float2 gauss = float2((index & 1u) != 0u ? 1.0 : -1.0,
-                         (index & 2u) != 0u ? 1.0 : -1.0) * 0.57735026919;
-    result.position[u] += gauss.x * halfExtents[u];
-    result.position[v] += gauss.y * halfExtents[v];
+    result = localEmitterSource(center, halfExtents, localEmitterSourceId(center, receiver, index));
     float3 segment = result.position - receiver;
     float distanceSquared = dot(segment, segment);
     if (distanceSquared <= 1.0e-12) return result;
