@@ -16,7 +16,9 @@ Temporarily edits config/gui.toml, restoring its exact bytes even on failure.
 Do not run concurrently with another app/build/GPU job. No visible window/audio.
 Requires >=50 GPU samples in the last 8 seconds and completed shared-cache build.
 --analyze DIR replays DIR/final-{off,on}.log (sparse historical evidence allowed).
-Exit 0: no median grass GPU or actual FPS regression; 1: regression/run failure;
+Exit 0: no median grass GPU, steady FPS or whole-profiled-run FPS regression;
+whole-run throughput includes cache construction (not process startup).
+Exit 1: regression/run failure;
 2: invalid usage. One pair is diagnostic only; acceptance needs repeated evidence.
 Examples:
   node scripts/benchmark-local-visibility.mjs --repeats 1 --output target/visibility-red
@@ -34,12 +36,14 @@ function metrics(text, shared, minimumSamples) {
   assert.doesNotMatch(text, /\bERROR\b|VUID-|SYNC-HAZARD|panicked at/);
   assert.doesNotMatch(text, /\[LOCAL_VISIBILITY\]\[RECEIVERS\]/, 'Audit must be disabled during timing');
   assert.match(text, /screen=2560x1440 scene=512x288/);
-  const lines = text.split('\n'), frames = new Map(), gpu = new Map();
+  const lines = text.split('\n'), frames = new Map(), gpu = new Map(), producer = new Map();
   for (const line of lines) {
     const f = line.match(/\[PERF\](?:\[FRAME\])? frame (\d+) total /);
     if (f) frames.set(+f[1], { n: +f[1], time: time(line) });
     const g = line.match(/\[GPU_FRAME_SCOPE\] frame (\d+).*?graphics\.flora_lighting_cache=(\d+)us/);
     if (g) gpu.set(+g[1], { time: time(line), ms: +g[2] / 1000 });
+    const update = line.match(/\[GPU_FRAME_SCOPE\] frame (\d+).*?graphics\.local_light_field=(\d+)us/);
+    if (update) producer.set(+update[1], +update[2] / 1000);
   }
   const end = [...frames.values()].at(-1)?.time;
   assert.ok(Number.isFinite(end), 'Missing frame advancement / wall time');
@@ -53,17 +57,21 @@ function metrics(text, shared, minimumSamples) {
   const tail = [...frames.values()].filter(f => f.time >= start), first = tail[0], last = tail.at(-1);
   const samples = [...gpu.values()].filter(g => g.time >= start && g.time <= end).map(g => g.ms);
   assert.ok(samples.length >= minimumSamples, `Only ${samples.length} GPU samples; need ${minimumSamples}`);
+  const began = [...frames.values()][0];
   return { grassGpuMs: median(samples), gpuSamples: samples.length,
     actualFps: 1000 * (last.n - first.n) / (last.time - first.time),
-    frames: last.n - first.n, elapsedMs: last.time - first.time };
+    frames: last.n - first.n, elapsedMs: last.time - first.time,
+    wholeProfiledFps: 1000 * (last.n - began.n) / (last.time - began.time),
+    producerGpuTotalMs: [...producer.values()].reduce((a, b) => a + b, 0), producerDispatches: producer.size };
 }
 function verdict(rows) {
   const summary = Object.fromEntries(['off', 'on'].map(mode => {
     const r = rows.filter(row => row.mode === mode);
     return [mode, { grassGpuMs: median(r.map(v => v.grassGpuMs)),
-      actualFps: median(r.map(v => v.actualFps)), runs: r.length }];
+      actualFps: median(r.map(v => v.actualFps)), wholeProfiledFps: median(r.map(v => v.wholeProfiledFps)), runs: r.length }];
   }));
-  const passed = summary.on.grassGpuMs <= summary.off.grassGpuMs && summary.on.actualFps >= summary.off.actualFps;
+  const passed = summary.on.grassGpuMs <= summary.off.grassGpuMs && summary.on.actualFps >= summary.off.actualFps &&
+    summary.on.wholeProfiledFps >= summary.off.wholeProfiledFps;
   console.log(JSON.stringify({ passed, summary }, null, 2));
   if (!passed) console.error('FAIL: shared mode is slower than the original path');
   return { passed, summary };

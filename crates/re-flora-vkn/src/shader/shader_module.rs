@@ -993,6 +993,45 @@ mod tests {
     }
 
     #[test]
+    fn flora_programs_physically_exclude_disabled_cache_and_audit_resources() {
+        // Check the actual GPU programs as well as descriptor-layout artifacts,
+        // not just source macros or a runtime flag that still compiles heavy code.
+        for band in ["", "band_"] {
+            for glass in ["", "_glass"] {
+                for (mode, name) in [
+                    (0, format!("flora_lighting_{band}cache{glass}")),
+                    (1, format!("flora_visibility_{band}cache{glass}")),
+                    (2, format!("flora_visibility_{band}audit{glass}")),
+                ] {
+                    let path = format!("shader/foliage/{name}.comp");
+                    let artifact = find_precompiled_shader(&path).unwrap();
+                    for bytes in [artifact.reflection_spirv, artifact.optimized_spirv] {
+                        let module = ReflectShaderModule::load_u8_data(bytes).unwrap();
+                        let bindings = module.enumerate_descriptor_bindings(None).unwrap();
+                        let decorations = parse_descriptor_access_decorations(bytes).unwrap();
+                        if mode == 2 {
+                            let output = bindings.iter().find(|b| b.set == 1 && b.binding == 2).unwrap();
+                            assert_eq!(reflected_descriptor_access(output, &decorations), DescriptorAccess::ReadOnly,
+                                "audit must observe, never replace, the normal renderer's output: {path}");
+                        }
+                        for (binding, present, access) in [
+                            (11, mode != 0, DescriptorAccess::ReadOnly),
+                            (12, mode == 2, DescriptorAccess::ReadWrite),
+                        ] {
+                            let found = bindings.iter().find(|b| b.set == 1 && b.binding == binding);
+                            assert_eq!(found.is_some(), present, "{path} binding {binding}");
+                            if let Some(found) = found {
+                                assert_eq!(found.descriptor_type, ReflectDescriptorType::StorageBuffer);
+                                assert_eq!(reflected_descriptor_access(found, &decorations), access, "{path}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn leaf_vertex_shaders_reflect_only_the_compact_packed_input() {
         for shader_path in [
             "shader/foliage/leaves.vert",

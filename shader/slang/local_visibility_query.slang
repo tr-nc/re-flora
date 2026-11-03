@@ -17,6 +17,7 @@ bool localVisibilityHeader(U_LocalLightInfo info, uint geometryRevision)
         uint2(info.live_revision_low,info.live_revision_high),geometryRevision);
 }
 
+#if RE_FLORA_LOCAL_VISIBILITY == 2
 // Audit-only float sums: no float-atomic extension, quantization or clipping.
 // Weigh reused light as well as counting positive connections.
 void auditVisibilityEnergy(uint index,float value)
@@ -29,6 +30,7 @@ void auditVisibilityEnergy(uint index,float value)
             asuint(asfloat(assumed)+value),old);
     } while(old!=assumed);
 }
+#endif
 
 float3 originalEmitterConnection(U_LocalLightInfo info, U_LightGpu light, float3 origin, float3 source, uint lane)
 {
@@ -90,6 +92,7 @@ float3 evaluateCachedLocalVisibility(U_LocalLightInfo info, uint geometryRevisio
             else if(certificate==0) transmission=float3(0.0);
             else transmission=originalEmitterConnection(info,light,origin,sample.position,lane);
             result+=energy*transmission;
+#if RE_FLORA_LOCAL_VISIBILITY == 2
             if(audit)
             {
                 float3 reference=certificate<0 ? transmission : originalEmitterConnection(info,light,origin,sample.position,lane);
@@ -115,6 +118,7 @@ float3 evaluateCachedLocalVisibility(U_LocalLightInfo info, uint geometryRevisio
                 }
                 InterlockedMax(local_light_field_audit[7],asuint(error));
             }
+#endif
         }
     }
     return result;

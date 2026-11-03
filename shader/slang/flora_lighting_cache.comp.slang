@@ -4,6 +4,12 @@ import grass_visibility;
 #define RE_FLORA_GLASS_TRANSPORT 0
 #endif
 
+// Separate compiled programs: disabled experiments and disabled instrumentation
+// must not inflate the original/cached kernel's live state or resource barriers.
+#ifndef RE_FLORA_LOCAL_VISIBILITY
+#define RE_FLORA_LOCAL_VISIBILITY 0
+#endif
+
 #ifndef RE_FLORA_STEM_BAND_CACHE
 #define RE_FLORA_STEM_BAND_CACHE 0
 #endif
@@ -42,11 +48,19 @@ readonly GLSLShaderStorageBuffer<B_ManualFloraInstances, Std430DataLayout>
     flora_instances;
 
 [[vk::binding(2, 1)]]
+#if RE_FLORA_LOCAL_VISIBILITY == 2
+StructuredBuffer<float4> flora_lighting_cache;
+#else
 RWStructuredBuffer<float4> flora_lighting_cache;
+#endif
 
+#if RE_FLORA_LOCAL_VISIBILITY
 [[vk::binding(11, 1)]] StructuredBuffer<float4> local_light_field;
+#if RE_FLORA_LOCAL_VISIBILITY == 2
 [[vk::binding(12, 1)]] RWStructuredBuffer<uint> local_light_field_audit;
+#endif
 #include "local_visibility_query.slang"
+#endif
 
 [shader("compute")]
 [numthreads(8, 4, 1)]
@@ -62,6 +76,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_Gro
 
     uint instanceType = floraInstanceType();
     uint localInstanceIndex = grassSourceIndex(floraPc, dispatchThreadId.y);
+#if RE_FLORA_LOCAL_VISIBILITY == 2
+    // Verify the normal program's actual output, in the same frame. This
+    // independent dispatch is opt-in and never replaces production rendering.
+    bool audit=local_light_field_audit[15]!=0u &&
+        ((localInstanceIndex*1664525u+dispatchThreadId.x*1013904223u)&1023u)==0u;
+    if(!audit) return;
+#endif
     uint instanceIndex = instanceType * MAX_FLORA_INSTANCES_PER_SPECIES +
                          localInstanceIndex;
     uint3 chunkWorldOffset = floraChunkWorldOffset();
@@ -89,17 +110,16 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_Gro
         ? float3(0.0)
         : sampleFloraEnvironment(
             prepared.voxel_position, prepared.shading_normal);
-    bool sharedVisibility = gui_input.grass_local_light_field != 0u;
-    if (!prepared.should_trim && sharedVisibility)
+    if (!prepared.should_trim)
     {
-        bool audit=local_light_field_audit[15]!=0u &&
-            ((localInstanceIndex*1664525u+dispatchThreadId.x*1013904223u)&1023u)==0u;
+#if RE_FLORA_LOCAL_VISIBILITY
+#if RE_FLORA_LOCAL_VISIBILITY != 2
+        const bool audit=false;
+#endif
         irradiance += evaluateCachedLocalVisibility(floraLocalLightInfo(),
             shading_info.ddgi_geometry_revision, prepared.voxel_position,
             prepared.shading_normal, floraTerrainRayOriginOffsetWorld(), localIndex, audit);
-    }
-    if (!prepared.should_trim && !sharedVisibility)
-    {
+#else
 #if RE_FLORA_GLASS_TRANSPORT
         irradiance += evaluateVoxelGlassVisibleLocalLightIrradiance(
             floraLocalLightInfo(), local_lights, contree_node_data,
@@ -113,12 +133,21 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_Gro
             prepared.shading_normal,
             floraTerrainRayOriginOffsetWorld(), localIndex);
 #endif
+#endif
     }
-    flora_lighting_cache[
-        floraLightingCacheIndex(
-            floraPc, dispatchThreadId.y, dispatchThreadId.x)] =
-        float4(irradiance, 1.0);
-#if RE_FLORA_STEM_BAND_CACHE
+    uint outputIndex=floraLightingCacheIndex(floraPc,dispatchThreadId.y,dispatchThreadId.x);
+#if RE_FLORA_LOCAL_VISIBILITY == 2
+    float3 rendered=flora_lighting_cache[outputIndex].xyz;
+    float3 delta=abs(rendered-irradiance);
+    float error=all(isfinite(rendered)) && all(isfinite(irradiance))
+        ? max(delta.x,max(delta.y,delta.z)) : 3.402823e38;
+    if(error>1.0e-4+1.0e-4*max(irradiance.x,max(irradiance.y,irradiance.z)))
+        InterlockedAdd(local_light_field_audit[13],1u);
+    InterlockedMax(local_light_field_audit[14],asuint(error));
+#else
+    flora_lighting_cache[outputIndex]=float4(irradiance,1.0);
+#endif
+#if RE_FLORA_STEM_BAND_CACHE && RE_FLORA_LOCAL_VISIBILITY != 2
     // Reuse the existing once-per-layer preparation and lighting work. The
     // Irradiance-only preparation remains for the non-cached mesh consumer.
     float3 color = sampleFloraBaseColor(true, instanceType, seed, voxelLocalPosition,

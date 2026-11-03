@@ -9,6 +9,23 @@ pub(super) type CacheKey = (u64, u32);
 const CELLS_PER_LIGHT: u64 = 24 * 6 * 32 * 32;
 const AUDIT_BYTES: u64 = 64;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ConsumerMode {
+    Original,
+    Shared,
+    Audit,
+}
+
+impl ConsumerMode {
+    pub fn primary(shared: bool) -> Self {
+        if shared {
+            Self::Shared
+        } else {
+            Self::Original
+        }
+    }
+}
+
 fn record_count(lights: u32, max_range: u64) -> Option<u32> {
     let records = u64::from(lights)
         .checked_mul(CELLS_PER_LIGHT)?
@@ -154,10 +171,14 @@ impl LocalLightField {
                 .read_back()
                 .expect("visibility receiver audit");
             let v: [u32; 16] = bytemuck::pod_read_unaligned(&bytes[..64]);
-            log::info!("[LOCAL_VISIBILITY][RECEIVERS] key={previous:?} active_taps={} clear={} opaque={} fallback={} reference_nonzero={} shared_nonzero={} failures={} max_transmission_error={} medium_fallback={} false_clear={} false_opaque={} reference_direct_luma={} shared_direct_luma={} shared_luma_fraction={}",
+            log::info!("[LOCAL_VISIBILITY][RECEIVERS] key={previous:?} active_taps={} clear={} opaque={} fallback={} reference_nonzero={} shared_nonzero={} failures={} max_transmission_error={} medium_fallback={} false_clear={} false_opaque={} reference_direct_luma={} shared_direct_luma={} shared_luma_fraction={} rendered_failures={} rendered_max_rgb_error={}",
                 v[0],v[1],v[2],v[3],v[4],v[5],v[6],f32::from_bits(v[7]),v[8],v[9],v[10],
                 f32::from_bits(v[11]),f32::from_bits(v[12]),
-                if v[11]==0 {0.0} else {f32::from_bits(v[12])/f32::from_bits(v[11])});
+                if v[11]==0 {0.0} else {f32::from_bits(v[12])/f32::from_bits(v[11])}, v[13], f32::from_bits(v[14]));
+            assert_eq!(
+                v[13], 0,
+                "normal grass program differs from same-frame audited output"
+            );
             assert!(
                 f32::from_bits(v[11]).is_finite() && f32::from_bits(v[12]).is_finite(),
                 "visibility audit energy accumulation must stay finite"
@@ -176,8 +197,17 @@ impl LocalLightField {
         frame.gpu.clone()
     }
 
+    pub fn audit_pending(&self, slot: usize) -> bool {
+        self.audits
+            .get(slot)
+            .and_then(Option::as_ref)
+            .is_some_and(|frame| frame.pending.is_some())
+    }
+
     pub fn record_audit_readback(&self, cmdbuf: &CommandBuffer, slot: usize) {
-        let frame = self.audits[slot].as_ref().unwrap();
+        let Some(frame) = self.audits.get(slot).and_then(Option::as_ref) else {
+            return;
+        };
         if frame.pending.is_some() {
             frame
                 .gpu
@@ -190,6 +220,15 @@ impl LocalLightField {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn primary_renderer_never_selects_the_audit_program() {
+        assert_eq!(ConsumerMode::primary(false), ConsumerMode::Original);
+        assert_eq!(ConsumerMode::primary(true), ConsumerMode::Shared);
+        for enabled in [false, true] {
+            assert_ne!(ConsumerMode::primary(enabled), ConsumerMode::Audit);
+        }
+    }
+
     #[test]
     fn bounded_build_covers_every_cell_before_publication() {
         let total = LocalLightField::cell_count(8);

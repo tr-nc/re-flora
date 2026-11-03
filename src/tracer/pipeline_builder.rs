@@ -433,6 +433,24 @@ impl PipelineBuilder {
             "main",
         )
         .unwrap();
+        let load_visibility_shader = |name: &str| {
+            let path = format!(
+                "shader/foliage/{name}{}.comp",
+                if glass_experiment_enabled {
+                    "_glass"
+                } else {
+                    ""
+                }
+            );
+            ShaderModule::from_precompiled(vulkan_ctx.device(), &path, "main").unwrap()
+        };
+        let flora_visibility_cache_sm = load_visibility_shader("flora_visibility_cache");
+        let flora_visibility_band_cache_sm = load_visibility_shader("flora_visibility_band_cache");
+        let audit = super::local_light_field::LocalLightField::audit_enabled();
+        let flora_visibility_audit_sm =
+            audit.then(|| load_visibility_shader("flora_visibility_audit"));
+        let flora_visibility_band_audit_sm =
+            audit.then(|| load_visibility_shader("flora_visibility_band_audit"));
         let tree_leaf_lighting_cache_sm = ShaderModule::from_precompiled(
             vulkan_ctx.device(),
             if glass_experiment_enabled {
@@ -763,6 +781,10 @@ impl PipelineBuilder {
             flora_frag_sm,
             local_light_field_sm,
             flora_lighting_cache_sm,
+            flora_visibility_cache_sm,
+            flora_visibility_band_cache_sm,
+            flora_visibility_audit_sm,
+            flora_visibility_band_audit_sm,
             tree_leaf_lighting_cache_sm,
             leaves_vert_sm,
             leaves_lod_vert_sm,
@@ -945,24 +967,36 @@ impl PipelineBuilder {
                 ],
             })
             .expect("local light field scene descriptors");
-        let flora_lighting_cache_ppl = ComputePipeline::new_uninitialized(
-            device,
-            &shader_modules.flora_lighting_cache_sm,
-            pool,
-        );
-        flora_lighting_cache_ppl
-            .initialize_descriptors(DescriptorUpdate::SetContaining {
-                anchor: "gui_input",
-                providers: &[
-                    resources,
-                    contree_builder_resources,
-                    scene_accel_resources,
-                    plain_builder_resources,
-                    ddgi_volume,
-                    ddgi_voxel_visibility,
-                ],
-            })
-            .expect("flora lighting cache static descriptors must resolve");
+        let make_flora_lighting = |shader: &ShaderModule| {
+            let pipeline = ComputePipeline::new_uninitialized(device, shader, pool);
+            pipeline
+                .initialize_descriptors(DescriptorUpdate::SetContaining {
+                    anchor: "gui_input",
+                    providers: &[
+                        resources,
+                        contree_builder_resources,
+                        scene_accel_resources,
+                        plain_builder_resources,
+                        ddgi_volume,
+                        ddgi_voxel_visibility,
+                    ],
+                })
+                .expect("flora lighting static descriptors must resolve");
+            pipeline
+        };
+        let flora_lighting_cache_ppl = make_flora_lighting(&shader_modules.flora_lighting_cache_sm);
+        let flora_visibility_cache_ppl =
+            make_flora_lighting(&shader_modules.flora_visibility_cache_sm);
+        let flora_visibility_band_cache_ppl =
+            make_flora_lighting(&shader_modules.flora_visibility_band_cache_sm);
+        let flora_visibility_audit_ppl = shader_modules
+            .flora_visibility_audit_sm
+            .as_ref()
+            .map(&make_flora_lighting);
+        let flora_visibility_band_audit_ppl = shader_modules
+            .flora_visibility_band_audit_sm
+            .as_ref()
+            .map(&make_flora_lighting);
         let grass_visibility_ppl =
             ComputePipeline::new_uninitialized(device, &shader_modules.grass_visibility_sm, pool);
         grass_visibility_ppl
@@ -971,24 +1005,8 @@ impl PipelineBuilder {
                 providers: &[resources],
             })
             .expect("grass visibility static descriptors");
-        let flora_lighting_band_cache_ppl = ComputePipeline::new_uninitialized(
-            device,
-            &shader_modules.flora_lighting_band_cache_sm,
-            pool,
-        );
-        flora_lighting_band_cache_ppl
-            .initialize_descriptors(DescriptorUpdate::SetContaining {
-                anchor: "gui_input",
-                providers: &[
-                    resources,
-                    contree_builder_resources,
-                    scene_accel_resources,
-                    plain_builder_resources,
-                    ddgi_volume,
-                    ddgi_voxel_visibility,
-                ],
-            })
-            .expect("band preparation static descriptors");
+        let flora_lighting_band_cache_ppl =
+            make_flora_lighting(&shader_modules.flora_lighting_band_cache_sm);
         let flower_visit_ppl =
             ComputePipeline::new_uninitialized(device, &shader_modules.flower_visit_sm, pool);
         flower_visit_ppl
@@ -1250,6 +1268,10 @@ impl PipelineBuilder {
             local_light_field_ppl,
             flora_lighting_cache_ppl,
             flora_lighting_band_cache_ppl,
+            flora_visibility_cache_ppl,
+            flora_visibility_band_cache_ppl,
+            flora_visibility_audit_ppl,
+            flora_visibility_band_audit_ppl,
             grass_visibility_ppl,
             flower_visit_ppl,
             flower_stem_bands_ppl,
@@ -2095,6 +2117,8 @@ declare_ddgi_consumer_registry! {
         ToolModels => Graphics(graphics.tool_model_ppl),
         FloraLightingCache => Compute(compute.flora_lighting_cache_ppl),
         GrassBandPreparation => Compute(compute.flora_lighting_band_cache_ppl),
+        FloraSharedVisibility => Compute(compute.flora_visibility_cache_ppl),
+        GrassBandSharedVisibility => Compute(compute.flora_visibility_band_cache_ppl),
         TreeLeafLightingCache => Compute(compute.tree_leaf_lighting_cache_ppl),
         Leaves => Graphics(graphics.leaves_ppl),
         LeavesLod => Graphics(graphics.leaves_lod_ppl),
@@ -2112,6 +2136,8 @@ declare_ddgi_consumer_registry! {
     ],
     optional: [
         GlassResolve => Compute(compute.glass_resolve_ppl),
+        FloraVisibilityAudit => Compute(compute.flora_visibility_audit_ppl),
+        GrassBandVisibilityAudit => Compute(compute.flora_visibility_band_audit_ppl),
     ]
 }
 
@@ -3158,6 +3184,10 @@ pub struct ShaderModules {
     pub flora_frag_sm: ShaderModule,
     pub local_light_field_sm: ShaderModule,
     pub flora_lighting_cache_sm: ShaderModule,
+    pub flora_visibility_cache_sm: ShaderModule,
+    pub flora_visibility_band_cache_sm: ShaderModule,
+    pub flora_visibility_audit_sm: Option<ShaderModule>,
+    pub flora_visibility_band_audit_sm: Option<ShaderModule>,
     pub tree_leaf_lighting_cache_sm: ShaderModule,
     pub leaves_vert_sm: ShaderModule,
     pub leaves_lod_vert_sm: ShaderModule,
@@ -3241,6 +3271,8 @@ pipeline_collection! {
         local_light_field_ppl,
         flora_lighting_cache_ppl,
         flora_lighting_band_cache_ppl,
+        flora_visibility_cache_ppl,
+        flora_visibility_band_cache_ppl,
         grass_visibility_ppl,
         flower_visit_ppl,
         flower_stem_bands_ppl,
@@ -3272,7 +3304,31 @@ pipeline_collection! {
         vegetation_response_ppl,
         post_processing_ppl
     ];
-    optional: [glass_resolve_ppl]
+    optional: [glass_resolve_ppl, flora_visibility_audit_ppl, flora_visibility_band_audit_ppl]
+}
+
+impl ComputePipelines {
+    pub(super) fn flora_lighting(
+        &self,
+        band: bool,
+        mode: super::local_light_field::ConsumerMode,
+    ) -> &ComputePipeline {
+        use super::local_light_field::ConsumerMode;
+        match (band, mode) {
+            (false, ConsumerMode::Original) => &self.flora_lighting_cache_ppl,
+            (true, ConsumerMode::Original) => &self.flora_lighting_band_cache_ppl,
+            (false, ConsumerMode::Shared) => &self.flora_visibility_cache_ppl,
+            (true, ConsumerMode::Shared) => &self.flora_visibility_band_cache_ppl,
+            (false, ConsumerMode::Audit) => self
+                .flora_visibility_audit_ppl
+                .as_ref()
+                .expect("audit-only pipeline enabled at startup"),
+            (true, ConsumerMode::Audit) => self
+                .flora_visibility_band_audit_ppl
+                .as_ref()
+                .expect("band audit-only pipeline enabled at startup"),
+        }
+    }
 }
 
 pub struct RenderPasses {

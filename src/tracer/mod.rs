@@ -5003,6 +5003,8 @@ impl Tracer {
             None
         };
         let live = self.local_light_live_publication.observation();
+        let audit_enabled = local_light_field::LocalLightField::audit_enabled();
+        let consumer_mode = local_light_field::ConsumerMode::primary(self.grass_local_light_field);
         let field_enabled = self.grass_local_light_field && lighting_cache_enabled;
         let field_key = field_enabled.then_some((
             live.live_revision.unwrap_or(0),
@@ -5022,17 +5024,15 @@ impl Tracer {
             field_key,
             u64::from(properties.limits.max_storage_buffer_range),
         );
-        let audit_buffer = self.local_light_field.prepare_audit(
-            self.vulkan_ctx.device().clone(),
-            self.allocator.clone(),
-            gpu_profiler_frame_slot,
-            if local_light_field::LocalLightField::audit_enabled() {
-                field_key
-            } else {
-                None
-            },
-            cmdbuf,
-        );
+        let audit_buffer = audit_enabled.then(|| {
+            self.local_light_field.prepare_audit(
+                self.vulkan_ctx.device().clone(),
+                self.allocator.clone(),
+                gpu_profiler_frame_slot,
+                field_key,
+                cmdbuf,
+            )
+        });
         if let Some((first_cell, cell_count, ready)) = build_batch {
             if first_cell == 0 || ready {
                 log::info!("[LOCAL_VISIBILITY] build slot={gpu_profiler_frame_slot} key={field_key:?} first_cell={first_cell} cells={cell_count} ready_recorded={ready} lights={} probe_spacing=unchanged history=unchanged",live.count);
@@ -5089,15 +5089,28 @@ impl Tracer {
             let cache_buffer = self.flora_lighting_cache.buffer(gpu_profiler_frame_slot);
             self.pipeline_topology
                 .compute()
-                .flora_lighting_cache_ppl
+                .flora_lighting(false, consumer_mode)
                 .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
             if band_cache_buffer.is_some() {
                 self.pipeline_topology
                     .compute()
-                    .flora_lighting_band_cache_ppl
+                    .flora_lighting(true, consumer_mode)
                     .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
             }
 
+            let audit_pending = self
+                .local_light_field
+                .audit_pending(gpu_profiler_frame_slot);
+            if audit_pending {
+                for band in [false, true] {
+                    if !band || band_cache_buffer.is_some() {
+                        self.pipeline_topology
+                            .compute()
+                            .flora_lighting(band, local_light_field::ConsumerMode::Audit)
+                            .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+                    }
+                }
+            }
             let cache_scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
                 profiler.begin_scope(
                     gpu_profiler_frame_slot,
@@ -5136,14 +5149,6 @@ impl Tracer {
                     && species::is_grass_species_index(species_index as u32);
                 let mut descriptors = vec![
                     (
-                        "local_light_field",
-                        DescriptorResource::Buffer(&direct_field),
-                    ),
-                    (
-                        "local_light_field_audit",
-                        DescriptorResource::Buffer(&audit_buffer),
-                    ),
-                    (
                         "grass_visible_instances",
                         DescriptorResource::Buffer(&visible_grass),
                     ),
@@ -5166,18 +5171,22 @@ impl Tracer {
                     self.vegetation_response.descriptors()[0],
                     self.vegetation_response.descriptors()[1],
                 ];
-                let pipeline = if cached {
+                if consumer_mode != local_light_field::ConsumerMode::Original {
+                    descriptors.push((
+                        "local_light_field",
+                        DescriptorResource::Buffer(&direct_field),
+                    ));
+                }
+                if cached {
                     descriptors.push((
                         "grass_band_pose_cache",
                         DescriptorResource::Buffer(band_cache_buffer.as_ref().unwrap()),
                     ));
-                    &self
-                        .pipeline_topology
-                        .compute()
-                        .flora_lighting_band_cache_ppl
-                } else {
-                    &self.pipeline_topology.compute().flora_lighting_cache_ppl
-                };
+                }
+                let pipeline = self
+                    .pipeline_topology
+                    .compute()
+                    .flora_lighting(cached, consumer_mode);
                 pipeline
                     .record_with_descriptors(
                         cmdbuf,
@@ -5186,6 +5195,24 @@ impl Tracer {
                         Some(bytemuck::bytes_of(&push_constant)),
                     )
                     .expect("flora lighting transient descriptors must match reflection");
+                if audit_pending {
+                    descriptors.push((
+                        "local_light_field_audit",
+                        DescriptorResource::Buffer(
+                            audit_buffer.as_ref().expect("audit buffer enabled"),
+                        ),
+                    ));
+                    self.pipeline_topology
+                        .compute()
+                        .flora_lighting(cached, local_light_field::ConsumerMode::Audit)
+                        .record_with_descriptors(
+                            cmdbuf,
+                            &descriptors,
+                            Extent3D::new(batch.mesh_voxel_count(), batch.instance_count(), 1),
+                            Some(bytemuck::bytes_of(&push_constant)),
+                        )
+                        .expect("same-frame grass output audit descriptors");
+                }
             }
             self.local_light_field
                 .record_audit_readback(cmdbuf, gpu_profiler_frame_slot);
