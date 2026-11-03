@@ -458,6 +458,17 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "local_light_budget"
+kind = "uint"
+label = "Local lights: GPU selection budget (all objects)"
+type = "Uint"
+
+[section.param.data]
+value = 8
+min = 1
+max = 64
+
+[[section.param]]
 id = "grass_light_ris"
 kind = "bool"
 label = "Grass: fixed-budget RIS lighting (A/B)"

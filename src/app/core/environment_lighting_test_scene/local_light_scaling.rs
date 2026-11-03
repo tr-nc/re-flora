@@ -1,8 +1,12 @@
 use super::*;
 
-// Measure zero last so it is a real 8 -> 0 transport update. A 0 -> 0 metadata-only provider
-// publication intentionally does not perturb the immutable DDGI radiance payload.
-const LOCAL_LIGHT_SCALING_COUNTS: [usize; 5] = [1, 2, 4, 8, 0];
+// Measure zero last as a real nonzero -> zero transport update. Counts above
+// the saved upload budget are skipped, never misreported as actually uploaded.
+const LOCAL_LIGHT_SCALING_COUNTS: [usize; 8] = [1, 2, 4, 8, 16, 32, 64, 0];
+fn next_scaling_count_index(current: usize, budget: usize) -> Option<usize> {
+    (current + 1..LOCAL_LIGHT_SCALING_COUNTS.len())
+        .find(|&index| LOCAL_LIGHT_SCALING_COUNTS[index] <= budget)
+}
 const LOCAL_LIGHT_SCALING_WARMUP_FRAMES: u16 = 12;
 const LOCAL_LIGHT_SCALING_SAMPLE_FRAMES: usize = 64;
 
@@ -207,7 +211,8 @@ impl App {
                 state.mutation_frame = self.time_info.total_frame_count();
                 state.stage = LocalLightScalingStage::AwaitLive;
                 log::info!(
-                    "[LOCAL_LIGHT_SCALE] begin counts=0,1,2,4,8 measurement_order=1,2,4,8,0 zero_is_real_8_to_0_transport=true warmup_frames={} sample_frames={} fixed_camera=true release_required=true gpu_capacity={} live_resource_bytes={} ddgi_transport_resource_bytes={}",
+                    "[LOCAL_LIGHT_SCALE] begin supported_counts=1,2,4,8,16,32,64,0 zero_is_real_removal=true selection_budget={} warmup_frames={} sample_frames={} fixed_camera=true release_required=true gpu_capacity={} live_resource_bytes={} ddgi_transport_resource_bytes={}",
+                    self.debug_settings.adjustables.local_light_budget.value,
                     LOCAL_LIGHT_SCALING_WARMUP_FRAMES,
                     LOCAL_LIGHT_SCALING_SAMPLE_FRAMES,
                     LOCAL_LIGHT_GPU_CAPACITY,
@@ -312,8 +317,11 @@ impl App {
                     ddgi_occluded,
                 );
 
-                if state.count_index + 1 < LOCAL_LIGHT_SCALING_COUNTS.len() {
-                    state.count_index += 1;
+                if let Some(index) = next_scaling_count_index(
+                    state.count_index,
+                    self.debug_settings.adjustables.local_light_budget.value as usize,
+                ) {
+                    state.count_index = index;
                     let (source_revision, registry_revision) =
                         publish_scaling_count(self, environment, state.requested_count());
                     state.expected_source_revision = source_revision;
@@ -404,10 +412,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn scaling_counts_cover_zero_through_the_full_small_n_capacity() {
-        assert_eq!(LOCAL_LIGHT_SCALING_COUNTS, [1, 2, 4, 8, 0]);
-        assert_eq!(LOCAL_LIGHT_SCALING_COUNTS[3], LOCAL_LIGHT_GPU_CAPACITY);
+    fn scaling_counts_cover_actual_upload_budgets_and_finish_with_real_removal() {
+        assert_eq!(LOCAL_LIGHT_SCALING_COUNTS, [1, 2, 4, 8, 16, 32, 64, 0]);
+        assert_eq!(LOCAL_LIGHT_SCALING_COUNTS[6], LOCAL_LIGHT_GPU_CAPACITY);
         assert_eq!(LOCAL_LIGHT_SCALING_COUNTS.last().copied(), Some(0));
+        assert_eq!(next_scaling_count_index(3, 8), Some(7));
+        assert_eq!(next_scaling_count_index(3, 64), Some(4));
+        assert_eq!(next_scaling_count_index(7, 64), None);
         const { assert!(LOCAL_LIGHT_SCALING_SAMPLE_FRAMES >= 32) };
     }
 

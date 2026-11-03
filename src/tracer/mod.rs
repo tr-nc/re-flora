@@ -1519,6 +1519,7 @@ pub struct FloraAppearanceFrameInput {
     pub grass_band_pose_reuse: bool,
     pub grass_local_light_field: bool,
     pub grass_light_ris: bool,
+    pub local_light_budget: u32,
     pub grass_light_ris_rays: u32,
     pub grass_light_ris_candidates: u32,
     pub grass_band_pixelization: bool,
@@ -3131,7 +3132,12 @@ impl Tracer {
         self.promote_ready_ddgi_staging()?;
         let local_light_gpu = LocalLightGpuSnapshot::from_authoritative(
             local_lights,
-            LocalLightBudget::point_lights(LOCAL_LIGHT_GPU_CAPACITY),
+            LocalLightBudget::point_lights(
+                vegetation
+                    .appearance
+                    .local_light_budget
+                    .clamp(1, LOCAL_LIGHT_GPU_CAPACITY as u32) as usize,
+            ),
             0,
         )
         .with_flags(

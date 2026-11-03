@@ -194,6 +194,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "local_light_budget",
+        kind: "uint",
+        label: "Local lights: GPU selection budget (all objects)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "grass_light_ris",
         kind: "bool",
         label: "Grass: fixed-budget RIS lighting (A/B)",
@@ -1850,6 +1856,7 @@ pub struct GuiAdjustables {
     pub scene_supersampling_quality: crate::gui_adjustables::ChoiceParam,
     pub scene_pixel_resolve_mode: crate::gui_adjustables::ChoiceParam,
     pub grass_band_pixelization: crate::gui_adjustables::BoolParam,
+    pub local_light_budget: crate::gui_adjustables::UintParam,
     pub grass_light_ris: crate::gui_adjustables::BoolParam,
     pub grass_light_ris_rays: crate::gui_adjustables::UintParam,
     pub grass_light_ris_candidates: crate::gui_adjustables::UintParam,
@@ -2162,6 +2169,7 @@ impl GuiAdjustables {
         let mut scene_supersampling_quality_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut scene_pixel_resolve_mode_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut grass_band_pixelization_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut local_light_budget_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut grass_light_ris_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut grass_light_ris_rays_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut grass_light_ris_candidates_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -2613,6 +2621,13 @@ impl GuiAdjustables {
                     "grass_band_pixelization" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             grass_band_pixelization_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "local_light_budget" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            local_light_budget_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "grass_light_ris" => {
@@ -4448,6 +4463,7 @@ impl GuiAdjustables {
             scene_supersampling_quality: scene_supersampling_quality_field.expect("Missing parameter: scene_supersampling_quality"),
             scene_pixel_resolve_mode: scene_pixel_resolve_mode_field.expect("Missing parameter: scene_pixel_resolve_mode"),
             grass_band_pixelization: grass_band_pixelization_field.expect("Missing parameter: grass_band_pixelization"),
+            local_light_budget: local_light_budget_field.expect("Missing parameter: local_light_budget"),
             grass_light_ris: grass_light_ris_field.expect("Missing parameter: grass_light_ris"),
             grass_light_ris_rays: grass_light_ris_rays_field.expect("Missing parameter: grass_light_ris_rays"),
             grass_light_ris_candidates: grass_light_ris_candidates_field.expect("Missing parameter: grass_light_ris_candidates"),
@@ -4957,6 +4973,7 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "stone_seed" => Some(&adjustables.stone_seed),
         "stone_rock_facets" => Some(&adjustables.stone_rock_facets),
         "scene_pixel_ratio" => Some(&adjustables.scene_pixel_ratio),
+        "local_light_budget" => Some(&adjustables.local_light_budget),
         "grass_light_ris_rays" => Some(&adjustables.grass_light_ris_rays),
         "grass_light_ris_candidates" => Some(&adjustables.grass_light_ris_candidates),
         "flower_stem_model_resolution" => Some(&adjustables.flower_stem_model_resolution),
@@ -5303,6 +5320,7 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "stone_seed" => Some(&mut adjustables.stone_seed),
         "stone_rock_facets" => Some(&mut adjustables.stone_rock_facets),
         "scene_pixel_ratio" => Some(&mut adjustables.scene_pixel_ratio),
+        "local_light_budget" => Some(&mut adjustables.local_light_budget),
         "grass_light_ris_rays" => Some(&mut adjustables.grass_light_ris_rays),
         "grass_light_ris_candidates" => Some(&mut adjustables.grass_light_ris_candidates),
         "flower_stem_model_resolution" => Some(&mut adjustables.flower_stem_model_resolution),

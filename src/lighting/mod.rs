@@ -17,9 +17,9 @@ pub(crate) use voxel_emissive::*;
 pub(crate) const LOCAL_LIGHT_GPU_ABI_VERSION: u32 = 3;
 pub(crate) const LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS: u32 = 1 << 0;
 pub(crate) const LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS: u32 = 1 << 1;
-/// First production small-N budget. CPU providers and the registry remain unbounded; selection is
-/// explicit and can be replaced by a clustered/tiled policy without changing provider APIs.
-pub(crate) const LOCAL_LIGHT_GPU_CAPACITY: usize = 8;
+/// Physical upload capacity. The saved selection budget remains eight by default;
+/// raising it is explicit and affects all consumers, not just stochastic grass.
+pub(crate) const LOCAL_LIGHT_GPU_CAPACITY: usize = 64;
 const LOCAL_LIGHT_KIND_POINT: u32 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1359,7 +1359,7 @@ mod tests {
         let overflow_id = registry.light_id(provider, overflow_key).unwrap();
         let selected = LocalLightGpuSnapshot::from_authoritative(
             &registry.snapshot(),
-            LocalLightBudget::point_lights(LOCAL_LIGHT_GPU_CAPACITY),
+            LocalLightBudget::point_lights(8),
             0,
         )
         .payload();
@@ -1378,7 +1378,7 @@ mod tests {
             .unwrap();
         let after_removal = LocalLightGpuSnapshot::from_authoritative(
             &registry.snapshot(),
-            LocalLightBudget::point_lights(LOCAL_LIGHT_GPU_CAPACITY),
+            LocalLightBudget::point_lights(8),
             0,
         )
         .payload();
