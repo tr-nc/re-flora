@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Re: Flora 世界空间 buffer-less RIS 实验：真实 8／19 灯 Release 对照、GPU 接收点审计与夜景 A/B。">
+<title>从逐灯遍历，到固定预算 · Re: Flora RIS 实验</title>
+<style>
+:root{color-scheme:dark;--bg:#101915;--panel:#19251e;--line:#354b3c;--ink:#f2f1e5;--muted:#bac8b9;--mint:#b8e1b3;--amber:#f0bd76;--old:#9aab9c}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.75 system-ui,-apple-system,"Noto Sans CJK SC",sans-serif}a{color:var(--mint);text-underline-offset:4px}a:hover{color:white}:focus-visible{outline:3px solid var(--amber);outline-offset:5px}.wrap{max-width:1160px;padding:0 32px;margin:auto}.mast{display:flex;justify-content:space-between;gap:20px;padding-top:30px;font-size:12px;letter-spacing:.1em;color:var(--muted)}header{padding:65px 0 45px;border-bottom:1px solid var(--line)}.eyebrow{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--mint)}h1{font-size:clamp(36px,5.8vw,68px);line-height:1.2;letter-spacing:-.045em;font-weight:650;margin:20px 0 24px;max-width:950px}h1 em{font-style:normal;color:var(--mint)}h2{font-size:clamp(25px,3vw,34px);line-height:1.4;letter-spacing:-.025em;margin:8px 0 22px}h3{font-size:18px;line-height:1.5;margin:0 0 10px}p{margin:12px 0}.lead{font-size:20px;color:var(--muted);max-width:850px}.pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:25px}.pill{border:1px solid var(--line);border-radius:30px;padding:5px 13px;font-size:12px;color:var(--muted)}.pill.good{color:var(--mint);border-color:#597d59}.pill.pending{color:var(--amber);border-color:#846842}nav{border-bottom:1px solid var(--line)}nav .wrap{display:flex;gap:25px;flex-wrap:wrap;padding-top:16px;padding-bottom:16px;font-size:14px}section{padding:48px 0;border-bottom:1px solid var(--line);scroll-margin-top:20px}.number{font-size:12px;color:var(--muted);letter-spacing:.1em}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.three{grid-template-columns:repeat(3,1fr)}.card{background:var(--panel);border:1px solid var(--line);padding:24px;border-radius:12px;min-width:0}.big{font-size:43px;line-height:1.2;font-weight:650;letter-spacing:-.04em;color:var(--mint);margin:8px 0}.small{font-size:13px;color:var(--muted)}.warning{border-left:3px solid var(--amber);padding:14px 22px;background:#28281d;margin:24px 0;color:#e3d6bd}.table-scroll{overflow:auto;border:1px solid var(--line);border-radius:12px}table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;text-align:left}th,td{padding:16px 18px;border-bottom:1px solid var(--line);vertical-align:top}th{font-size:13px;color:var(--muted);background:var(--panel);font-weight:550}td{font-size:15px;background:var(--bg)}tr:last-child td{border:0}.nowrap{white-space:nowrap}.accent{color:var(--mint)}figure{margin:0;min-width:0}figure a{display:block}img{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:10px}figcaption{font-size:13px;color:var(--muted);padding-top:12px}.barrow{display:grid;grid-template-columns:62px 1fr 75px;align-items:center;gap:12px;margin:12px 0;font-size:13px;font-variant-numeric:tabular-nums}.track{height:13px;background:#0e1712;border-radius:2px}.bar{height:100%;background:var(--mint);border-radius:2px}.bar.old{background:var(--old)}.flow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:25px}.flow .card{border-top:3px solid #739d75}.step{font-size:12px;color:var(--mint);margin-bottom:12px}.formula{font-family:ui-monospace,monospace;padding:20px;background:#0c130f;border:1px solid var(--line);border-radius:10px;overflow:auto;white-space:nowrap;margin:20px 0}.controls{padding:22px 25px;border:1px solid #739d75;border-radius:10px;background:#19281e}code,pre{font-family:ui-monospace,monospace;font-size:13px}code{overflow-wrap:anywhere}pre{overflow:auto;background:#0c130f;padding:20px;border-radius:10px;line-height:1.8}ul{padding-left:22px}li{margin:9px 0}details{border-top:1px solid var(--line);padding:18px 0}summary{cursor:pointer;color:var(--mint)}footer{padding:35px 0 55px;color:var(--muted);font-size:13px}.hash{overflow-wrap:anywhere;font-family:ui-monospace,monospace;font-size:12px}.footlinks{display:flex;gap:18px;flex-wrap:wrap;margin:20px 0}.rule{color:var(--amber)}
+@media(max-width:740px){.wrap{padding-left:20px;padding-right:20px}.mast{flex-direction:column;gap:5px}header{padding-top:36px}.lead{font-size:17px}.grid,.three,.flow{grid-template-columns:1fr}section{padding:34px 0}.card{padding:20px}th,td{padding:12px 14px}.table-scroll table{min-width:600px}.big{font-size:38px}nav .wrap{gap:12px 20px}.barrow{grid-template-columns:55px 1fr 65px;gap:8px}}
+</style>
+</head>
+<body>
+<div class="wrap mast" role="region" aria-label="报告版本"><span>RE: FLORA / RENDERING EXPERIMENT</span><span>2026.11.04 · 原生 Release · RTX 3060 Ti</span></div>
+<header><div class="wrap">
+<div class="eyebrow">Shared presampling → receiver RIS → selected visibility</div>
+<h1>不再逐灯追问。<br>用<em>固定预算</em>计算草的直射光。</h1>
+<p class="lead">调研路线已经接入真实渲染器：共享光源候选，在实际草茎接收点重新加权，只追踪选中的连接。保留有限光源、原有遮挡与间接光，不再用粗照度场替换近灯细节。</p>
+<div class="pills"><span class="pill good">已实现，可实时 A/B</span><span class="pill good">8／19 个实际上传光源</span><span class="pill pending">默认关闭 · 视觉待确认</span></div>
+</div></header>
+<nav aria-label="报告目录"><div class="wrap"><a href="#visual">先看效果</a><a href="#measure">Release 测量</a><a href="#estimator">计算方式</a><a href="#audit">正确性证据</a><a href="#limits">边界与下一步</a><a href="#try">怎样切换</a></div></nav>
+<main class="wrap">
+<section id="visual">
+<div class="number">01 / ACTUAL GAME CAPTURES</div><h2>灯下暖光还在，采样颗粒也必须如实保留。</h2>
+<div class="grid">
+<figure><a href="original.png"><img src="original.png" width="1920" height="1080" alt="原路径夜景，左侧石灯周围有连续的暖色草地光斑"></a><figcaption><strong>A · 原路径</strong> / 实际八灯，逐灯有限光源积分。</figcaption></figure>
+<figure><a href="ris.png"><img src="ris.png" width="1920" height="1080" alt="RIS 夜景，左侧灯下保留暖光，草上的亮暗颗粒更明显"></a><figcaption><strong>B · RIS</strong> / 每个接收点 4 个 reservoir，每个 8 个候选，最多 4 条可见性连接。</figcaption></figure>
+</div>
+<p class="small">点击查看原始 1920×1080 PNG。两次独立 Release 运行，庭院视角、种子、夜间时间、灯预算与探针间距相同；没有调色、曝光修改或图像降噪。风、模拟与 DDGI 收敛进度并未冻结，房屋／树木的差异不能全部归因于 RIS。此组截图是候选展示，不是逐像素差分或视觉验收。</p>
+<div class="warning"><strong>这里的取舍是“精确积分 → 随机估计”，不是无损缓存。</strong>没有额外的环境补光，也没有通过提高 DDGI 密度弥补暗部。少数高贡献路径与细遮挡仍会产生亮暗颗粒，不能把整体能量接近说成每根草都一样。</div>
+</section>
+<section id="measure">
+<div class="number">02 / THREE ALTERNATING RELEASE PAIRS PER LIGHT COUNT</div><h2>灯数从 8 到 19，草准备成本不再随逐灯积分增长。</h2>
+<div class="grid three">
+<article class="card"><h3>八灯 · 草准备 GPU</h3><div class="big">−42.9%</div><p>13.335 → <strong>7.613 ms</strong></p><p class="small">实际 FPS：25.54 → 30.91<br>提升约 21.0%</p></article>
+<article class="card"><h3>十九灯 · 草准备 GPU</h3><div class="big">−67.9%</div><p>25.003 → <strong>8.029 ms</strong></p><p class="small">实际 FPS：18.03 → 28.38<br>提升约 57.4%</p></article>
+<article class="card"><h3>最终可见性预算</h3><div class="big">≤ 4</div><p>每个接收点、每次准备</p><p class="small">不是选中一盏灯后再追十二次。<br>默认共 32 次便宜的候选评估。</p></article>
+</div>
+<div class="grid" style="margin-top:20px">
+<article class="card"><h3>实际八灯</h3><div class="barrow"><span>原路径</span><div class="track"><div class="bar old" style="width:53.33%"></div></div><span>13.335 ms</span></div><div class="barrow"><span>RIS</span><div class="track"><div class="bar" style="width:30.45%"></div></div><span>7.613 ms</span></div></article>
+<article class="card"><h3>实际十九灯</h3><div class="barrow"><span>原路径</span><div class="track"><div class="bar old" style="width:100%"></div></div><span>25.003 ms</span></div><div class="barrow"><span>RIS</span><div class="track"><div class="bar" style="width:32.11%"></div></div><span>8.029 ms</span></div></article>
+</div>
+<p class="small">相同比例尺。RTX 3060 Ti／Linux Vulkan，物理 1920×1080，场景 384×216，garden-arrival，seed 20260519，时间 0.95，DDGI 间距 32。每组 3 对交错、每次 20 秒；草准备含现有姿态复用与环境着色，并非只有 RIS 算法。取末尾 8 秒 GPU 中位数，再取三次运行的中位数；每次保留 145–248 个 GPU 样本。原路径关闭两种实验，RIS 测量不加载审计。十九灯由提高上传预算后真实选择获得，不是仍只上传八灯的“多物体”场景。</p>
+<div class="table-scroll" role="region" aria-label="Release 整段吞吐量，可横向滚动" tabindex="0"><table><thead><tr><th>实际上传灯数</th><th>原路径 · 整段 FPS</th><th>RIS · 整段 FPS</th><th>口径</th></tr></thead><tbody><tr><td>8</td><td>25.72</td><td class="accent">30.97</td><td rowspan="2">从第一个性能日志帧计数到最后一帧，包含运行中发布／更新，不包含进程启动和资源加载。</td></tr><tr><td>19</td><td>18.50</td><td class="accent">28.52</td></tr></tbody></table></div>
+<p class="small"><a href="perf-8.json">八灯全部运行数据</a> · <a href="perf-19.json">十九灯全部运行数据</a>。这是本机证据，不套用论文数字，也不代表 Apple GPU／MoltenVK 性能已通过。</p>
+</section>
+<section id="estimator">
+<div class="number">03 / PRESERVE THE INTEGRAND, CHANGE THE WORK</div><h2>共享的是抽样分布，不是最终照明。</h2>
+<div class="flow">
+<article class="card"><div class="step">01 · SHARED PROPOSAL</div><h3>光源预采样</h3><p>4096 槽整数分布，按功率分配并保留均匀底额。每槽记录光源和真实概率倒数；工作组共享候选。</p><p class="small">全局提议表 32 KiB。灯变化时随 live 上传更新，无额外 DDGI 探针或空间照度网格。</p></article>
+<article class="card"><div class="step">02 · ACTUAL RECEIVER</div><h3>接收点 RIS</h3><p>用实际世界坐标、草的法线、距离衰减与有限发光面响应加权，流式选择少量最终样本。</p><p class="small">零贡献候选仍计入归一化，不枚举所有灯。有限光源仍采原有十二个积分点中的一个。</p></article>
+<article class="card"><div class="step">03 · SELECTED CONNECTION</div><h3>真实可见性</h3><p>只查询选中样本的有限线段；复用原有 opaque／Glass 传输语义，再作 RIS 权重补偿。</p><p class="small">没有上一帧 reservoir、屏幕历史、降噪器或失败后全灯回退。原路径只用于显式 A/B／旁路审计。</p></article>
+</div>
+<div class="formula" role="region" tabindex="0" aria-label="RIS 估计式">estimate = f(selected) × Σ(target / proposal_pdf) / (M × target(selected))</div>
+<p>数学期望恢复原来的离散积分，并不意味着单个确定性画面精确。当前固定散列让静态接收点避免每帧重新撒噪；共享候选会相关，镜头剔除分组变化仍可能改变颗粒。详细推导、来源和这些限制记录在<a href="../../research/bufferless-ris.md">研究笔记</a>。</p>
+</section>
+<section id="audit">
+<div class="number">04 / NOT JUST “IT STARTS”</div><h2>检查真实正常核的输出，再检查是否真的照亮了草。</h2>
+<p>独立的旁路 GPU 程序抽取实际接收点，读取正常快核结果，重算相同 RIS 并另算全灯参考。四组均为<strong class="accent">零非有限记录、零正常核输出失配</strong>，而不是只比较没有照明的零值。</p>
+<div class="table-scroll" role="region" aria-label="实际接收点 RGB 审计，可横向滚动" tabindex="0"><table><thead><tr><th>灯数／种子</th><th>末 4 秒接收项检查</th><th>聚合 RGB 有符号误差</th><th>正常核失配</th></tr></thead><tbody><tr><td>8 · 默认庭院</td><td>717,734</td><td>约 −0.014%</td><td>0</td></tr><tr><td>8 · 种子 7</td><td>710,094</td><td>约 +0.553%</td><td>0</td></tr><tr><td>19 · 默认庭院</td><td>618,231</td><td>R +0.639% / G +0.611% / B −0.157%</td><td>0</td></tr><tr><td>19 · 种子 7</td><td>625,036</td><td>约 −2.56% ～ −2.59%</td><td>0</td></tr></tbody></table></div>
+<p class="small">检查数包含跨帧重复、相关的接收点；不是独立样本数，也不是置信区间。聚合能量误差可能抵消局部亮暗偏差，不能代替近灯、风与运动视觉审查。<a href="audit-8.json">八灯审计数据</a> · <a href="audit-19.json">十九灯审计数据</a> · <a href="native-evidence.txt">原生日志摘录</a>。</p>
+<div class="grid" style="margin-top:24px">
+<article class="card"><h3>一个真实捕获并修掉的错误</h3><p>最初新提议表误用了树单元的 descriptor binding。启动能过，CPU 数学测试也过，但草的直射光全为零。</p><p>实际输出审计发现后，移到空闲 binding，并加入真实 SPIR-V 的资源唯一性、正常／审计隔离与只读检查。这里没有拿那版“很快的零照明”当性能结果。</p></article>
+<article class="card"><h3>六十四灯：只声明验证过的部分</h3><p>原生生命周期夹具依次实际接收 1／2／4／8／16／32／64／0 盏灯，原模式与 RIS 模式都完成最终移除和 DDGI 发布，零混合修订。</p><p class="small rule">该夹具几乎没有草，约 1 µs 的草缓存范围不构成六十四灯草性能证据。代表性大灯数草地仍待补。<a href="lifecycle-64.json">真实计数</a></p></article>
+</div>
+<details><summary>本轮完整验证与明确阻塞</summary><ul><li><code>cargo fmt --check</code>、<code>cargo check</code>、Release 构建通过；没有手改生成文件。</li><li>1846 项 app 测试、4 项 library 测试、1 项环境测试、78 项 Vulkan 库测试通过；脚本的 6 项回归通过。</li><li>RIS 数学测试覆盖有色透射、全遮挡、零权重候选的 M 计数、有限发光面。既有 441 项端点、21,805 项证书检查通过。</li><li>Slang 全套在第 49 个执行项 <code>sprinkler_contact_contracts</code> 失败，前 48 个通过。已从原始基线 <code>6386b512</code> 单独编译运行，复现相同 <code>failures=1</code>；没有修改喷头来制造全绿。</li><li>隐藏静音原生运行和各组日志已检查；上述完成运行无 ERROR、panic、VUID 或同步错误。64 灯夹具首次扩展暴露原先八项位置数组越界，修正索引后两种模式均完整跑通。</li></ul></details>
+</section>
+<section id="limits">
+<div class="number">05 / HONEST ACCEPTANCE BOUNDARY</div><h2>可以试，不冒充最终画质方案。</h2>
+<div class="grid">
+<article class="card"><h3>这轮没有改变的东西</h3><ul><li>DDGI 间距仍是 32；间接光、曝光、灯强度、材质和庭院不作默认值调整。</li><li>默认上传预算仍为八灯；上限扩到 64 是显式保存设置，并影响所有消费者。</li><li>地形、树叶和 DDGI 仍走原有全灯消费者；本轮固定预算作用于草／花茎准备，不是全渲染器都变成固定成本。</li><li>没有导入 RTXDI、ReGIR 或 NRD SDK，也没有增加许可证不明的第三方实现。</li></ul></article>
+<article class="card"><h3>仍然开放的验收</h3><ul><li>用户对近灯颗粒和阴影的视觉认可；提高候选数／射线数是明确质量预算，不是无损承诺。</li><li>受控的灯光／几何移动、薄遮挡、风与镜头显隐在草上的局部误差和时间噪声。</li><li>代表性 64 灯草地与接收点数量扩展；现有十九灯结果不能直接外推。</li><li>Apple／MoltenVK 原生运行。没有用本机 Linux 成绩宣称目标平台已验收。</li></ul></article>
+</div>
+<p>后续如果分布更广、全局功率候选命中率下降，再让 ReGIR 提供更好的空间提议；如果需要更平滑的低采样画质，再单独设计历史／降噪接口。<strong>不把“RIS 已接通”改名为“完整 ReSTIR 已完成”。</strong></p>
+</section>
+<section id="try">
+<div class="number">06 / READY FOR A/B</div><h2>同一个 Release 内切换，不用换构建。</h2>
+<div class="controls"><strong>Debug → Local Lighting → Grass: fixed-budget RIS lighting (A/B)</strong><p>不勾选：原路径；勾选：实验路径。若想比较纯原始路径，请把独立的 <em>Source Visibility Cache</em> 也保持关闭。RIS 开启时优先于旧缓存。</p><p class="small">默认 4 条连接 × 每条 8 候选。两项质量预算和 GPU 灯数预算都使用统一保存设置；当前均保留原默认值、RIS 关闭。未自动启动可见游戏。</p></div>
+<details><summary>复现实验命令</summary><pre tabindex="0"><code>cargo build --release
+node scripts/validate-light-ris.mjs --case perf --output target/ris-perf-new
+node scripts/validate-light-ris.mjs --case perf --light-budget 64 --output target/ris-many-new
+node scripts/validate-light-ris.mjs --case audit --output target/ris-audit-new
+node scripts/validate-light-ris.mjs --case audit --light-budget 64 --output target/ris-audit-many-new
+node scripts/validate-light-ris.mjs --case scaling --seconds 90 --output target/ris-scaling-new
+node scripts/validate-light-ris.mjs --case capture --output target/ris-captures-new</code></pre><p class="small">脚本要求输出目录不存在，临时改配置后恢复原始字节。请不要和其他 app／GPU 工作同时运行。性能倒退会保留并显示为 performancePassed=false，不以此阻止视觉候选展示；运行／正确性错误仍会失败。</p></details>
+<p class="small">本报告全部测量、审计与截图使用的 Release SHA-256：</p><p class="hash">2cdd6e7f31b0b39a3e914afde96bdb9647f372e2264101f3838a49cdfae2f0e4</p>
+<div class="footlinks"><a href="../../research/bufferless-ris.md">数学与来源记录</a><a href="../many-light-rendering/index.html">上一轮技术选型</a><a href="README.md">截图与证据出处</a><a href="#visual">回到画面 ↑</a></div>
+</section>
+</main><footer class="wrap">结论：共享提议 + buffer-less RIS 已成为可切换、可审计的真实渲染路径。本机八灯与十九灯测量有收益；视觉认可、复杂运动和目标平台验收仍明确开放。</footer>
+</body></html>

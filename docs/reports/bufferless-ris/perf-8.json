@@ -1,0 +1,85 @@
+{
+  "binaryHash": "2cdd6e7f31b0b39a3e914afde96bdb9647f372e2264101f3838a49cdfae2f0e4",
+  "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+  "rows": [
+    {
+      "repeat": 0,
+      "mode": "off",
+      "screen": "1920x1080",
+      "scene": "384x216",
+      "uploadedLights": 8,
+      "grassGpuMs": 13.433,
+      "gpuSamples": 205,
+      "actualFps": 25.5,
+      "wholeProfiledFps": 25.67294227477828
+    },
+    {
+      "repeat": 0,
+      "mode": "on",
+      "screen": "1920x1080",
+      "scene": "384x216",
+      "uploadedLights": 8,
+      "grassGpuMs": 7.5954999999999995,
+      "gpuSamples": 248,
+      "actualFps": 31.116150163769213,
+      "wholeProfiledFps": 30.96473029045643
+    },
+    {
+      "repeat": 1,
+      "mode": "on",
+      "screen": "1920x1080",
+      "scene": "384x216",
+      "uploadedLights": 8,
+      "grassGpuMs": 7.613,
+      "gpuSamples": 248,
+      "actualFps": 30.89430894308943,
+      "wholeProfiledFps": 30.971155841460885
+    },
+    {
+      "repeat": 1,
+      "mode": "off",
+      "screen": "1920x1080",
+      "scene": "384x216",
+      "uploadedLights": 8,
+      "grassGpuMs": 13.335,
+      "gpuSamples": 205,
+      "actualFps": 25.56390977443609,
+      "wholeProfiledFps": 25.724806804626315
+    },
+    {
+      "repeat": 2,
+      "mode": "off",
+      "screen": "1920x1080",
+      "scene": "384x216",
+      "uploadedLights": 8,
+      "grassGpuMs": 13.332,
+      "gpuSamples": 205,
+      "actualFps": 25.53830746119179,
+      "wholeProfiledFps": 25.731479560074703
+    },
+    {
+      "repeat": 2,
+      "mode": "on",
+      "screen": "1920x1080",
+      "scene": "384x216",
+      "uploadedLights": 8,
+      "grassGpuMs": 7.628,
+      "gpuSamples": 248,
+      "actualFps": 30.90977349518208,
+      "wholeProfiledFps": 31.05396858313028
+    }
+  ],
+  "summary": {
+    "off": {
+      "grassGpuMs": 13.335,
+      "actualFps": 25.53830746119179,
+      "wholeProfiledFps": 25.724806804626315
+    },
+    "on": {
+      "grassGpuMs": 7.613,
+      "actualFps": 30.90977349518208,
+      "wholeProfiledFps": 30.971155841460885
+    }
+  },
+  "performancePassed": true
+}

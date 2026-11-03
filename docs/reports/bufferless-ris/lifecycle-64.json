@@ -1,0 +1,113 @@
+{
+  "binaryHash": "2cdd6e7f31b0b39a3e914afde96bdb9647f372e2264101f3838a49cdfae2f0e4",
+  "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+  "case": "scaling",
+  "rows": [
+    {
+      "mode": "off",
+      "counts": [
+        {
+          "count": 1,
+          "samples": 64,
+          "accepted": 1,
+          "grassGpuMs": 0.001
+        },
+        {
+          "count": 2,
+          "samples": 64,
+          "accepted": 2,
+          "grassGpuMs": 0.001
+        },
+        {
+          "count": 4,
+          "samples": 64,
+          "accepted": 4,
+          "grassGpuMs": 0.001
+        },
+        {
+          "count": 8,
+          "samples": 64,
+          "accepted": 8,
+          "grassGpuMs": 0.001
+        },
+        {
+          "count": 16,
+          "samples": 64,
+          "accepted": 16,
+          "grassGpuMs": 0.001
+        },
+        {
+          "count": 32,
+          "samples": 64,
+          "accepted": 32,
+          "grassGpuMs": 0.001
+        },
+        {
+          "count": 64,
+          "samples": 64,
+          "accepted": 64,
+          "grassGpuMs": 0.001
+        },
+        {
+          "count": 0,
+          "samples": 64,
+          "accepted": 0,
+          "grassGpuMs": 0.001
+        }
+      ]
+    },
+    {
+      "mode": "on",
+      "counts": [
+        {
+          "count": 1,
+          "samples": 64,
+          "accepted": 1,
+          "grassGpuMs": 0.001
+        },
+        {
+          "count": 2,
+          "samples": 64,
+          "accepted": 2,
+          "grassGpuMs": 0.001
+        },
+        {
+          "count": 4,
+          "samples": 64,
+          "accepted": 4,
+          "grassGpuMs": 0.001
+        },
+        {
+          "count": 8,
+          "samples": 64,
+          "accepted": 8,
+          "grassGpuMs": 0.001
+        },
+        {
+          "count": 16,
+          "samples": 64,
+          "accepted": 16,
+          "grassGpuMs": 0.001
+        },
+        {
+          "count": 32,
+          "samples": 64,
+          "accepted": 32,
+          "grassGpuMs": 0.001
+        },
+        {
+          "count": 64,
+          "samples": 64,
+          "accepted": 64,
+          "grassGpuMs": 0.001
+        },
+        {
+          "count": 0,
+          "samples": 64,
+          "accepted": 0,
+          "grassGpuMs": 0.001
+        }
+      ]
+    }
+  ]
+}

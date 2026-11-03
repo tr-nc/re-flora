@@ -1,0 +1,17 @@
+{
+  "binaryHash": "2cdd6e7f31b0b39a3e914afde96bdb9647f372e2264101f3838a49cdfae2f0e4",
+  "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+  "case": "capture",
+  "rows": [
+    {
+      "mode": "off",
+      "file": "original.png",
+      "sha256": "21535f44a7d1d7e68b3759bdadaaf9385138783e677898814722a4ce22a34758"
+    },
+    {
+      "mode": "on",
+      "file": "ris.png",
+      "sha256": "a28ce8ce2bf9c389494523feeb4134ebf0c4de1fe78d2786d2c1fa2770c7ca6b"
+    }
+  ]
+}
