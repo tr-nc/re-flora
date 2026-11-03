@@ -70,6 +70,27 @@ export __extern_cpp int main()
         LocalEmitterSample sample=sampleLocalEmitterIncident(center,half,2.0,receiver,tap);
         LocalEmitterSample source=localEmitterSource(center,half,localEmitterSourceId(center,receiver,tap));
         cases++; if(any(sample.position!=source.position)||any(sample.normal!=source.normal))failures++;
+        // Independent geometric contract: one receiver-facing box face, with
+        // the two in-face coordinates at the four tensor Gauss nodes. Do not
+        // merely compare two functions sharing the same source-ID mapping.
+        bool geometry=dot(sample.normal,receiver-center)>=0.0;
+        uint faceAxes=0u;
+        for(uint axis=0u;axis<3u;++axis)
+        {
+            float displacement=sample.position[axis]-center[axis];
+            if(abs(sample.normal[axis])>0.5)
+            {
+                faceAxes++;
+                geometry=geometry && abs(sample.normal[axis])==1.0 &&
+                    abs(displacement-half[axis]*sample.normal[axis])<1.0e-7;
+            }
+            else geometry=geometry && sample.normal[axis]==0.0 &&
+                abs(abs(displacement)-half[axis]/sqrt(3.0))<1.0e-7;
+        }
+        for(uint previous=0u;previous<tap;++previous)
+            geometry=geometry && length(sample.position-
+                sampleLocalEmitterIncident(center,half,2.0,receiver,previous).position)>1.0e-7;
+        cases++; if(!geometry || faceAxes!=1u) failures++;
     }
     printf("visibility_certificates cases=%u failures=%u\n",cases,failures);
     return failures==0u ? 0 : 1;
