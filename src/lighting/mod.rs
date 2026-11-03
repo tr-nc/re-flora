@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::generated::gpu_structs::{LightGpu, LocalLightInfo};
 
+pub(crate) mod presampling;
 mod raster_entity;
 mod registry;
 mod voxel_emissive;
