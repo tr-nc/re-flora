@@ -1674,6 +1674,65 @@ mod search_tests {
     }
 
     #[test]
+    fn global_local_lighting_checkbox_is_live_searchable_and_saved() {
+        let mut settings = DebugSettings::load();
+        assert!(settings.adjustables.local_lighting_enabled.value);
+        settings.search.query = "local lighting enabled all objects".to_owned();
+        let context = egui::Context::default();
+        for enabled in [false, true] {
+            let mut draw = |events| {
+                let output = context.run_ui(
+                    egui::RawInput {
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        settings.draw(ui, |_, _| {});
+                    },
+                );
+                assert_eq!(settings.search_matches, 1);
+                output
+                    .shapes
+                    .iter()
+                    .find_map(|shape| {
+                        text_rect(&shape.shape, "Local lighting: enabled (all objects)")
+                    })
+                    .expect("declared global light switch")
+                    .center()
+            };
+            draw(vec![]);
+            let point = draw(vec![]);
+            for pressed in [true, false] {
+                draw(vec![
+                    egui::Event::PointerMoved(point),
+                    egui::Event::PointerButton {
+                        pos: point,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ]);
+            }
+            assert_eq!(settings.adjustables.local_lighting_enabled.value, enabled);
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("gui.toml");
+            settings.save_to_path(&path).unwrap();
+            let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+            assert_eq!(loaded.adjustables.local_lighting_enabled.value, enabled);
+        }
+        // Older saved documents get the enabled default, without a save hook.
+        let mut old = settings.config.clone();
+        for section in &mut old.section {
+            section.param.retain(|p| p.id != "local_lighting_enabled");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old.toml");
+        std::fs::write(&path, toml::to_string(&old).unwrap()).unwrap();
+        let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert!(loaded.adjustables.local_lighting_enabled.value);
+    }
+
+    #[test]
     fn planar_normals_checkbox_is_searchable_editable_and_saved() {
         let mut settings = DebugSettings::load();
         assert!(!settings.adjustables.planar_plaster_normals.value);

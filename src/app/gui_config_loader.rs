@@ -285,6 +285,7 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
         Self::add_missing_param(&mut config, "Debug", "grass_local_light_field");
         Self::add_missing_param(&mut config, "Debug", "grass_light_ris");
+        Self::add_missing_param(&mut config, "Debug", "local_lighting_enabled");
         Self::add_missing_param(&mut config, "Debug", "local_light_budget");
         Self::add_missing_param(&mut config, "Debug", "grass_light_ris_rays");
         Self::add_missing_param(&mut config, "Debug", "grass_light_ris_candidates");

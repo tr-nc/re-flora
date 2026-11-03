@@ -359,8 +359,9 @@ float3 pathTracingIndirectIrradiance(MarchingResult primary, int3 seed,
 
         float3 sampleAlbedo;
         parseTraceResult(sampleAlbedo, result);
-        irradiance += throughput * voxelSurfaceEmission(
-            voxel_colors, result.voxel_type);
+        if (localLightingEnabled(local_light_info))
+            irradiance += throughput * voxelSurfaceEmission(
+                voxel_colors, result.voxel_type);
         throughput *= sampleAlbedo;
         int3 sunSeed = pathTracingBounceSeed(
             seed, bounceIndex, int2(47, 71));

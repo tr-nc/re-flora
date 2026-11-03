@@ -194,6 +194,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "local_lighting_enabled",
+        kind: "bool",
+        label: "Local lighting: enabled (all objects)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "local_light_budget",
         kind: "uint",
         label: "Local lights: GPU selection budget (all objects)",
@@ -1856,6 +1862,7 @@ pub struct GuiAdjustables {
     pub scene_supersampling_quality: crate::gui_adjustables::ChoiceParam,
     pub scene_pixel_resolve_mode: crate::gui_adjustables::ChoiceParam,
     pub grass_band_pixelization: crate::gui_adjustables::BoolParam,
+    pub local_lighting_enabled: crate::gui_adjustables::BoolParam,
     pub local_light_budget: crate::gui_adjustables::UintParam,
     pub grass_light_ris: crate::gui_adjustables::BoolParam,
     pub grass_light_ris_rays: crate::gui_adjustables::UintParam,
@@ -2169,6 +2176,7 @@ impl GuiAdjustables {
         let mut scene_supersampling_quality_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut scene_pixel_resolve_mode_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut grass_band_pixelization_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut local_lighting_enabled_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut local_light_budget_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut grass_light_ris_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut grass_light_ris_rays_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -2621,6 +2629,11 @@ impl GuiAdjustables {
                     "grass_band_pixelization" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             grass_band_pixelization_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "local_lighting_enabled" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            local_lighting_enabled_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "local_light_budget" => {
@@ -4463,6 +4476,7 @@ impl GuiAdjustables {
             scene_supersampling_quality: scene_supersampling_quality_field.expect("Missing parameter: scene_supersampling_quality"),
             scene_pixel_resolve_mode: scene_pixel_resolve_mode_field.expect("Missing parameter: scene_pixel_resolve_mode"),
             grass_band_pixelization: grass_band_pixelization_field.expect("Missing parameter: grass_band_pixelization"),
+            local_lighting_enabled: local_lighting_enabled_field.expect("Missing parameter: local_lighting_enabled"),
             local_light_budget: local_light_budget_field.expect("Missing parameter: local_light_budget"),
             grass_light_ris: grass_light_ris_field.expect("Missing parameter: grass_light_ris"),
             grass_light_ris_rays: grass_light_ris_rays_field.expect("Missing parameter: grass_light_ris_rays"),
@@ -5029,6 +5043,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "stone_place_slab" => Some(&adjustables.stone_place_slab),
         "scene_supersampling_enabled" => Some(&adjustables.scene_supersampling_enabled),
         "grass_band_pixelization" => Some(&adjustables.grass_band_pixelization),
+        "local_lighting_enabled" => Some(&adjustables.local_lighting_enabled),
         "grass_light_ris" => Some(&adjustables.grass_light_ris),
         "grass_local_light_field" => Some(&adjustables.grass_local_light_field),
         "grass_band_pose_reuse" => Some(&adjustables.grass_band_pose_reuse),
@@ -5376,6 +5391,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "stone_place_slab" => Some(&mut adjustables.stone_place_slab),
         "scene_supersampling_enabled" => Some(&mut adjustables.scene_supersampling_enabled),
         "grass_band_pixelization" => Some(&mut adjustables.grass_band_pixelization),
+        "local_lighting_enabled" => Some(&mut adjustables.local_lighting_enabled),
         "grass_light_ris" => Some(&mut adjustables.grass_light_ris),
         "grass_local_light_field" => Some(&mut adjustables.grass_local_light_field),
         "grass_band_pose_reuse" => Some(&mut adjustables.grass_band_pose_reuse),

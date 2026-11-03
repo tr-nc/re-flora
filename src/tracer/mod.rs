@@ -1649,6 +1649,7 @@ pub struct StarlightFrameInput {
 /// Sky and post-processing state that changes independently from terrain and vegetation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EnvironmentFrameInput {
+    pub local_lighting_enabled: bool,
     pub sprinkler_size_scale: f32,
     pub sprinkler_spray_angle: f32,
     pub sprinkler_rotation_speed: f32,
@@ -3133,7 +3134,7 @@ impl Tracer {
         let frame_serial_idx = lighting_frame.sampling_serial();
         let dither_strength_lsb = lighting_frame.dither_strength_lsb();
         self.promote_ready_ddgi_staging()?;
-        let local_light_gpu = LocalLightGpuSnapshot::from_authoritative(
+        let local_light_gpu = LocalLightGpuSnapshot::for_rendering(
             local_lights,
             LocalLightBudget::point_lights(
                 vegetation
@@ -3142,8 +3143,9 @@ impl Tracer {
                     .clamp(1, LOCAL_LIGHT_GPU_CAPACITY as u32) as usize,
             ),
             0,
+            environment.local_lighting_enabled,
         )
-        .with_flags(
+        .adding_flags(
             (if self.desc.ddgi_local_light_trace_diagnostics_enabled {
                 LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS
             } else {
@@ -5026,14 +5028,15 @@ impl Tracer {
             None
         };
         let live = self.local_light_live_publication.observation();
+        // No local-light preparation (including shared RIS proposals) when the
+        // global policy publishes zero. Keep the saved A/B preferences intact.
+        let ris_active = self.grass_light_ris && live.count > 0;
+        let visibility_cache_active = self.grass_local_light_field && live.count > 0;
         let audit_enabled =
-            local_light_field::LocalLightField::audit_enabled() && !self.grass_light_ris;
-        let consumer_mode = local_light_field::ConsumerMode::primary(
-            self.grass_local_light_field,
-            self.grass_light_ris,
-        );
-        let field_enabled =
-            self.grass_local_light_field && !self.grass_light_ris && lighting_cache_enabled;
+            local_light_field::LocalLightField::audit_enabled() && !ris_active && live.count > 0;
+        let consumer_mode =
+            local_light_field::ConsumerMode::primary(visibility_cache_active, ris_active);
+        let field_enabled = visibility_cache_active && !ris_active && lighting_cache_enabled;
         let field_key = field_enabled.then_some((
             live.live_revision.unwrap_or(0),
             self.ddgi_voxel_visibility.published_revision().unwrap_or(0),
@@ -5116,7 +5119,7 @@ impl Tracer {
             );
             let cache_buffer = self.flora_lighting_cache.buffer(gpu_profiler_frame_slot);
             let ris_audit_buffer =
-                (self.grass_light_ris && light_ris_audit::LightRisAudit::enabled()).then(|| {
+                (ris_active && light_ris_audit::LightRisAudit::enabled()).then(|| {
                     self.pipeline_topology
                         .compute()
                         .flora_ris_audit_ppl

@@ -198,8 +198,11 @@ float3 ddgiTransportHitRadiance(MarchingResult result,
     float3 albedo = ddgiTerrainColorAtVoxel(
         ddgi_radiance_voxel_palette, result.voxel_type, result.center_position,
         chunk_atlas[uint3(floor(result.center_position * 256.0))]);
-    float3 surfaceEmission = ddgiVoxelSurfaceEmission(
-        ddgi_radiance_voxel_palette, result.voxel_type);
+    // Visible lamp surfaces stay emissive; disabled local lighting contributes
+    // neither sampled direct connections nor emissive radiance to new GI fields.
+    float3 surfaceEmission = localLightingEnabled(ddgi_local_light_info)
+        ? ddgiVoxelSurfaceEmission(ddgi_radiance_voxel_palette, result.voxel_type)
+        : float3(0.0);
     if ((ddgi_local_light_info.flags &
          LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS) != 0u &&
         any(surfaceEmission > float3(0.0)))

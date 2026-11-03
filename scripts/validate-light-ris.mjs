@@ -9,7 +9,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 
 const help = `Usage: node scripts/validate-light-ris.mjs [--case perf|audit|scaling|capture] [--output NEW_DIR] [--repeats N] [--seconds N] [--light-budget N]
-Uses target/release/re-flora, hidden/muted native rendering, spacing 32 and night 0.95.
+Uses target/release/re-flora, hidden/muted native rendering, local lighting enabled, spacing 32 and night 0.95.
 Temporarily changes config/gui.toml and restores its exact bytes, including on failure.
 Do not overlap app/build/GPU jobs. Build with cargo build --release first.
   perf (default): alternating original/RIS pairs; default 3 pairs, 20s/run.
@@ -135,7 +135,7 @@ function main() {
     original=readFileSync(config);
     const binaryHash=hash(binary),cameraHash=hash('config/camera_snapshots.toml'), rows=[];
     let base=original.toString();
-    for(const [id,value] of Object.entries({time_of_day:0.95,grass_local_light_field:false,
+    for(const [id,value] of Object.entries({time_of_day:0.95,local_lighting_enabled:true,grass_local_light_field:false,
       local_light_budget:options.case==='scaling'?64:+options['light-budget'],grass_light_ris_rays:4,grass_light_ris_candidates:8}))
       base=setSavedValue(base,id,String(value));
     const run=(name,on,extra=[],seed=20260519)=>{

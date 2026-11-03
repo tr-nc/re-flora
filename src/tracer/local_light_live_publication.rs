@@ -178,6 +178,71 @@ mod tests {
     }
 
     #[test]
+    fn live_render_switch_uploads_zero_and_restores_without_registry_mutation() {
+        for with_light in [false, true] {
+            let mut lights = LocalLightRegistry::default();
+            let id = with_light.then(|| lights.add(point(0.25)));
+            let original = lights.snapshot();
+            let mut publication = LocalLightLivePublication::default();
+            let mut previous = None;
+            for enabled in [true, false, true, false] {
+                let candidate = LocalLightGpuSnapshot::for_rendering(
+                    &lights.snapshot(),
+                    LocalLightBudget::point_lights(8),
+                    0,
+                    enabled,
+                );
+                let mut uploads = 0;
+                let payload = publication
+                    .publish(candidate, |upload| {
+                        uploads += 1;
+                        // Policy-only changes also require a real GPU info upload.
+                        match upload {
+                            LocalLightLiveUpload::Info { info }
+                            | LocalLightLiveUpload::InfoAndLights { info, .. } => {
+                                assert_eq!(info.count, u32::from(enabled && with_light));
+                            }
+                        }
+                        Ok::<_, ()>(())
+                    })
+                    .unwrap();
+                assert_eq!(uploads, 1);
+                if let Some(previous) = previous {
+                    assert!(payload.live_revision() > previous);
+                }
+                previous = Some(payload.live_revision());
+                assert_eq!(
+                    publication.observation().count,
+                    u32::from(enabled && with_light)
+                );
+                if enabled {
+                    assert_eq!(payload.count(), u32::from(with_light));
+                }
+                if !enabled {
+                    // Source metadata may advance while disabled, but neither
+                    // live GPU lighting nor its GI radiance identity may restart.
+                    if let Some(id) = id {
+                        lights.update(id, point(0.75)).unwrap();
+                        let updated = LocalLightGpuSnapshot::for_rendering(
+                            &lights.snapshot(),
+                            LocalLightBudget::point_lights(8),
+                            0,
+                            false,
+                        );
+                        let next = publication.publish(updated, |_| Ok::<_, ()>(())).unwrap();
+                        assert_eq!(payload.live_revision(), next.live_revision());
+                        assert_eq!(
+                            payload.for_radiance_identity(),
+                            next.for_radiance_identity()
+                        );
+                    }
+                }
+                assert_eq!(lights.snapshot().lights().len(), original.lights().len());
+            }
+        }
+    }
+
+    #[test]
     fn initial_empty_publication_uploads_only_metadata_without_advancing_live_revision() {
         let lights = LocalLightRegistry::default();
         let mut publication = LocalLightLivePublication::default();

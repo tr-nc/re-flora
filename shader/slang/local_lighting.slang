@@ -13,6 +13,7 @@ public static const uint LOCAL_LIGHT_GPU_ABI_VERSION = 3u;
 public static const uint LOCAL_LIGHT_KIND_POINT = 1u;
 public static const uint LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS = 1u << 0u;
 public static const uint LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS = 1u << 1u;
+public static const uint LOCAL_LIGHT_FLAG_DISABLED = 1u << 2u;
 
 // Versioned record shared by live direct consumers and immutable DDGI transport snapshots.
 // Position, range, and source_radius are authoritative world units in the same space as terrain
@@ -79,9 +80,14 @@ public uint lightingLuminanceQ8(float3 radiance)
     return uint(clamp(floor(luminance * 256.0 + 0.5), 0.0, 65535.0));
 }
 
+public bool localLightingEnabled(U_LocalLightInfo info)
+{
+    return (info.flags & LOCAL_LIGHT_FLAG_DISABLED) == 0u;
+}
+
 public uint localLightCount(U_LocalLightInfo info)
 {
-    if (info.abi_version != LOCAL_LIGHT_GPU_ABI_VERSION) return 0u;
+    if (!localLightingEnabled(info) || info.abi_version != LOCAL_LIGHT_GPU_ABI_VERSION) return 0u;
     return min(info.count, info.capacity);
 }
 

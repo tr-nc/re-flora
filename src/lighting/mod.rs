@@ -17,6 +17,8 @@ pub(crate) use voxel_emissive::*;
 pub(crate) const LOCAL_LIGHT_GPU_ABI_VERSION: u32 = 3;
 pub(crate) const LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS: u32 = 1 << 0;
 pub(crate) const LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS: u32 = 1 << 1;
+/// Render policy, not a registry mutation or selection-capacity overflow.
+pub(crate) const LOCAL_LIGHT_FLAG_DISABLED: u32 = 1 << 2;
 /// Physical upload capacity. The saved selection budget remains eight by default;
 /// raising it is explicit and affects all consumers, not just stochastic grass.
 pub(crate) const LOCAL_LIGHT_GPU_CAPACITY: usize = 64;
@@ -568,6 +570,8 @@ impl LocalLightGpuPayload {
         self.info.abi_version == other.info.abi_version
             && self.count() == other.count()
             && self.info.capacity == other.info.capacity
+            && (self.info.flags & LOCAL_LIGHT_FLAG_DISABLED)
+                == (other.info.flags & LOCAL_LIGHT_FLAG_DISABLED)
             && bytemuck::cast_slice::<LightGpu, u8>(&self.lights[..self.count() as usize])
                 == bytemuck::cast_slice::<LightGpu, u8>(&other.lights[..other.count() as usize])
     }
@@ -579,7 +583,8 @@ impl LocalLightGpuPayload {
         self.info.registry_revision_high = 0;
         self.info.overflow_count = 0;
         self.info.transport_revision = 0;
-        self.info.flags = 0;
+        // Disabled also suppresses emissive DDGI hits, even with no selected lights.
+        self.info.flags &= LOCAL_LIGHT_FLAG_DISABLED;
         self
     }
 
@@ -617,6 +622,26 @@ impl LocalLightGpuPayload {
 }
 
 impl LocalLightGpuSnapshot {
+    /// One policy boundary for every direct consumer and immutable GI snapshot.
+    /// Keep source identities/revisions alive so re-enabling observes current edits.
+    pub(crate) fn for_rendering(
+        snapshot: &LocalLightSnapshot,
+        budget: LocalLightBudget,
+        transport_revision: u32,
+        enabled: bool,
+    ) -> Self {
+        if enabled {
+            return Self::from_authoritative(snapshot, budget, transport_revision);
+        }
+        let inactive = LocalLightSnapshot {
+            source_revision: snapshot.source_revision,
+            registry_revision: snapshot.registry_revision,
+            lights: Arc::from([]),
+        };
+        Self::from_authoritative(&inactive, budget, transport_revision)
+            .adding_flags(LOCAL_LIGHT_FLAG_DISABLED)
+    }
+
     pub(crate) fn from_authoritative(
         snapshot: &LocalLightSnapshot,
         budget: LocalLightBudget,
@@ -672,8 +697,8 @@ impl LocalLightGpuSnapshot {
         }
     }
 
-    pub(crate) fn with_flags(mut self, flags: u32) -> Self {
-        self.info.flags = flags;
+    pub(crate) fn adding_flags(mut self, flags: u32) -> Self {
+        self.info.flags |= flags;
         self
     }
 
@@ -711,6 +736,61 @@ mod tests {
             PointLight::new(position, Vec3::ONE, 12.0, 0.02, 1.5)
                 .expect("test point light must be valid"),
         )
+    }
+
+    #[test]
+    fn render_switch_preserves_sources_and_restores_current_not_old_lights() {
+        let mut registry = LocalLightRegistry::default();
+        let id = registry.add(point(Vec3::ZERO));
+        let budget = LocalLightBudget::point_lights(8);
+        let original = registry.snapshot();
+        let enabled = LocalLightGpuSnapshot::for_rendering(&original, budget, 7, true);
+        let disabled = LocalLightGpuSnapshot::for_rendering(&original, budget, 8, false);
+        assert_eq!(enabled.payload().count(), 1);
+        assert_eq!(disabled.payload().count(), 0);
+        assert!(disabled.overflow.is_empty());
+        assert_eq!(disabled.info.overflow_count, 0);
+        assert_eq!(disabled.payload().registry_revision(), original.revision());
+        assert_eq!(disabled.info.flags, LOCAL_LIGHT_FLAG_DISABLED);
+        assert!(disabled.lights.iter().all(|l| l.abi_version == 0));
+        assert_eq!(registry.snapshot().lights(), original.lights());
+
+        registry.update(id, point(Vec3::X)).unwrap();
+        let current = registry.snapshot();
+        let still_disabled = LocalLightGpuSnapshot::for_rendering(&current, budget, 9, false);
+        assert!(disabled.payload().selection_eq(still_disabled.payload()));
+        assert_eq!(
+            still_disabled.payload().registry_revision(),
+            current.revision()
+        );
+        let restored = LocalLightGpuSnapshot::for_rendering(&current, budget, 10, true);
+        assert_eq!(restored.lights[0].position, Vec3::X.to_array());
+        assert_eq!(restored.payload().light_index(id), Some(0));
+        registry.remove(id).unwrap();
+        assert_eq!(
+            LocalLightGpuSnapshot::for_rendering(&registry.snapshot(), budget, 11, true)
+                .payload()
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn disabled_policy_is_a_radiance_change_even_without_selected_lights() {
+        let registry = LocalLightRegistry::default();
+        let budget = LocalLightBudget::point_lights(8);
+        let enabled = LocalLightGpuSnapshot::for_rendering(&registry.snapshot(), budget, 0, true);
+        let disabled = LocalLightGpuSnapshot::for_rendering(&registry.snapshot(), budget, 0, false)
+            .adding_flags(LOCAL_LIGHT_FLAG_DDGI_TRACE_DIAGNOSTICS);
+        assert!(!enabled.payload().selection_eq(disabled.payload()));
+        assert_ne!(
+            enabled.payload().for_radiance_identity(),
+            disabled.payload().for_radiance_identity()
+        );
+        assert_eq!(
+            disabled.payload().for_radiance_identity().info.flags,
+            LOCAL_LIGHT_FLAG_DISABLED
+        );
     }
 
     #[test]

@@ -71,9 +71,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Local Lighting",
-        description: "RIS unchecked: original lighting (or the separate visibility-cache experiment if enabled). RIS checked: shared power proposals and receiver-weighted reservoirs, with a fixed visibility-ray budget; takes priority over the visibility cache. Preserves finite emitters, live opaque/Glass transport and DDGI spacing. No temporal history or denoiser: grain and visibility noise are possible. Saved, default-off experiment; visual approval pending.",
+        description: "Uncheck Local lighting to skip local lights for every object and new DDGI fields; sun/sky and visible lamps remain. Direct light switches immediately; GI follows publication. Sources and quality settings are preserved. RIS uses fixed-budget receiver sampling (default off); grain is possible. RIS takes priority over the separate visibility cache.",
         initially_open: false,
-        params: &["local_light_budget", "grass_light_ris", "grass_light_ris_rays", "grass_light_ris_candidates", "grass_local_light_field"],
+        params: &["local_lighting_enabled", "local_light_budget", "grass_light_ris", "grass_light_ris_rays", "grass_light_ris_candidates", "grass_local_light_field"],
     },
     ControlGroup {
         parent: None,

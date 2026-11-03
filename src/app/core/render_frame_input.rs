@@ -278,6 +278,7 @@ pub(super) fn freeze_render_frame_inputs(
         field: crate::wind_field::WindFieldFrame::default(),
     };
     let environment = EnvironmentFrameInput {
+        local_lighting_enabled: gui.local_lighting_enabled.value,
         sprinkler_size_scale: crate::sprinkler::SIZE_SCALE,
         sprinkler_spray_angle: gui.sprinkler_spray_angle.value,
         sprinkler_rotation_speed: gui.sprinkler_rotation_speed.value,
@@ -376,6 +377,32 @@ mod tests {
                 }
                 assert_eq!(settings.adjustables.scene_pixel_ratio.value, scene);
             }
+        }
+    }
+
+    #[test]
+    fn local_lighting_switch_is_global_and_keeps_sun_sky_and_geometry_inputs() {
+        let mut settings = DebugSettings::load();
+        let live = || LiveRenderFrameFacts {
+            world_tick_seconds: 0.05,
+            flora_tick: 123,
+            flora_tick_fraction: 0.375,
+            visual_time_since_start: 9.5,
+            sun_direction: Vec3::Y,
+            sun_altitude: 0.4,
+            sun_azimuth: 0.3,
+            terrain_edit_preview_center: None,
+            terrain_edit_preview_radius: 0.0,
+            terrain_edit_preview_shape: TerrainEditPreviewShape::SurfaceCircle,
+            terrain_edit_preview_color: Vec3::ZERO,
+            terrain_edit_preview_alpha: 0.0,
+        };
+        let original = freeze_render_frame_inputs(&settings, live());
+        for enabled in [false, true, false] {
+            settings.adjustables.local_lighting_enabled.value = enabled;
+            let mut expected = original.clone();
+            expected.environment.local_lighting_enabled = enabled;
+            assert_eq!(freeze_render_frame_inputs(&settings, live()), expected);
         }
     }
 
@@ -832,6 +859,7 @@ mod tests {
                 field: crate::wind_field::WindFieldFrame::default(),
             },
             environment: EnvironmentFrameInput {
+                local_lighting_enabled: true,
                 sprinkler_size_scale,
                 sprinkler_spray_angle,
                 sprinkler_rotation_speed,

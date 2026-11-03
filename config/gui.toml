@@ -458,6 +458,15 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "local_lighting_enabled"
+kind = "bool"
+label = "Local lighting: enabled (all objects)"
+type = "Bool"
+
+[section.param.data]
+value = true
+
+[[section.param]]
 id = "local_light_budget"
 kind = "uint"
 label = "Local lights: GPU selection budget (all objects)"
