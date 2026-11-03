@@ -3487,8 +3487,6 @@ impl App {
                     self.debug_settings.adjustables.season.value,
                 );
                 let sun_dir = get_sun_dir(sun_altitude.asin().to_degrees(), sun_azimuth * 360.0);
-                self.update_night_flower_lights(sun_dir.y)
-                    .expect("night flower lights");
 
                 if !self.sprinklers.is_empty() {
                     let sprinkler_moisture_gpu_scope =
