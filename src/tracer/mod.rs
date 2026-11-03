@@ -2143,7 +2143,6 @@ impl Tracer {
         let rope_resources =
             rope_mesh::RopeResources::new(vulkan_ctx.device().clone(), allocator.clone());
         let model_mesh_frame = ModelMeshFrame::new(&vulkan_ctx, allocator.clone());
-        let local_light_field = local_light_field::LocalLightField::new(&vulkan_ctx);
         let raster_trees = RasterTreeGeometry::new(vulkan_ctx.device().clone(), allocator.clone());
         let tree_pose_solver = crate::tree_gen::gpu_pose::GpuTreePoseSolver::new(
             vulkan_ctx.clone(),
@@ -2193,7 +2192,7 @@ impl Tracer {
             glass_sampling_pattern: 0,
             environment_lighting: AuthoredEnvironmentLighting::default(),
             flora_lighting_cache: FloraLightingCache::default(),
-            local_light_field,
+            local_light_field: local_light_field::LocalLightField::default(),
             grass_local_light_field: false,
             grass_band_cache: grass_band_cache::GrassBandCache::default(),
             grass_visibility: grass_visibility::GrassVisibility::default(),
@@ -3337,7 +3336,7 @@ impl Tracer {
         }
         self.grass_band_pose_reuse = vegetation.appearance.grass_band_pose_reuse;
         if self.grass_local_light_field != vegetation.appearance.grass_local_light_field {
-            log::info!("[LOCAL_LIGHT_FIELD] enabled={} representation=connection_transmission update=full_live_frame receiver_attenuation=analytic near_or_uncertain=original transport_history=unchanged", vegetation.appearance.grass_local_light_field);
+            log::info!("[LOCAL_LIGHT_FIELD] enabled={} update=full_live_frame transport_history=unchanged unavailable_support=original", vegetation.appearance.grass_local_light_field);
         }
         self.grass_local_light_field = vegetation.appearance.grass_local_light_field;
         self.flower_spawn_overshoot_voxels = vegetation
@@ -5009,45 +5008,34 @@ impl Tracer {
         let field_audit_enabled = local_light_field::LocalLightField::audit_enabled();
         let field_enabled =
             self.grass_local_light_field && (lighting_cache_enabled || field_audit_enabled);
-        let field_light_count = self.local_light_live_publication.observation().count;
-        let (direct_field, field_enabled) = self.local_light_field.ensure(
+        let direct_field = self.local_light_field.ensure(
             self.vulkan_ctx.device().clone(),
             self.allocator.clone(),
             gpu_profiler_frame_slot,
             field_grid.probe_count(),
-            field_light_count,
             field_enabled,
         );
-        let audit_epoch = field_status
-            .active()
-            .published_field()
-            .map_or(0, |field| field.field().update_epoch());
-        let audit_key = (field_enabled && field_audit_enabled).then(|| {
-            (
-                self.local_light_live_publication
-                    .observation()
-                    .live_revision
-                    .unwrap_or(0),
-                self.ddgi_voxel_visibility.published_revision().unwrap_or(0),
-                field_status.active_token_serial().unwrap_or(0),
-                field_status.active_consumers_are_available(),
-                if audit_epoch >= 8 {
-                    8
-                } else {
-                    audit_epoch.min(1)
-                },
-            )
-        });
-        let (audit_buffer, audit) = self.local_light_field.prepare_audit(
-            self.vulkan_ctx.device().clone(),
-            self.allocator.clone(),
-            gpu_profiler_frame_slot,
-            audit_key,
-        );
-        if audit {
-            audit_buffer.record_fill(cmdbuf, 0, 48, 0);
-        }
         if field_enabled {
+            let audit_key = field_audit_enabled.then(|| {
+                (
+                    self.local_light_live_publication
+                        .observation()
+                        .live_revision
+                        .unwrap_or(0),
+                    self.ddgi_voxel_visibility.published_revision().unwrap_or(0),
+                    field_status.active_token_serial().unwrap_or(0),
+                    field_status.active_consumers_are_available(),
+                )
+            });
+            let (audit_buffer, audit) = self.local_light_field.prepare_audit(
+                self.vulkan_ctx.device().clone(),
+                self.allocator.clone(),
+                gpu_profiler_frame_slot,
+                audit_key,
+            );
+            if audit {
+                audit_buffer.record_fill(cmdbuf, 0, 16, 0);
+            }
             let pipeline = &self.pipeline_topology.compute().local_light_field_ppl;
             pipeline.begin_transient_descriptor_frame(gpu_profiler_frame_slot);
             let active = self.ddgi_runtime.active_resources();
@@ -5056,6 +5044,11 @@ impl Tracer {
             else {
                 panic!("active DDGI probe metadata must resolve");
             };
+            let layout = crate::ddgi::DdgiAtlasLayout::new(
+                field_grid.probe_count(),
+                crate::ddgi::DDGI_IRRADIANCE_INTERIOR_SIDE,
+            )
+            .expect("direct field layout");
             let scope = gpu_profiler.as_deref_mut().and_then(|profiler| {
                 profiler.begin_scope(
                     gpu_profiler_frame_slot,
@@ -5070,7 +5063,7 @@ impl Tracer {
                 let push = local_light_field::FieldPush {
                     first_probe,
                     probe_count: field_grid.probe_count(),
-                    light_count: field_light_count,
+                    tile_columns: layout.tile_grid().x,
                     audit: u32::from(audit),
                 };
                 pipeline
@@ -5079,7 +5072,7 @@ impl Tracer {
                         &[
                             (
                                 "local_light_field",
-                                DescriptorResource::Buffer(&direct_field),
+                                DescriptorResource::Texture(&direct_field),
                             ),
                             ("ddgi_probe_metadata", metadata),
                             (
@@ -5092,6 +5085,8 @@ impl Tracer {
                     )
                     .expect("direct light field descriptors");
             }
+            self.local_light_field
+                .record_audit_readback(cmdbuf, gpu_profiler_frame_slot);
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), scope) {
                 profiler.end_scope(
                     gpu_profiler_frame_slot,
@@ -5159,11 +5154,7 @@ impl Tracer {
                 let mut descriptors = vec![
                     (
                         "local_light_field",
-                        DescriptorResource::Buffer(&direct_field),
-                    ),
-                    (
-                        "local_light_field_audit",
-                        DescriptorResource::Buffer(&audit_buffer),
+                        DescriptorResource::Texture(&direct_field),
                     ),
                     (
                         "grass_visible_instances",
@@ -5306,11 +5297,6 @@ impl Tracer {
         } else {
             None
         };
-
-        if field_enabled {
-            self.local_light_field
-                .record_audit_readback(cmdbuf, gpu_profiler_frame_slot);
-        }
 
         let mut prepared_flowers = Vec::new();
         let mut planned_flower_plants = 0u64;

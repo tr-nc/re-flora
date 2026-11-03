@@ -1367,55 +1367,19 @@ public float3 ddgiDominantProbeDebugColor(DdgiQueryResult result)
                   (value >> 16u) & 255u) / 255.0;
 }
 
-// Reuse the consumer-visible grid's support/relocation/visibility policy without
-// interpolating a direct-light response or changing indirect/transport queries.
-public struct DdgiReceiverProbeSupport
+// A direct-only response has no sky fallback and never enters transport history.
+// Missing/invalidated support explicitly falls back to the original receiver path.
+public bool trySampleDdgiDirectResponse(
+    U_ShadingInfo lighting, Sampler2D directAtlas,
+    float3 position, float3 normal, out float3 response)
 {
-    public uint probes[8];
-    public float weights[8];
-    public uint probe_count;
-    public float weight;
-    public float radius_squared;
-};
-
-public bool tryGetDdgiReceiverProbeSupport(
-    U_ShadingInfo lighting, float3 position, float3 normal,
-    out DdgiReceiverProbeSupport support)
-{
-    support = {};
+    response = float3(0.0);
     DdgiQueryInfo query = ddgiConsumerQueryInfo(lighting);
     if (ddgiQueryDomain(query, position) != DDGI_QUERY_DOMAIN_LOCAL) return false;
-    support.probe_count = query.grid_dimensions.x * query.grid_dimensions.y * query.grid_dimensions.z;
-    uint count = 0u;
-    for (uint i = 0u; i < 8u; ++i)
-    {
-        uint3 corner = uint3(i & 1u, (i >> 1u) & 1u, (i >> 2u) & 1u);
-        // Connection transmission has no receiver-facing hemisphere. Only the
-        // analytic receiver term uses its normal; mutual visibility still gates
-        // probe support (as for other directionless volume consumers).
-        DdgiProbeContribution c = getDdgiUnoccludedSpatialWeightProbeContributionAt(
-            query, position, position, normal, corner,
-            DDGI_SPATIAL_WEIGHT_RELOCATION_NO_SURFACE, ddgi_irradiance_atlas);
-        if (!c.trustworthy) continue;
-        // A transport-history distance distribution is not a direct connection
-        // certificate. Use the published packed-voxel segment query instead;
-        // this is eight short cage links, not lights x finite-emitter rays.
-        float3 origin = position + ddgiNormalizedSurfaceNormal(normal) *
-            ddgiVisibilityBiasWorld(query.visibility_bias_world);
-        float visibility = ddgiVoxelSegmentVisibility(origin, c.actual_position, query.geometry_revision);
-        float weight = c.base_weight * visibility;
-        if (weight <= DDGI_QUERY_WEIGHT_EPSILON) continue;
-        support.probes[i] = c.probe_index;
-        support.weights[i] = weight;
-        support.weight += weight;
-        count++;
-        float3 delta = c.actual_position - position;
-        support.radius_squared = max(support.radius_squared, dot(delta, delta));
-    }
-    if (support.weight <= DDGI_QUERY_WEIGHT_EPSILON) return false;
-    // Do not extrapolate from a single isolated connection. Missing support
-    // triggers exact original receiver lighting, never an artificial dark term.
-    return count >= 2u;
+    DdgiQueryResult result = sampleDdgiDiffuseEnvironmentFromAtlas(query, directAtlas, position, normal);
+    if (result.accumulated_weight <= DDGI_QUERY_WEIGHT_EPSILON) return false;
+    response = result.irradiance;
+    return true;
 }
 
 public float3 sampleDdgiIrradianceAtlasDebug(float2 screenUv)
