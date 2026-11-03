@@ -1,0 +1,95 @@
+{
+  "implementation": "25d91848",
+  "hardware": "Apple M4 Pro / Vulkan–MoltenVK",
+  "binaryHash": "c76a3891438b3ca3b918b1563adf87265f688817280de06315f4c8aa6b0dfd40",
+  "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+  "rows": [
+    {
+      "repeat": 0,
+      "mode": "off",
+      "grassGpuMs": 28.5205,
+      "gpuSamples": 138,
+      "actualFps": 17.13570981863665,
+      "frames": 137,
+      "elapsedMs": 7995,
+      "wholeProfiledFps": 17.010729322287112,
+      "producerGpuTotalMs": 0,
+      "producerDispatches": 0
+    },
+    {
+      "repeat": 0,
+      "mode": "on",
+      "grassGpuMs": 22.72,
+      "gpuSamples": 153,
+      "actualFps": 19.05717151454363,
+      "frames": 152,
+      "elapsedMs": 7976,
+      "wholeProfiledFps": 18.529221772685545,
+      "producerGpuTotalMs": 552.2860000000003,
+      "producerDispatches": 162
+    },
+    {
+      "repeat": 1,
+      "mode": "on",
+      "grassGpuMs": 23.009,
+      "gpuSamples": 145,
+      "actualFps": 18.129170338662973,
+      "frames": 144,
+      "elapsedMs": 7943,
+      "wholeProfiledFps": 18.12688821752266,
+      "producerGpuTotalMs": 552.8059999999998,
+      "producerDispatches": 162
+    },
+    {
+      "repeat": 1,
+      "mode": "off",
+      "grassGpuMs": 28.43,
+      "gpuSamples": 142,
+      "actualFps": 17.702448210922785,
+      "frames": 141,
+      "elapsedMs": 7965,
+      "wholeProfiledFps": 17.146543528453076,
+      "producerGpuTotalMs": 0,
+      "producerDispatches": 0
+    },
+    {
+      "repeat": 2,
+      "mode": "off",
+      "grassGpuMs": 28.472,
+      "gpuSamples": 139,
+      "actualFps": 17.26078799249531,
+      "frames": 138,
+      "elapsedMs": 7995,
+      "wholeProfiledFps": 17.181663837011886,
+      "producerGpuTotalMs": 0,
+      "producerDispatches": 0
+    },
+    {
+      "repeat": 2,
+      "mode": "on",
+      "grassGpuMs": 22.811999999999998,
+      "gpuSamples": 150,
+      "actualFps": 18.699799196787147,
+      "frames": 149,
+      "elapsedMs": 7968,
+      "wholeProfiledFps": 18.610337567071927,
+      "producerGpuTotalMs": 553.1300000000001,
+      "producerDispatches": 162
+    }
+  ],
+  "passed": true,
+  "summary": {
+    "off": {
+      "grassGpuMs": 28.472,
+      "actualFps": 17.26078799249531,
+      "wholeProfiledFps": 17.146543528453076,
+      "runs": 3
+    },
+    "on": {
+      "grassGpuMs": 22.811999999999998,
+      "actualFps": 18.699799196787147,
+      "wholeProfiledFps": 18.529221772685545,
+      "runs": 3
+    }
+  }
+}

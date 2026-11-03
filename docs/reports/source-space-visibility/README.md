@@ -1,4 +1,8 @@
-# Source-space visibility — experimental evidence and provenance
+# Source-space visibility — historical experiment evidence and provenance
+
+**Historical performance result.** The regression is fixed in `25d91848`;
+see the [measured performance follow-up](../visibility-performance-fix/index.html).
+The measurements and images below preserve the earlier `2e548ae4` experiment.
 
 2026-11-03 · **[View the visual report](index.html)** · implementation `2e548ae4`, independent quadrature guard `1d0e3122`.
 This supersedes the runtime experiment, not the historical findings, in the
