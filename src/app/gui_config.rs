@@ -1624,6 +1624,55 @@ mod search_tests {
     }
 
     #[test]
+    fn shared_local_light_checkbox_is_searchable_editable_and_saved() {
+        let mut settings = DebugSettings::load();
+        assert!(!settings.adjustables.grass_local_light_field.value);
+        settings.search.query = "shared local light".to_owned();
+        let context = egui::Context::default();
+        let mut draw = |events| {
+            let output = context.run_ui(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    settings.draw(ui, |_, _| {});
+                },
+            );
+            assert_eq!(settings.search_matches, 1);
+            output
+                .shapes
+                .iter()
+                .find_map(|shape| text_rect(&shape.shape, "Grass: Shared Local Light Field (A/B)"))
+                .expect("saved shared-light checkbox")
+                .center()
+        };
+        draw(vec![]);
+        let point = draw(vec![]);
+        for pressed in [true, false] {
+            draw(vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
+        }
+        assert!(settings.adjustables.grass_local_light_field.value);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui.toml");
+        settings.save_to_path(&path).unwrap();
+        let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert!(loaded.adjustables.grass_local_light_field.value);
+        settings.adjustables.grass_local_light_field.value = false;
+        settings.save_to_path(&path).unwrap();
+        let loaded = DebugSettings::from_config(GuiConfigLoader::load_from_path(&path));
+        assert!(!loaded.adjustables.grass_local_light_field.value);
+    }
+
+    #[test]
     fn planar_normals_checkbox_is_searchable_editable_and_saved() {
         let mut settings = DebugSettings::load();
         assert!(!settings.adjustables.planar_plaster_normals.value);

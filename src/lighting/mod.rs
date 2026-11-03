@@ -938,11 +938,15 @@ mod tests {
     fn production_consumers_share_the_voxel_visible_local_light_evaluator() {
         for source in [
             include_str!("../../shader/slang/tracer.slang"),
-            include_str!("../../shader/slang/flora_lighting_cache.comp.slang"),
             include_str!("../../shader/slang/tree_leaf_lighting_cache.comp.slang"),
         ] {
             assert!(source.contains("evaluateVoxelVisibleLocalLightIrradiance"));
         }
+        let flora = include_str!("../../shader/slang/flora_lighting_cache.comp.slang");
+        assert!(flora.contains("lightIndex < localLightCount(info)"));
+        assert!(flora.contains("evaluateVoxelVisibleLocalLightAtIndex("));
+        assert!(flora.contains("evaluateVoxelGlassVisibleLocalLightAtIndex("));
+        assert!(flora.contains("if (!usedField) direct = originalLocalLightResponse("));
         let ddgi = include_str!("../../shader/slang/ddgi_probe_trace.slang");
         assert!(ddgi.contains("evaluateVoxelVisibleLocalLight("));
 

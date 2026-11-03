@@ -1,21 +1,43 @@
-//! Final-receiver-only local illumination on the consumer-visible DDGI grid.
-//! Each reused frame slot is rebuilt from live lights/geometry before sampling:
-//! no temporal accumulation, stale light-off tails, or recursive bounce input.
-use crate::ddgi::{DdgiAtlasLayout, DDGI_IRRADIANCE_INTERIOR_SIDE};
+//! Frame-owned RGB connection transmission on the unchanged consumer DDGI grid.
+//! Receiver attenuation/direction remain analytic. Slots rebuild from live lights
+//! and geometry, never accumulating history or entering recursive transport.
 use re_flora_vkn::{
-    vk, Allocator, Buffer, BufferUsage, BufferUse, CommandBuffer, Device, Extent3D, ImageDesc,
-    MemoryLocation, SamplerDesc, Texture, TextureLayout,
+    vk, Allocator, Buffer, BufferUsage, BufferUse, CommandBuffer, Device, MemoryLocation,
+    VulkanContext,
 };
 use std::sync::Arc;
 
-#[derive(Default)]
 pub(super) struct LocalLightField {
-    frames: Vec<Option<(Arc<Texture>, u32)>>,
+    frames: Vec<Option<(Arc<Buffer>, FieldLayout)>>,
     audits: Vec<Option<AuditFrame>>,
     last_audit: Option<AuditKey>,
+    max_storage_bytes: u64,
 }
 
-pub(super) type AuditKey = (u64, u32, u64, bool);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FieldLayout {
+    probes: u32,
+    lights: u32,
+    bytes: u64,
+}
+
+impl FieldLayout {
+    fn new(probes: u32, lights: u32, max_bytes: u64) -> Option<Self> {
+        // Two uint2 header records, then 24 RGB16 transmission records per light.
+        let records = u64::from(probes)
+            .checked_mul(u64::from(lights))?
+            .checked_mul(24)?
+            .checked_add(2)?;
+        let bytes = records.checked_mul(8)?;
+        (probes > 0 && records <= u64::from(u32::MAX) && bytes <= max_bytes).then_some(Self {
+            probes,
+            lights,
+            bytes,
+        })
+    }
+}
+
+pub(super) type AuditKey = (u64, u32, u64, bool, u32);
 struct AuditFrame {
     gpu: Arc<Buffer>,
     readback: Buffer,
@@ -27,11 +49,26 @@ struct AuditFrame {
 pub(super) struct FieldPush {
     pub first_probe: u32,
     pub probe_count: u32,
-    pub tile_columns: u32,
+    pub light_count: u32,
     pub audit: u32,
 }
 
 impl LocalLightField {
+    pub fn new(context: &VulkanContext) -> Self {
+        let properties = unsafe {
+            context
+                .instance()
+                .as_raw()
+                .get_physical_device_properties(context.physical_device().as_raw())
+        };
+        Self {
+            frames: Vec::new(),
+            audits: Vec::new(),
+            last_audit: None,
+            max_storage_bytes: u64::from(properties.limits.max_storage_buffer_range),
+        }
+    }
+
     pub fn audit_enabled() -> bool {
         std::env::var_os("RE_FLORA_LOCAL_LIGHT_FIELD_AUDIT").is_some()
     }
@@ -55,14 +92,14 @@ impl LocalLightField {
                         | vk::BufferUsageFlags::TRANSFER_DST,
                 ),
                 MemoryLocation::GpuOnly,
-                16,
+                48,
             )),
             readback: Buffer::new_sized(
                 device,
                 allocator,
                 BufferUsage::from_flags(vk::BufferUsageFlags::TRANSFER_DST),
                 MemoryLocation::GpuToCpu,
-                16,
+                48,
             ),
             pending: None,
         });
@@ -71,9 +108,11 @@ impl LocalLightField {
                 .readback
                 .read_back()
                 .expect("direct field audit readback");
-            let values: [u32; 4] = bytemuck::pod_read_unaligned(&bytes[..16]);
+            let values: [u32; 12] = bytemuck::pod_read_unaligned(&bytes[..48]);
             log::info!("[LOCAL_LIGHT_FIELD][AUDIT] key={previous:?} samples={} failures={} max_absolute_error={} nonzero={}",
                 values[0], values[1], f32::from_bits(values[2]), values[3]);
+            log::info!("[LOCAL_LIGHT_FIELD][RECEIVERS] sampled_lights={} shared_nonzero={} original_nonzero={} shared_accepted={} original_queries={} errors_over_5pct={} max_absolute_error={} max_relative_error={}",
+                values[4], values[5], values[6], values[10], values[11], values[7], f32::from_bits(values[8]), f32::from_bits(values[9]));
             assert_eq!(
                 values[1], 0,
                 "direct field differs from original probe-position shading"
@@ -92,57 +131,79 @@ impl LocalLightField {
         if frame.pending.is_some() {
             frame
                 .gpu
-                .record_copy_to_buffer(cmdbuf, &frame.readback, 16, 0, 0);
+                .record_copy_to_buffer(cmdbuf, &frame.readback, 48, 0, 0);
             cmdbuf.use_buffer(&frame.readback, BufferUse::HostRead);
         }
     }
 
-    // The caller has waited for the frame-slot fence. Off mode needs a valid
-    // descriptor but never samples it; do not allocate a full atlas until enabled.
+    // The caller has waited for the slot fence. Unsupported storage ranges use
+    // a descriptor-only buffer; its short header forces exact receiver fallback.
     pub fn ensure(
         &mut self,
         device: Device,
         allocator: Allocator,
         slot: usize,
         probe_count: u32,
+        light_count: u32,
         enabled: bool,
-    ) -> Arc<Texture> {
+    ) -> (Arc<Buffer>, bool) {
         self.frames
             .resize_with(self.frames.len().max(slot + 1), || None);
-        let required = if enabled { probe_count } else { 1 };
+        let requested = enabled
+            .then(|| FieldLayout::new(probe_count, light_count, self.max_storage_bytes))
+            .flatten();
+        let required = requested.unwrap_or(FieldLayout {
+            probes: 0,
+            lights: 0,
+            bytes: 8,
+        });
         if self.frames[slot]
             .as_ref()
-            .is_none_or(|(_, count)| enabled && *count != required)
+            .is_none_or(|(_, old)| *old != required)
         {
-            let layout = DdgiAtlasLayout::new(required, DDGI_IRRADIANCE_INTERIOR_SIDE)
-                .expect("validated DDGI grid has a valid direct atlas");
-            let extent = layout.extent();
-            let texture = Texture::new(
+            if enabled && requested.is_none() {
+                log::warn!("[LOCAL_LIGHT_FIELD] storage_range_unsupported probes={probe_count} lights={light_count} max_bytes={} fallback=original", self.max_storage_bytes);
+            }
+            let buffer = Buffer::new_sized(
                 device,
                 allocator,
-                &ImageDesc {
-                    extent: Extent3D::new(extent.x, extent.y, 1),
-                    image_type_override: Some(vk::ImageType::TYPE_2D),
-                    format: vk::Format::R32G32B32A32_SFLOAT,
-                    usage: vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
-                    initial_layout: TextureLayout::UNDEFINED,
-                    aspect: vk::ImageAspectFlags::COLOR,
-                    ..Default::default()
-                },
-                &SamplerDesc {
-                    min_filter: vk::Filter::LINEAR,
-                    mag_filter: vk::Filter::LINEAR,
-                    ..Default::default()
-                },
+                BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+                MemoryLocation::GpuOnly,
+                required.bytes,
             );
-            log::info!(
-                "[LOCAL_LIGHT_FIELD] allocated slot={slot} probes={required} extent={}x{} bytes={}",
-                extent.x,
-                extent.y,
-                u64::from(extent.x) * u64::from(extent.y) * 16
-            );
-            self.frames[slot] = Some((Arc::new(texture), required));
+            log::info!("[LOCAL_LIGHT_FIELD] representation=connection_transmission slot={slot} probes={} lights={} bytes={} grid_unchanged=true",
+                required.probes, required.lights, required.bytes);
+            self.frames[slot] = Some((Arc::new(buffer), required));
         }
-        self.frames[slot].as_ref().unwrap().0.clone()
+        (
+            self.frames[slot].as_ref().unwrap().0.clone(),
+            requested.is_some(),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FieldLayout;
+
+    #[test]
+    fn fixed_grid_storage_scales_with_live_lights_and_preserves_zero_light_header() {
+        let one = FieldLayout::new(18_513, 1, u64::MAX).unwrap();
+        let eight = FieldLayout::new(18_513, 8, u64::MAX).unwrap();
+        assert_eq!(one.probes, eight.probes);
+        assert_eq!(eight.bytes - 16, (one.bytes - 16) * 8);
+        assert_eq!(FieldLayout::new(18_513, 0, 16).unwrap().bytes, 16);
+        assert_eq!(FieldLayout::new(18_513, 8, eight.bytes), Some(eight));
+    }
+
+    #[test]
+    fn unsupported_counts_or_device_ranges_cannot_create_an_out_of_bounds_field() {
+        assert!(FieldLayout::new(0, 8, u64::MAX).is_none());
+        assert!(FieldLayout::new(u32::MAX, u32::MAX, u64::MAX).is_none());
+        assert!(FieldLayout::new(u32::MAX, 1, u64::MAX).is_none());
+        let layout = FieldLayout::new(18_513, 8, u64::MAX).unwrap();
+        assert!(FieldLayout::new(18_513, 8, layout.bytes - 1).is_none());
+        // There is no independently imposed eight-light cap.
+        assert!(FieldLayout::new(100, 128, 128 * 1024 * 1024).is_some());
     }
 }
