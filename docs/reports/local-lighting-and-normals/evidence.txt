@@ -1,0 +1,48 @@
+SOURCE target/local-lighting-delivery-final/day-0-on.log
+[02:46:07.218 INFO re_flora::tracer::scene_resolution] [SCENE_PIXELS] screen=1600x900 scene=320x180 ratio=25:1 pixel_stride=5 pixels=320x180 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native
+[02:46:14.580 INFO re_flora::tracer::local_light_live_publication] [LOCAL_LIGHT][LIVE] source_revision=10 registry_revision=9 live_gpu_revision=4 count=8 capacity=64 overflow_count=9 selection_changed=false direct_upload=true
+[02:46:14.676 INFO re_flora::tracer] [DDGI][LIGHTING] transport_published=true live_revision=4 transport_revision=4 source_live_revision=4 revision_lag=0 coalesced_live_revisions=0 published_at_ms=7469 transport_age_ms=0 change_reason=LocalLights sun_angle_degrees=0.0000 sun_color_relative=0.00000 sun_luminance_relative=0.00000 non_solar_changed=false local_lights_changed=true local_light_source_revision=10 local_light_count=8 sun_direction=Vec3(0.77430403, 0.5056895, 0.38043576) sun_color=Vec3(1.0, 0.9529412, 0.89411765) sun_luminance=2.0000 sky_light_strength=1.0000
+[02:46:14.615 INFO re_flora::app::core::emissive_voxel_lighting] [LOCAL_LIGHT][VOXEL_PROVIDER_EDIT] change_count=4 requested_cells=31 scanned_cells=31 emitter_voxels=75 edit_to_publication_frames=24 scan_cpu_ms=0.264 provider_publications=5 provider_source_revision=9 provider_source_count=17 registry_revision=9 registry_source_revision=10 backlog_full_chunks=1 backlog_full_cells=0 stale_dependency_retries=0
+[02:46:33.290 INFO re_flora] Application exited successfully
+
+SOURCE target/local-lighting-delivery-final/day-0-off.log
+[02:46:34.799 INFO re_flora::tracer::scene_resolution] [SCENE_PIXELS] screen=1600x900 scene=320x180 ratio=25:1 pixel_stride=5 pixels=320x180 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native
+[02:46:41.948 INFO re_flora::tracer::local_light_live_publication] [LOCAL_LIGHT][LIVE] source_revision=10 registry_revision=9 live_gpu_revision=0 count=0 capacity=64 overflow_count=0 selection_changed=false direct_upload=true
+[02:46:41.323 INFO re_flora::tracer] [DDGI][LIGHTING] transport_published=true live_revision=1 transport_revision=1 source_live_revision=1 revision_lag=0 coalesced_live_revisions=0 published_at_ms=6534 transport_age_ms=0 change_reason=Initial sun_angle_degrees=0.0000 sun_color_relative=0.00000 sun_luminance_relative=0.00000 non_solar_changed=false local_lights_changed=false local_light_source_revision=3 local_light_count=0 sun_direction=Vec3(0.77430403, 0.5056895, 0.38043576) sun_color=Vec3(1.0, 0.9529412, 0.89411765) sun_luminance=2.0000 sky_light_strength=1.0000
+[02:46:41.974 INFO re_flora::app::core::emissive_voxel_lighting] [LOCAL_LIGHT][VOXEL_PROVIDER_EDIT] change_count=4 requested_cells=31 scanned_cells=31 emitter_voxels=75 edit_to_publication_frames=24 scan_cpu_ms=0.259 provider_publications=5 provider_source_revision=9 provider_source_count=17 registry_revision=9 registry_source_revision=10 backlog_full_chunks=1 backlog_full_cells=0 stale_dependency_retries=0
+[02:47:00.825 INFO re_flora] Application exited successfully
+
+SOURCE target/local-lighting-delivery-final/night-0-on.log
+[02:48:52.516 INFO re_flora::tracer::scene_resolution] [SCENE_PIXELS] screen=1600x900 scene=320x180 ratio=25:1 pixel_stride=5 pixels=320x180 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native
+[02:48:59.861 INFO re_flora::tracer::local_light_live_publication] [LOCAL_LIGHT][LIVE] source_revision=10 registry_revision=9 live_gpu_revision=4 count=8 capacity=64 overflow_count=9 selection_changed=false direct_upload=true
+[02:48:59.958 INFO re_flora::tracer] [DDGI][LIGHTING] transport_published=true live_revision=4 transport_revision=4 source_live_revision=4 revision_lag=0 coalesced_live_revisions=0 published_at_ms=7452 transport_age_ms=0 change_reason=LocalLights sun_angle_degrees=0.0000 sun_color_relative=0.00000 sun_luminance_relative=0.00000 non_solar_changed=false local_lights_changed=true local_light_source_revision=10 local_light_count=8 sun_direction=Vec3(-0.77430403, -0.5056896, -0.3804359) sun_color=Vec3(1.0, 0.9529412, 0.89411765) sun_luminance=2.0000 sky_light_strength=1.0000
+[02:48:59.896 INFO re_flora::app::core::emissive_voxel_lighting] [LOCAL_LIGHT][VOXEL_PROVIDER_EDIT] change_count=4 requested_cells=31 scanned_cells=31 emitter_voxels=75 edit_to_publication_frames=24 scan_cpu_ms=0.270 provider_publications=5 provider_source_revision=9 provider_source_count=17 registry_revision=9 registry_source_revision=10 backlog_full_chunks=1 backlog_full_cells=0 stale_dependency_retries=0
+[02:49:18.575 INFO re_flora] Application exited successfully
+
+SOURCE target/local-lighting-delivery-final/night-0-off.log
+[02:49:20.081 INFO re_flora::tracer::scene_resolution] [SCENE_PIXELS] screen=1600x900 scene=320x180 ratio=25:1 pixel_stride=5 pixels=320x180 requested_samples=1 samples_per_axis=1 filter=point upscale=nearest ui=native
+[02:49:27.193 INFO re_flora::tracer::local_light_live_publication] [LOCAL_LIGHT][LIVE] source_revision=10 registry_revision=9 live_gpu_revision=0 count=0 capacity=64 overflow_count=0 selection_changed=false direct_upload=true
+[02:49:26.608 INFO re_flora::tracer] [DDGI][LIGHTING] transport_published=true live_revision=1 transport_revision=1 source_live_revision=1 revision_lag=0 coalesced_live_revisions=0 published_at_ms=6538 transport_age_ms=0 change_reason=Initial sun_angle_degrees=0.0000 sun_color_relative=0.00000 sun_luminance_relative=0.00000 non_solar_changed=false local_lights_changed=false local_light_source_revision=3 local_light_count=0 sun_direction=Vec3(-0.77430403, -0.5056896, -0.3804359) sun_color=Vec3(1.0, 0.9529412, 0.89411765) sun_luminance=2.0000 sky_light_strength=1.0000
+[02:49:27.250 INFO re_flora::app::core::emissive_voxel_lighting] [LOCAL_LIGHT][VOXEL_PROVIDER_EDIT] change_count=4 requested_cells=31 scanned_cells=31 emitter_voxels=75 edit_to_publication_frames=24 scan_cpu_ms=0.271 provider_publications=5 provider_source_revision=9 provider_source_count=17 registry_revision=9 registry_source_revision=10 backlog_full_chunks=1 backlog_full_cells=0 stale_dependency_retries=0
+[02:49:46.117 INFO re_flora] Application exited successfully
+
+SOURCE target/local-light-switch-tests-final2.log
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1849 passed; 0 failed; 15 ignored; 0 measured; 0 filtered out; finished in 21.82s
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+SOURCE target/local-light-switch-vkn.log
+test result: ok. 78 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+SOURCE target/local-lighting-validation-tests-final2.log
+
+SOURCE target/local-light-switch-slang-all.log
+local lighting switch: 648 ABI/count/flag cases passed
+planar fit: 672 quantized plane/phase/partial-support cases; folds, lines and points rejected; minimum original wall confidence=0.998892; maximum wall normal error original=10.885550 degrees reconstructed=0.883152 degrees
+shared spray/contact failures=1 worst_area_integral_error=0.000126
+
+SOURCE target/ris-baseline-shader/result.log
+shared spray/contact failures=1 worst_area_integral_error=0.000126
+

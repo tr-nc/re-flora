@@ -1,0 +1,52 @@
+{
+  "binaryHash": "8879e1ffa27309f866aca2f57a38dd353331bf2fb32df379a04fcbc6ed451901",
+  "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+  "case": "capture",
+  "rows": [
+    {
+      "period": "day",
+      "time": 0.45,
+      "repeat": 0,
+      "enabled": true,
+      "file": "day-0-on.png",
+      "sha256": "262f11d47fa3187f0bb593f1a8eeaed8cdd2c48174412467d83dc2d674f6e125"
+    },
+    {
+      "period": "day",
+      "time": 0.45,
+      "repeat": 0,
+      "enabled": false,
+      "file": "day-0-off.png",
+      "sha256": "816e281c6fe4009e8a9c58704c68e54fd3477eb3e655eadc5585f3d8097ad116"
+    },
+    {
+      "period": "night",
+      "time": 0.95,
+      "repeat": 0,
+      "enabled": true,
+      "file": "night-0-on.png",
+      "sha256": "9eaaf045dce53ac9d34ec2796bf0e0b89fb2e8b367a2054432c8b1552574da1b"
+    },
+    {
+      "period": "night",
+      "time": 0.95,
+      "repeat": 0,
+      "enabled": false,
+      "file": "night-0-off.png",
+      "sha256": "80d75eb798a7a3f771e2d55683fc02b1bd35012faeeea9d5b4ba504ff7ced543"
+    },
+    {
+      "gui": true,
+      "enabled": true,
+      "file": "gui-on.png",
+      "sha256": "2f99b9a65617d843a1c23cfbeaab302d97ae563d6dc09fa5c5df7b7ad5bee79b"
+    },
+    {
+      "gui": true,
+      "enabled": false,
+      "file": "gui-off.png",
+      "sha256": "f9b8c9998be15c9711accebbd83828ff8ceceb729ba5e1f7d4eb58708b45a84e"
+    }
+  ],
+  "summary": null
+}

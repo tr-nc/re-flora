@@ -1,0 +1,189 @@
+{
+  "binaryHash": "8879e1ffa27309f866aca2f57a38dd353331bf2fb32df379a04fcbc6ed451901",
+  "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+  "case": "perf",
+  "rows": [
+    {
+      "period": "day",
+      "time": 0.45,
+      "repeat": 0,
+      "enabled": true,
+      "screen": "1600x900",
+      "scene": "320x180",
+      "uploadedLights": 8,
+      "grassGpuMs": 13.506499999999999,
+      "gpuSamples": 206,
+      "actualFps": 25.65065065065065,
+      "wholeProfiledFps": 25.75930341038665
+    },
+    {
+      "period": "day",
+      "time": 0.45,
+      "repeat": 0,
+      "enabled": false,
+      "screen": "1600x900",
+      "scene": "320x180",
+      "uploadedLights": 0,
+      "grassGpuMs": 5.252,
+      "gpuSamples": 311,
+      "actualFps": 39.01825047199497,
+      "wholeProfiledFps": 38.874203078836885
+    },
+    {
+      "period": "day",
+      "time": 0.45,
+      "repeat": 1,
+      "enabled": false,
+      "screen": "1600x900",
+      "scene": "320x180",
+      "uploadedLights": 0,
+      "grassGpuMs": 5.26,
+      "gpuSamples": 311,
+      "actualFps": 38.84225034456835,
+      "wholeProfiledFps": 38.82487283297
+    },
+    {
+      "period": "day",
+      "time": 0.45,
+      "repeat": 1,
+      "enabled": true,
+      "screen": "1600x900",
+      "scene": "320x180",
+      "uploadedLights": 8,
+      "grassGpuMs": 13.4115,
+      "gpuSamples": 206,
+      "actualFps": 25.83816486009579,
+      "wholeProfiledFps": 25.853582715921455
+    },
+    {
+      "period": "day",
+      "time": 0.45,
+      "repeat": 2,
+      "enabled": true,
+      "screen": "1600x900",
+      "scene": "320x180",
+      "uploadedLights": 8,
+      "grassGpuMs": 13.417,
+      "gpuSamples": 207,
+      "actualFps": 25.84368335215155,
+      "wholeProfiledFps": 25.952455102252674
+    },
+    {
+      "period": "day",
+      "time": 0.45,
+      "repeat": 2,
+      "enabled": false,
+      "screen": "1600x900",
+      "scene": "320x180",
+      "uploadedLights": 0,
+      "grassGpuMs": 5.2475000000000005,
+      "gpuSamples": 312,
+      "actualFps": 38.894447223611806,
+      "wholeProfiledFps": 38.84854771784232
+    },
+    {
+      "period": "night",
+      "time": 0.95,
+      "repeat": 0,
+      "enabled": true,
+      "screen": "1600x900",
+      "scene": "320x180",
+      "uploadedLights": 8,
+      "grassGpuMs": 13.447,
+      "gpuSamples": 208,
+      "actualFps": 25.94635246929055,
+      "wholeProfiledFps": 26.07298362015343
+    },
+    {
+      "period": "night",
+      "time": 0.95,
+      "repeat": 0,
+      "enabled": false,
+      "screen": "1600x900",
+      "scene": "320x180",
+      "uploadedLights": 0,
+      "grassGpuMs": 5.268,
+      "gpuSamples": 336,
+      "actualFps": 42.09600402111083,
+      "wholeProfiledFps": 40.82267005128737
+    },
+    {
+      "period": "night",
+      "time": 0.95,
+      "repeat": 1,
+      "enabled": false,
+      "screen": "1600x900",
+      "scene": "320x180",
+      "uploadedLights": 0,
+      "grassGpuMs": 5.248,
+      "gpuSamples": 333,
+      "actualFps": 41.75050301810865,
+      "wholeProfiledFps": 40.808918848846254
+    },
+    {
+      "period": "night",
+      "time": 0.95,
+      "repeat": 1,
+      "enabled": true,
+      "screen": "1600x900",
+      "scene": "320x180",
+      "uploadedLights": 8,
+      "grassGpuMs": 13.471,
+      "gpuSamples": 207,
+      "actualFps": 25.944584382871536,
+      "wholeProfiledFps": 25.97604604137502
+    },
+    {
+      "period": "night",
+      "time": 0.95,
+      "repeat": 2,
+      "enabled": true,
+      "screen": "1600x900",
+      "scene": "320x180",
+      "uploadedLights": 8,
+      "grassGpuMs": 13.558,
+      "gpuSamples": 207,
+      "actualFps": 25.766103814884303,
+      "wholeProfiledFps": 25.918822248717017
+    },
+    {
+      "period": "night",
+      "time": 0.95,
+      "repeat": 2,
+      "enabled": false,
+      "screen": "1600x900",
+      "scene": "320x180",
+      "uploadedLights": 0,
+      "grassGpuMs": 5.246,
+      "gpuSamples": 334,
+      "actualFps": 41.666666666666664,
+      "wholeProfiledFps": 40.722104061835346
+    }
+  ],
+  "summary": {
+    "day": {
+      "on": {
+        "grassGpuMs": 13.417,
+        "actualFps": 25.83816486009579,
+        "wholeProfiledFps": 25.853582715921455
+      },
+      "off": {
+        "grassGpuMs": 5.252,
+        "actualFps": 38.894447223611806,
+        "wholeProfiledFps": 38.84854771784232
+      }
+    },
+    "night": {
+      "on": {
+        "grassGpuMs": 13.471,
+        "actualFps": 25.944584382871536,
+        "wholeProfiledFps": 25.97604604137502
+      },
+      "off": {
+        "grassGpuMs": 5.248,
+        "actualFps": 41.75050301810865,
+        "wholeProfiledFps": 40.808918848846254
+      }
+    }
+  }
+}
