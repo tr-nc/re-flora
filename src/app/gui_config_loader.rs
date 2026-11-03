@@ -284,6 +284,9 @@ impl GuiConfigLoader {
         Self::add_missing_param(&mut config, "Debug", "async_grass_edits");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pose_reuse");
         Self::add_missing_param(&mut config, "Debug", "grass_local_light_field");
+        Self::add_missing_param(&mut config, "Debug", "grass_light_ris");
+        Self::add_missing_param(&mut config, "Debug", "grass_light_ris_rays");
+        Self::add_missing_param(&mut config, "Debug", "grass_light_ris_candidates");
         Self::add_missing_param(&mut config, "Debug", "grass_band_pixelization");
         Self::validate(&config, config_path);
         Self::migrate_flutter_frequency(&mut config);

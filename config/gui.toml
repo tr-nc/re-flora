@@ -458,6 +458,37 @@ type = "Bool"
 value = false
 
 [[section.param]]
+id = "grass_light_ris"
+kind = "bool"
+label = "Grass: fixed-budget RIS lighting (A/B)"
+type = "Bool"
+
+[section.param.data]
+value = false
+
+[[section.param]]
+id = "grass_light_ris_rays"
+kind = "uint"
+label = "Grass RIS: visibility rays per receiver"
+type = "Uint"
+
+[section.param.data]
+value = 4
+min = 1
+max = 8
+
+[[section.param]]
+id = "grass_light_ris_candidates"
+kind = "uint"
+label = "Grass RIS: candidates per ray"
+type = "Uint"
+
+[section.param.data]
+value = 8
+min = 1
+max = 32
+
+[[section.param]]
 id = "grass_local_light_field"
 kind = "bool"
 label = "Grass: Source Visibility Cache (A/B)"

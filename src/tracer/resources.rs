@@ -928,6 +928,7 @@ pub struct TerrainQueryResources {
 pub struct LocalLightingResources {
     pub local_light_info: Resource<Buffer>,
     pub local_lights: Resource<Buffer>,
+    pub local_light_proposals: Resource<Buffer>,
     pub local_light_visibility_diagnostic_info: Resource<Buffer>,
     pub local_light_visibility_diagnostic_result: Resource<Buffer>,
     pub local_light_visibility_diagnostic_readback: Resource<Buffer>,
@@ -968,6 +969,18 @@ impl LocalLightingResources {
         local_lights
             .fill(&[LightGpu::zeroed(); LOCAL_LIGHT_GPU_CAPACITY])
             .expect("initial local-light data upload must fit");
+        let local_light_proposals = Buffer::new_sized(
+            device.clone(),
+            allocator.clone(),
+            BufferUsage::from_flags(vk::BufferUsageFlags::STORAGE_BUFFER),
+            MemoryLocation::CpuToGpu,
+            (crate::lighting::presampling::LIGHT_PROPOSAL_SLOTS
+                * std::mem::size_of::<crate::lighting::presampling::LightProposal>())
+                as u64,
+        );
+        local_light_proposals
+            .fill(&crate::lighting::presampling::build_light_proposals(&[]))
+            .expect("initial light proposals upload must fit");
         let local_light_visibility_diagnostic_info = Buffer::new_sized(
             device.clone(),
             allocator.clone(),
@@ -997,6 +1010,7 @@ impl LocalLightingResources {
         Self {
             local_light_info: Resource::new(local_light_info),
             local_lights: Resource::new(local_lights),
+            local_light_proposals: Resource::new(local_light_proposals),
             local_light_visibility_diagnostic_info: Resource::new(
                 local_light_visibility_diagnostic_info,
             ),

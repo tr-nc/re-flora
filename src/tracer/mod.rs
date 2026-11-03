@@ -1518,6 +1518,9 @@ pub struct FloraAppearanceFrameInput {
     pub stem_experiment: crate::flora::models::StemExperiment,
     pub grass_band_pose_reuse: bool,
     pub grass_local_light_field: bool,
+    pub grass_light_ris: bool,
+    pub grass_light_ris_rays: u32,
+    pub grass_light_ris_candidates: u32,
     pub grass_band_pixelization: bool,
     pub grass_moisture_response: bool,
     pub growth_override_enabled: bool,
@@ -1801,6 +1804,7 @@ pub struct Tracer {
     flora_lighting_cache: FloraLightingCache,
     local_light_field: local_light_field::LocalLightField,
     grass_local_light_field: bool,
+    grass_light_ris: bool,
     grass_band_cache: grass_band_cache::GrassBandCache,
     grass_visibility: grass_visibility::GrassVisibility,
     vegetation_response: VegetationResponse,
@@ -2193,6 +2197,7 @@ impl Tracer {
             flora_lighting_cache: FloraLightingCache::default(),
             local_light_field: local_light_field::LocalLightField::default(),
             grass_local_light_field: false,
+            grass_light_ris: false,
             grass_band_cache: grass_band_cache::GrassBandCache::default(),
             grass_visibility: grass_visibility::GrassVisibility::default(),
             vegetation_response: VegetationResponse::new(chunk_bound),
@@ -3149,7 +3154,12 @@ impl Tracer {
                     }
                     LocalLightLiveUpload::InfoAndLights { info, lights } => {
                         local_lighting.local_light_info.fill_uniform(info)?;
-                        local_lighting.local_lights.fill(lights)
+                        local_lighting.local_lights.fill(lights)?;
+                        local_lighting.local_light_proposals.fill(
+                            &crate::lighting::presampling::build_light_proposals(
+                                &lights[..info.count as usize],
+                            ),
+                        )
                     }
                 })?;
         let terrain_ray_origin_offset_world = terrain.ray_origin_offset_world.max(0.0);
@@ -3338,6 +3348,10 @@ impl Tracer {
             log::info!("[LOCAL_LIGHT_FIELD] enabled={} update=full_live_frame transport_history=unchanged unavailable_support=original", vegetation.appearance.grass_local_light_field);
         }
         self.grass_local_light_field = vegetation.appearance.grass_local_light_field;
+        if self.grass_light_ris != vegetation.appearance.grass_light_ris {
+            log::info!("[LIGHT_RIS] enabled={} proposals=power_shared slots=4096 history=none probe_spacing=unchanged", vegetation.appearance.grass_light_ris);
+        }
+        self.grass_light_ris = vegetation.appearance.grass_light_ris;
         self.flower_spawn_overshoot_voxels = vegetation
             .growth
             .spawn_overshoot_min_voxels
@@ -5003,9 +5017,14 @@ impl Tracer {
             None
         };
         let live = self.local_light_live_publication.observation();
-        let audit_enabled = local_light_field::LocalLightField::audit_enabled();
-        let consumer_mode = local_light_field::ConsumerMode::primary(self.grass_local_light_field);
-        let field_enabled = self.grass_local_light_field && lighting_cache_enabled;
+        let audit_enabled =
+            local_light_field::LocalLightField::audit_enabled() && !self.grass_light_ris;
+        let consumer_mode = local_light_field::ConsumerMode::primary(
+            self.grass_local_light_field,
+            self.grass_light_ris,
+        );
+        let field_enabled =
+            self.grass_local_light_field && !self.grass_light_ris && lighting_cache_enabled;
         let field_key = field_enabled.then_some((
             live.live_revision.unwrap_or(0),
             self.ddgi_voxel_visibility.published_revision().unwrap_or(0),
@@ -5098,9 +5117,10 @@ impl Tracer {
                     .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
             }
 
-            let audit_pending = self
-                .local_light_field
-                .audit_pending(gpu_profiler_frame_slot);
+            let audit_pending = audit_enabled
+                && self
+                    .local_light_field
+                    .audit_pending(gpu_profiler_frame_slot);
             if audit_pending {
                 for band in [false, true] {
                     if !band || band_cache_buffer.is_some() {
@@ -5171,7 +5191,7 @@ impl Tracer {
                     self.vegetation_response.descriptors()[0],
                     self.vegetation_response.descriptors()[1],
                 ];
-                if consumer_mode != local_light_field::ConsumerMode::Original {
+                if consumer_mode == local_light_field::ConsumerMode::Shared {
                     descriptors.push((
                         "local_light_field",
                         DescriptorResource::Buffer(&direct_field),

@@ -13,12 +13,15 @@ const AUDIT_BYTES: u64 = 64;
 pub(super) enum ConsumerMode {
     Original,
     Shared,
+    Ris,
     Audit,
 }
 
 impl ConsumerMode {
-    pub fn primary(shared: bool) -> Self {
-        if shared {
+    pub fn primary(shared: bool, ris: bool) -> Self {
+        if ris {
+            Self::Ris
+        } else if shared {
             Self::Shared
         } else {
             Self::Original
@@ -222,10 +225,13 @@ mod tests {
     use super::*;
     #[test]
     fn primary_renderer_never_selects_the_audit_program() {
-        assert_eq!(ConsumerMode::primary(false), ConsumerMode::Original);
-        assert_eq!(ConsumerMode::primary(true), ConsumerMode::Shared);
-        for enabled in [false, true] {
-            assert_ne!(ConsumerMode::primary(enabled), ConsumerMode::Audit);
+        assert_eq!(ConsumerMode::primary(false, false), ConsumerMode::Original);
+        assert_eq!(ConsumerMode::primary(true, false), ConsumerMode::Shared);
+        for shared in [false, true] {
+            assert_eq!(ConsumerMode::primary(shared, true), ConsumerMode::Ris);
+            for ris in [false, true] {
+                assert_ne!(ConsumerMode::primary(shared, ris), ConsumerMode::Audit);
+            }
         }
     }
 

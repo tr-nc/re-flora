@@ -194,6 +194,24 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "grass_light_ris",
+        kind: "bool",
+        label: "Grass: fixed-budget RIS lighting (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "grass_light_ris_rays",
+        kind: "uint",
+        label: "Grass RIS: visibility rays per receiver",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
+        id: "grass_light_ris_candidates",
+        kind: "uint",
+        label: "Grass RIS: candidates per ray",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "grass_local_light_field",
         kind: "bool",
         label: "Grass: Source Visibility Cache (A/B)",
@@ -1832,6 +1850,9 @@ pub struct GuiAdjustables {
     pub scene_supersampling_quality: crate::gui_adjustables::ChoiceParam,
     pub scene_pixel_resolve_mode: crate::gui_adjustables::ChoiceParam,
     pub grass_band_pixelization: crate::gui_adjustables::BoolParam,
+    pub grass_light_ris: crate::gui_adjustables::BoolParam,
+    pub grass_light_ris_rays: crate::gui_adjustables::UintParam,
+    pub grass_light_ris_candidates: crate::gui_adjustables::UintParam,
     pub grass_local_light_field: crate::gui_adjustables::BoolParam,
     pub grass_band_pose_reuse: crate::gui_adjustables::BoolParam,
     pub flower_stem_model_resolution: crate::gui_adjustables::UintParam,
@@ -2141,6 +2162,9 @@ impl GuiAdjustables {
         let mut scene_supersampling_quality_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut scene_pixel_resolve_mode_field: Option<crate::gui_adjustables::ChoiceParam> = None;
         let mut grass_band_pixelization_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut grass_light_ris_field: Option<crate::gui_adjustables::BoolParam> = None;
+        let mut grass_light_ris_rays_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut grass_light_ris_candidates_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut grass_local_light_field_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut grass_band_pose_reuse_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flower_stem_model_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -2589,6 +2613,25 @@ impl GuiAdjustables {
                     "grass_band_pixelization" => {
                         if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
                             grass_band_pixelization_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "grass_light_ris" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            grass_light_ris_field = Some(crate::gui_adjustables::BoolParam::new(*value));
+                        }
+                    }
+                    "grass_light_ris_rays" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            grass_light_ris_rays_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_light_ris_candidates" => {
+                        if let (GuiParamKind::Uint, GuiParamValue::Uint { value, min, max }) = (&param.kind, &param.value) {
+                            let min = min.unwrap_or(0);
+                            let max = max.unwrap_or(100);
+                            grass_light_ris_candidates_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
                         }
                     }
                     "grass_local_light_field" => {
@@ -4405,6 +4448,9 @@ impl GuiAdjustables {
             scene_supersampling_quality: scene_supersampling_quality_field.expect("Missing parameter: scene_supersampling_quality"),
             scene_pixel_resolve_mode: scene_pixel_resolve_mode_field.expect("Missing parameter: scene_pixel_resolve_mode"),
             grass_band_pixelization: grass_band_pixelization_field.expect("Missing parameter: grass_band_pixelization"),
+            grass_light_ris: grass_light_ris_field.expect("Missing parameter: grass_light_ris"),
+            grass_light_ris_rays: grass_light_ris_rays_field.expect("Missing parameter: grass_light_ris_rays"),
+            grass_light_ris_candidates: grass_light_ris_candidates_field.expect("Missing parameter: grass_light_ris_candidates"),
             grass_local_light_field: grass_local_light_field_field.expect("Missing parameter: grass_local_light_field"),
             grass_band_pose_reuse: grass_band_pose_reuse_field.expect("Missing parameter: grass_band_pose_reuse"),
             flower_stem_model_resolution: flower_stem_model_resolution_field.expect("Missing parameter: flower_stem_model_resolution"),
@@ -4911,6 +4957,8 @@ pub fn get_uint_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "stone_seed" => Some(&adjustables.stone_seed),
         "stone_rock_facets" => Some(&adjustables.stone_rock_facets),
         "scene_pixel_ratio" => Some(&adjustables.scene_pixel_ratio),
+        "grass_light_ris_rays" => Some(&adjustables.grass_light_ris_rays),
+        "grass_light_ris_candidates" => Some(&adjustables.grass_light_ris_candidates),
         "flower_stem_model_resolution" => Some(&adjustables.flower_stem_model_resolution),
         "sprinkler_pixel_resolution" => Some(&adjustables.sprinkler_pixel_resolution),
         "apple_pixel_resolution" => Some(&adjustables.apple_pixel_resolution),
@@ -4964,6 +5012,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "stone_place_slab" => Some(&adjustables.stone_place_slab),
         "scene_supersampling_enabled" => Some(&adjustables.scene_supersampling_enabled),
         "grass_band_pixelization" => Some(&adjustables.grass_band_pixelization),
+        "grass_light_ris" => Some(&adjustables.grass_light_ris),
         "grass_local_light_field" => Some(&adjustables.grass_local_light_field),
         "grass_band_pose_reuse" => Some(&adjustables.grass_band_pose_reuse),
         "flower_stem_test_branches" => Some(&adjustables.flower_stem_test_branches),
@@ -5254,6 +5303,8 @@ pub fn get_uint_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "stone_seed" => Some(&mut adjustables.stone_seed),
         "stone_rock_facets" => Some(&mut adjustables.stone_rock_facets),
         "scene_pixel_ratio" => Some(&mut adjustables.scene_pixel_ratio),
+        "grass_light_ris_rays" => Some(&mut adjustables.grass_light_ris_rays),
+        "grass_light_ris_candidates" => Some(&mut adjustables.grass_light_ris_candidates),
         "flower_stem_model_resolution" => Some(&mut adjustables.flower_stem_model_resolution),
         "sprinkler_pixel_resolution" => Some(&mut adjustables.sprinkler_pixel_resolution),
         "apple_pixel_resolution" => Some(&mut adjustables.apple_pixel_resolution),
@@ -5307,6 +5358,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "stone_place_slab" => Some(&mut adjustables.stone_place_slab),
         "scene_supersampling_enabled" => Some(&mut adjustables.scene_supersampling_enabled),
         "grass_band_pixelization" => Some(&mut adjustables.grass_band_pixelization),
+        "grass_light_ris" => Some(&mut adjustables.grass_light_ris),
         "grass_local_light_field" => Some(&mut adjustables.grass_local_light_field),
         "grass_band_pose_reuse" => Some(&mut adjustables.grass_band_pose_reuse),
         "flower_stem_test_branches" => Some(&mut adjustables.flower_stem_test_branches),

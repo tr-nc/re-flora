@@ -10,6 +10,10 @@ import grass_visibility;
 #define RE_FLORA_LOCAL_VISIBILITY 0
 #endif
 
+#ifndef RE_FLORA_LIGHT_RIS
+#define RE_FLORA_LIGHT_RIS 0
+#endif
+
 #ifndef RE_FLORA_STEM_BAND_CACHE
 #define RE_FLORA_STEM_BAND_CACHE 0
 #endif
@@ -62,13 +66,21 @@ RWStructuredBuffer<float4> flora_lighting_cache;
 #include "local_visibility_query.slang"
 #endif
 
+#if RE_FLORA_LIGHT_RIS
+#include "flora_light_ris.slang"
+#endif
+
 [shader("compute")]
 [numthreads(8, 4, 1)]
-void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_GroupIndex)
+void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_GroupIndex,
+    uint3 groupId : SV_GroupID)
 {
     PushConstantFlora floraPc = floraPushConstants();
     uint voxelCount = floraLightingCacheVoxelCount(floraPc);
     uint instanceCount = grassVisibleCount(floraPc);
+#if RE_FLORA_LIGHT_RIS
+    presampleFloraLights(localIndex,groupId,floraPc);
+#endif
     if (dispatchThreadId.x >= voxelCount || dispatchThreadId.y >= instanceCount) return;
 
     // Grass bands are authored axial layers, not vertices in a voxel mesh.
@@ -112,7 +124,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_Gro
             prepared.voxel_position, prepared.shading_normal);
     if (!prepared.should_trim)
     {
-#if RE_FLORA_LOCAL_VISIBILITY
+#if RE_FLORA_LIGHT_RIS
+        irradiance += evaluateFloraRis(floraLocalLightInfo(),prepared.voxel_position,
+            prepared.shading_normal,floraTerrainRayOriginOffsetWorld(),
+            lightSamplingHash(seed ^ lightSamplingHash(dispatchThreadId.x)),localIndex);
+#elif RE_FLORA_LOCAL_VISIBILITY
 #if RE_FLORA_LOCAL_VISIBILITY != 2
         const bool audit=false;
 #endif

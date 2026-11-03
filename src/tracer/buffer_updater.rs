@@ -301,6 +301,8 @@ impl BufferUpdater {
             grass_stem_pixelization: 0,
             grass_moisture_response: u32::from(appearance.grass_moisture_response),
             grass_local_light_field: u32::from(appearance.grass_local_light_field),
+            grass_light_ris_rays: appearance.grass_light_ris_rays.clamp(1, 8),
+            grass_light_ris_candidates: appearance.grass_light_ris_candidates.clamp(1, 32),
             flora_growth_override_enabled: appearance.growth_override_enabled as u32,
             flora_growth_override: appearance.growth_override.clamp(0.0, 1.0),
             raster_tree_static: raster_tree_static as u32,

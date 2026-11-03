@@ -71,9 +71,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Local Lighting",
-        description: "Grass unchecked: original per-receiver local lighting. Checked: share conservative source-space terrain visibility certificates; attenuation and the original finite-emitter samples stay at each receiver. Uncertain and glass connections use original transport; moving trees are queried live. Rebuilt on live-light or published-geometry changes, not from DDGI history. Probe spacing and indirect lighting are unchanged. Saved, default-off experiment; visual approval pending.",
+        description: "RIS unchecked: original lighting (or the separate visibility-cache experiment if enabled). RIS checked: shared power proposals and receiver-weighted reservoirs, with a fixed visibility-ray budget; takes priority over the visibility cache. Preserves finite emitters, live opaque/Glass transport and DDGI spacing. No temporal history or denoiser: grain and visibility noise are possible. Saved, default-off experiment; visual approval pending.",
         initially_open: false,
-        params: &["grass_local_light_field"],
+        params: &["grass_light_ris", "grass_light_ris_rays", "grass_light_ris_candidates", "grass_local_light_field"],
     },
     ControlGroup {
         parent: None,

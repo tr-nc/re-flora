@@ -141,6 +141,9 @@ pub(super) fn freeze_render_frame_inputs(
             model_flowers: model_cache.flowers,
             grass_band_pose_reuse: gui.grass_band_pose_reuse.value,
             grass_local_light_field: gui.grass_local_light_field.value,
+            grass_light_ris: gui.grass_light_ris.value,
+            grass_light_ris_rays: gui.grass_light_ris_rays.value,
+            grass_light_ris_candidates: gui.grass_light_ris_candidates.value,
             grass_band_pixelization: false,
             stem_experiment: crate::flora::models::StemExperiment {
                 pixelized: false,
@@ -701,6 +704,9 @@ mod tests {
                     flower_stem_tip,
                     grass_band_pose_reuse: true,
                     grass_local_light_field: true,
+                    grass_light_ris: false,
+                    grass_light_ris_rays: 4,
+                    grass_light_ris_candidates: 8,
                     grass_band_pixelization: false,
                     stem_experiment: crate::flora::models::StemExperiment {
                         pixelized: false,
