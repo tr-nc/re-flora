@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="description" content="Re: Flora 多光源技术选型调研：比较 Clustered、RIS、ReGIR、ReSTIR DI、MegaLights、Light Tree 与照度场，核查项目适配、误差、成本和许可证。">
+<title>多光源的下一步 · Re: Flora 技术调研</title>
+<style>
+:root{--paper:#f6f4ed;--card:#fffefa;--ink:#202f2a;--muted:#58645f;--line:#d8ddd3;--green:#235744;--soft:#e5eee5;--ochre:#80551b;--sand:#f7ead3;--red:#903c37;--rose:#f8e8e2;--navy:#18392f;--mono:ui-monospace,SFMono-Regular,Consolas,monospace}
+*{box-sizing:border-box}html{scroll-padding-top:28px}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.85 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}a{color:var(--green);text-underline-offset:4px;overflow-wrap:anywhere}a:hover{text-decoration-thickness:2px}a:focus-visible,summary:focus-visible,[tabindex]:focus-visible{outline:3px solid #b76d25;outline-offset:5px;border-radius:3px}.skip{position:absolute;left:16px;top:-80px;background:white;padding:10px;z-index:5}.skip:focus{top:12px}.wrap{max-width:1180px;margin:auto;padding:0 40px}.masthead{display:flex;justify-content:space-between;gap:20px;padding:24px 0;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}.brand{font-weight:750;color:var(--green)}header{background:var(--navy);color:#f8f6ef;position:relative;overflow:hidden}header .wrap{position:relative;padding-top:59px;padding-bottom:58px}.eyebrow{font-size:12px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:#c9dabf}h1{font-size:clamp(32px,4.3vw,55px);line-height:1.3;letter-spacing:-.045em;max-width:880px;margin:19px 0 25px;font-weight:750}header .lead{max-width:810px;font-size:18px;line-height:1.95;color:#e0e8dd;margin:0}header .scope{display:flex;flex-wrap:wrap;gap:9px;margin-top:29px}header .scope span{font-size:12px;padding:4px 12px;border:1px solid #668775;border-radius:30px;color:#e4ecdf}nav{border-bottom:1px solid var(--line);background:var(--card)}nav .wrap{display:flex;flex-wrap:wrap;gap:9px 25px;padding-top:17px;padding-bottom:17px}nav a{font-size:13px;text-decoration:none;font-weight:650}main{padding:22px 0 55px}section{padding:40px 0;border-bottom:1px solid var(--line)}.section-head{display:flex;align-items:baseline;gap:17px;margin-bottom:22px}.number{font:13px var(--mono);color:var(--green);flex:none}h2{font-size:27px;line-height:1.45;letter-spacing:-.035em;margin:0}h3{font-size:18px;line-height:1.5;margin:0 0 12px}h4{font-size:16px;margin:0 0 10px}p{margin:0 0 15px}p:last-child{margin-bottom:0}.prose{max-width:900px}.muted,.caption{color:var(--muted)}.caption{font-size:13px;line-height:1.8;margin-top:13px}.small{font-size:14px}.cite{font:11px var(--mono);vertical-align:super;margin-left:4px;display:inline-block;line-height:1.5;text-decoration:none;white-space:nowrap}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.cards3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.card{background:var(--card);padding:23px;border:1px solid var(--line);border-radius:9px;min-width:0}.card p,.card li{font-size:14px}.card .label{display:inline-block;font-size:11px;font-weight:750;letter-spacing:.08em;margin-bottom:13px;color:var(--green)}.callout{padding:24px 27px;border-radius:7px;background:var(--soft);border-left:4px solid var(--green);margin:23px 0}.callout.warning{background:var(--sand);border-color:var(--ochre)}.callout.danger{background:var(--rose);border-color:var(--red)}.callout strong{font-weight:750}.callout p{font-size:15px}.pill{display:inline-block;border-radius:20px;font-size:11px;line-height:1.6;padding:3px 9px;font-weight:700;white-space:nowrap;background:var(--soft);color:var(--green)}.pill.warn{background:var(--sand);color:var(--ochre)}.pill.no{background:var(--rose);color:var(--red)}ul,ol{padding-left:22px;margin:12px 0}li{margin:7px 0}code{font:12px/1.65 var(--mono);background:#ecefe6;padding:2px 5px;border-radius:3px;overflow-wrap:anywhere}pre{font:13px/1.9 var(--mono);background:#edf0e8;border:1px solid var(--line);border-radius:6px;padding:18px;white-space:pre-wrap;overflow-wrap:anywhere;margin:16px 0}.formula{font:15px/1.8 var(--mono);color:var(--green);background:var(--soft);border-radius:7px;padding:20px 24px;margin:19px 0}.formula strong{font-size:19px}.table-scroll{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:8px;margin-top:20px}table{border-collapse:collapse;width:100%;font-size:13px;line-height:1.85}th,td{text-align:left;vertical-align:top;padding:16px 17px;border-bottom:1px solid var(--line)}th{font-size:12px;background:#edf0e7;font-weight:750}tr:last-child td{border-bottom:0}td:first-child{font-weight:650}table.compare{min-width:850px}table.compare td:first-child{width:160px}table.compare td:nth-child(2){width:210px}table.compare td:last-child{width:250px}.costs{min-width:620px}.costs td:not(:first-child){font-family:var(--mono);font-size:12px}.selected td{background:#f0f5eb}figure{margin:23px 0}.work-compare{display:grid;grid-template-columns:1fr 1fr;gap:18px}.work-box{padding:24px;border-radius:9px;border:1px solid var(--line);background:var(--card)}.big{font:600 47px/1.15 var(--mono);letter-spacing:-.08em;color:var(--green);margin:13px 0}.work-box:first-child .big{color:#82533b}.dots{display:grid;grid-template-columns:repeat(12,1fr);gap:5px;max-width:330px;margin-top:20px}.dots i{height:8px;background:#bd9a80;border-radius:2px}.dots.short i{background:#3d7658}.flow{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;counter-reset:step}.flow .card{position:relative;padding-top:25px}.flow .card:before{counter-increment:step;content:"0" counter(step);font:12px var(--mono);color:var(--green);display:block;margin-bottom:14px}.flow .card:not(:last-child):after{content:"→";position:absolute;right:-14px;top:46%;z-index:1;color:var(--green);background:var(--paper);line-height:1}.flow h3{font-size:17px}.flow .terms{font:12px/1.8 var(--mono);margin-top:14px;color:var(--green)}.rules{counter-reset:rule;list-style:none;padding:0;margin:18px 0}.rules li{counter-increment:rule;padding:15px 0 15px 44px;border-top:1px solid var(--line);position:relative}.rules li:before{content:counter(rule,decimal-leading-zero);font:12px var(--mono);position:absolute;left:0;top:22px;color:var(--green)}.rules li strong{display:block;margin-bottom:4px}.sources{display:grid;grid-template-columns:1fr 1fr;gap:11px 20px;margin-top:20px}.source{font-size:13px;padding:17px 19px;background:var(--card);border:1px solid var(--line);border-radius:5px;min-width:0}.source h3{font-size:14px;margin:0 0 5px}.source p{font-size:12px;color:var(--muted);margin-top:7px}.source a{display:inline-block}.source:target{border-color:var(--green);box-shadow:0 0 0 2px #23574433}.hash{font:11px/1.8 var(--mono);overflow-wrap:anywhere;color:var(--muted)}details{margin-top:19px;border:1px solid var(--line);border-radius:7px;background:var(--card);padding:0 21px}summary{cursor:pointer;padding:16px 0;font-size:14px;font-weight:650}details[open]{padding-bottom:20px}details .small{max-width:900px}footer{padding:30px 0 45px;color:var(--muted);font-size:12px}.footer-top{display:flex;justify-content:space-between;gap:20px;margin-bottom:11px}.summary-line{padding:24px 0 0;font-size:18px;font-weight:650;max-width:850px}.no-break{white-space:nowrap}.status-row{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 17px}
+@media(max-width:760px){.wrap{padding-left:22px;padding-right:22px}.masthead{font-size:10px;padding:18px 0;gap:12px}header .wrap{padding-top:37px;padding-bottom:37px}header .lead{font-size:16px}nav .wrap{gap:9px 18px}nav a{font-size:12px}section{padding:30px 0}h2{font-size:23px}.grid,.cards3,.sources,.work-compare,.flow{grid-template-columns:1fr}.flow .card:not(:last-child):after{content:"↓";right:25px;top:auto;bottom:-15px}.callout{padding:20px}.card,.work-box{padding:21px}.section-head{gap:12px}.big{font-size:42px}.formula{padding:17px;font-size:12px}.formula strong{font-size:15px}.footer-top{display:block}.source{padding:15px 17px}.summary-line{font-size:17px}.caption{font-size:12px}}
+@media print{body{background:white;font-size:11pt}.wrap{padding:0;max-width:none}header{background:white;color:var(--ink)}header .lead,header .scope span,.eyebrow{color:var(--ink)}header:before,nav,.skip{display:none}header .wrap{padding:15px 0}section{break-inside:auto}h2,h3{break-after:avoid}.card,.callout,.source,tr{break-inside:avoid}.table-scroll{overflow:visible}table.compare,table.costs{min-width:0}.sources{grid-template-columns:1fr 1fr}a{color:inherit}footer{padding-bottom:0}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">跳至正文</a>
+<div class="wrap" role="region" aria-label="报告版本"><div class="masthead"><span class="brand">Re: Flora / Rendering Research</span><span>2026.11.03 · 技术选型，不是实现验收</span></div></div>
+<header><div class="wrap">
+<div class="eyebrow">Many-light rendering · Decision report</div>
+<h1>多光源的下一步：<br>固定预算随机采样</h1>
+<p class="lead">不再为每株草遍历所有灯，再设法把每条可见性查询做快。改用成熟的光源重要性采样：共享候选分布，接收端只处理有上限的样本。把代价从“随灯数增长”转成“固定预算下的噪声与质量取舍”。</p>
+<div class="scope"><span>保留 DDGI spacing = 32</span><span>不改灯光强度 / 曝光 / 间接光</span><span>普通草接收端不做全灯循环</span><span>本轮不修改渲染器</span></div>
+</div></header>
+<nav aria-label="报告目录"><div class="wrap"><a href="#decision">结论</a><a href="#project">项目约束</a><a href="#industry">工业证据</a><a href="#compare">方案比较</a><a href="#route">推荐路径</a><a href="#quality">效果取舍</a><a href="#cost">真实成本</a><a href="#licensing">许可与平台</a><a href="#acceptance">后续准入</a><a href="#references">资料索引</a></div></nav>
+<main id="main" class="wrap">
+<section id="decision">
+<div class="section-head"><span class="number">01</span><h2>先把决定说清楚</h2></div>
+<div class="status-row"><span class="pill">选定：有预算的随机直接光采样</span><span class="pill warn">不等于立即导入 RTXDI</span><span class="pill no">停止把可见性缓存当最终主线</span></div>
+<div class="prose"><p><strong>推荐算法家族：RIS / ReGIR / ReSTIR DI。</strong>它们解决的是“从全部光源中抽取少量有用样本”，而不是把全部光源的原有积分继续搬到每个接收点。对当前按草茎层做世界空间着色、GPU 只选择八盏灯的项目，<strong>第一步应是共享光源预采样 + buffer-less RIS；ReGIR 是灯数和空间分布扩大后的升级；完整屏幕空间 ReSTIR DI + 降噪不是眼下的无缝替换。</strong><a class="cite" href="#s3">[3]</a><a class="cite" href="#s4">[4]</a></p>
+<p>这不是自创新算法。RTXDI 官方文档明确提供无需 G-buffer 的世界空间采样入口，也明确说明：只有初始采样，在复杂多光源场景下往往仍然太吵，ReGIR 和时空重采样各自解决不同层级的问题。选一个已有的入口，比替草构造一套新的照度拟合、遮挡证书和大面积精确回退体系更可控。</p></div>
+<div class="cards3">
+<article class="card"><span class="label">现在应选</span><h3>共享预采样 + RIS</h3><p>接收点按真实位置、法线和材质重选固定数量的灯/发光面样本，只为最终样本做可见性查询。适配现有世界空间草缓存。</p></article>
+<article class="card"><span class="label">规模扩大后再选</span><h3>ReGIR 采样分布网格</h3><p>把候选分布做得更局部，减少远灯浪费。不是新的照度探针；也不能不测就照搬每格 512 个样本的默认配置。</p></article>
+<article class="card"><span class="label">较大的渲染升级</span><h3>ReSTIR DI + 降噪</h3><p>主表面的时空复用能进一步压噪，但需要草的逐像素表面信息、历史映射与重建，不能只换一个 compute shader。</p></article>
+</div>
+<div class="callout warning"><h3>“共享聚合”必须准确命名</h3><p>这里共享的是<strong>带权采样分布</strong>，接收端统计估计多光源贡献的总和；不是提前算好一份任意位置、任意法线都精确的照度总和。它改变了 <code>G × L × 12</code> 的工作组织，但接受有限样本误差。若“共享阶段必须输出确定性的完整照度和”本身仍是独立硬条件，那么随机采样不满足这一条，不能偷换概念。</p></div>
+<p class="summary-line">调研结论是换到成熟的采样范式，不是继续优化旧循环，也不是承诺“现成 SDK 接进来就一定更快”。</p>
+</section>
+
+<section id="project">
+<div class="section-head"><span class="number">02</span><h2>项目真正要解决的，不是抽象的“百万盏灯”</h2></div>
+<div class="grid">
+<article class="card"><h3>当前成本发生在哪里</h3><p><code>flora_lighting_cache.comp.slang</code> 按准备后的草茎/轴向层接收点着色，叠加 DDGI 环境光和本地直接光，再写入缓存。令 <strong>G</strong> 表示这些实际接收点的数量，而不是简单的草株数或屏幕像素数。</p><p><code>local_visibility_query.slang</code> 仍有全灯循环和每灯十二点循环。共享了遮挡事实，没有共享光源选择。</p></article>
+<article class="card"><h3>八盏参与计算的灯，不等于全部发光体</h3><p><code>LOCAL_LIGHT_GPU_CAPACITY = 8</code> 是当前显式 small-N 选择预算；CPU 光源注册表并非只能有八盏。场景里存在更多灯笼/发光体，不表示 GPU 已经计算了它们全部。</p><p>未来验证 16、32、64 灯时，必须核实实际上传与选中数量，不能只往场景里加物体。</p></article>
+</div>
+<figure aria-labelledby="work-caption">
+<div class="work-compare">
+<div class="work-box"><span class="pill warn">原先的组织</span><div class="big">L × 12</div><h3>每个接收点，逐灯积分</h3><p class="small">以 8 盏都有效的有限面光示意：最多 96 条发光面连接；距离/朝向剔除会降低实际数量。</p><div class="dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+<div class="work-box"><span class="pill">推荐的组织</span><div class="big">K</div><h3>固定数量的最终连接</h3><p class="small">例如 K = 4：从共享分布取固定候选，经真实接收点重加权后，只查询 4 条最终连接的可见性。</p><div class="dots short" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div>
+</div>
+<figcaption id="work-caption" class="caption">工作量概念图，不是实测加速比。候选重加权、共享预处理、滤波、遍历长度都仍有成本；K = 4 只是说明固定预算的含义，不是已选定的质量设置。色块为示意，非逐条射线计数。</figcaption>
+</figure>
+<div class="prose"><p>另外两个边界不能绕开：<strong>spacing 32 的间接光系统保持不动</strong>；<strong>灯边的近场响应不能靠提高曝光补回来</strong>。先前的无障碍诊断已经出现精确向上响应约 711.108、旧探针插值为 0 的情形。它证明那条具体插值路径不合适，并不证明所有光照场在理论上都不可行。<a class="cite" href="#s20">[20]</a></p></div>
+<details><summary>本地代码与既有性能证据</summary><div class="small"><ul>
+<li><a href="../../../src/lighting/mod.rs">光源预算与选择</a> · <a href="../../../shader/slang/local_emitter.slang">十二点面光积分 / 二十四个稳定源身份</a> · <a href="../../../shader/slang/local_visibility_query.slang">现有缓存接收端循环</a></li>
+<li><a href="../../../shader/slang/flora_lighting_cache.comp.slang">世界空间草照明入口</a> · <a href="../../../shader/slang/grass_band_cached.vert.slang">草带缓存顶点路径</a> · <a href="../../../shader/slang/flora.frag.slang">只输出颜色的草片元接口</a></li>
+<li>既有 M4 Pro / Vulkan–MoltenVK，三个交错 30 秒 Release 对照：草 GPU 中位数 28.472 → 22.812 ms，整段 profiled FPS 17.1465 → 18.5292。只证明旧可见性缓存有局部收益，不证明复杂度改变，更不预测新方案。</li>
+<li><a href="../visibility-performance-fix/index.html">既有性能报告</a> · <a href="../visibility-performance-fix/measurements.json">原始结构化数据</a></li>
+</ul></div></details>
+</section>
+
+<section id="industry">
+<div class="section-head"><span class="number">03</span><h2>工业界有成熟路线，没有不附条件的唯一答案</h2></div>
+<div class="cards3">
+<article class="card"><span class="label">经典栅格化路线</span><h3>Clustered / Forward+</h3><p>Avalanche 等引擎的实务资料展示了空间分桶、前向渲染和透明材质的适配方式。这是成熟的候选剔除手段；局部重叠灯仍需要逐个计算。</p><p><strong>可借鉴：</strong>把不相关灯尽早排除。<br><strong>不能宣称：</strong>分桶自动保证固定接收端成本。<a class="cite" href="#s11">[11]</a></p></article>
+<article class="card"><span class="label">现代随机直接光路线</span><h3>ReSTIR / RTXDI</h3><p>2020 年原始方法之后，2021 年专门讨论生产化：降低成本、提高访存一致性、压缩射线预算、暴露质量/性能调节。持续维护的 SDK 提供了可核查实现。</p><p><strong>可借鉴：</strong>用重采样减少昂贵着色。<br><strong>不能宣称：</strong>论文倍率就是本机收益。<a class="cite" href="#s1">[1]</a><a class="cite" href="#s2">[2]</a><a class="cite" href="#s7">[7]</a></p></article>
+<article class="card"><span class="label">独立的引擎级佐证</span><h3>Unreal MegaLights</h3><p>Epic 当前文档明确采用固定逐像素射线预算、重要性采样和降噪。灯光复杂度增加时，预算不随每盏灯线性增加，但画面可能变糊、噪声增加或出现拖影。</p><p><strong>可借鉴：</strong>固定预算，质量承担复杂度。<br><strong>不能宣称：</strong>MegaLights 就是 ReSTIR，或可直接搬进本项目。<a class="cite" href="#s10">[10]</a></p></article>
+</div>
+<div class="callout"><p><strong>对本项目最有用的共同原则：</strong>不再追求每个微小接收点每帧确定性地完成全部光源积分，而是共享选择/重用工作，将昂贵可见性与着色限制在少量样本上。传统分桶、随机采样和缓存是不同层级的工具，并非互相排斥，更不是换一个名词就已经实现同一种算法。</p></div>
+<div class="prose"><p>idTech 8 的已发售作品也展示了世界空间光源列表、辐射缓存、照度体和最终 gather 的职责分离。但其照明缓存着色仍使用局部光列表，并存在每格 ID 上限；整套 GI 的毫秒数不能当成本项目草直接光的证明。<a class="cite" href="#s17">[17]</a></p></div>
+</section>
+
+<section id="compare">
+<div class="section-head"><span class="number">04</span><h2>八类方案：分别解决了哪一层</h2></div>
+<p class="prose">比较标准不是“有没有顶会论文”，而是：普通草接收端是否还枚举全部重叠灯，是否保留实际近场响应，当前接口是否承载得住，以及用什么误差换什么成本。</p>
+<p class="caption">窄屏下表格可横向滚动；聚焦表格区域后也可用方向键。</p>
+<div class="table-scroll" role="region" aria-label="多光源方案比较，可横向滚动" tabindex="0"><table class="compare"><thead><tr><th scope="col">方案</th><th scope="col">接收端成本 / 退化</th><th scope="col">本项目适配与局限</th><th scope="col">结论</th></tr></thead><tbody>
+<tr><td>Clustered / Forward+<a class="cite" href="#s11">[11]</a></td><td>约 O(L<sub>cell</sub>)；所有灯重叠时仍可能退化为 O(L)。固定 top-K 则明确漏掉被丢弃贡献。</td><td>适合前向/世界空间候选剔除；没有消除局部逐灯着色和阴影。许多弱灯的总和可能很亮，不能认为“丢弱灯没影响”。</td><td><span class="pill warn">辅助，而非完整答案</span><br>不能单独满足本轮固定预算目标。</td></tr>
+<tr class="selected"><td>共享预采样 + buffer-less RIS<a class="cite" href="#s3">[3]</a><a class="cite" href="#s4">[4]</a></td><td>固定 M 候选、K 个输出；查询成本不按全灯数增长。有限样本噪声，困难分布下效率下降。</td><td>直接使用草的世界位置/法线，不先引入逐像素 G-buffer；仍需正确 PDF、发光面采样和抗噪策略。</td><td><span class="pill">当前第一选择</span><br>先改变工作组织，再决定是否需要更复杂的采样器。</td></tr>
+<tr><td>ReGIR<a class="cite" href="#s6">[6]</a><a class="cite" href="#s7">[7]</a></td><td>共享局部样本池 + 固定接收点 RIS；网格构建和存储有固定开销。有限样本、离散网格与复用可有偏差。</td><td>不插值照度，不必改变 DDGI；改善空间分布很大的场景。当前八灯可能不值得上完整网格，且不解决全部可见性噪声。</td><td><span class="pill warn">条件升级</span><br>先证明相对较简单 RIS 的额外收益。</td></tr>
+<tr><td>屏幕 ReSTIR DI + 降噪<a class="cite" href="#s1">[1]</a><a class="cite" href="#s18">[18]</a></td><td>固定候选和邻域预算，时空复用提高有效样本数。拒绝历史时噪声增大；复用/纠偏增加成本或偏差。</td><td>主可见表面质量潜力最好；草当前输出的是缓存颜色，需新增表面/运动/历史接口。缩小分辨率还要保住细草覆盖。</td><td><span class="pill warn">中长期渲染迁移</span><br>不是一句“接 RTXDI”即可完成。</td></tr>
+<tr><td>Light Tree / Lightcuts<a class="cite" href="#s13">[13]</a><a class="cite" href="#s15">[15]</a></td><td>平衡树选择约 O(log L)；自适应切分的工作量也不恒定。固定射线数可以做到，严格 O(1) 查询则不是它的承诺。</td><td>Cycles 有成熟实现；树构建/更新和 shader 移植仍需工程投入。可作为允许对数采样成本时的备选。</td><td><span class="pill warn">有据可依的备选</span><br>不能把“非全遍历”写成严格常数成本。</td></tr>
+<tr><td>LTC + 阴影方案<a class="cite" href="#s12">[12]</a></td><td>降低单盏面积灯的 BRDF 积分成本；仍需处理多灯循环和任意遮挡。</td><td>适合面积光近似着色；不能独自解决草的逐灯可见性。引入每灯阴影图还有生成、存储与更新成本。</td><td><span class="pill no">不是主解</span><br>不把“更便宜的每灯”当“少计算灯”。</td></tr>
+<tr><td>DDGI / 照度体 / Froxel<a class="cite" href="#s16">[16]</a><a class="cite" href="#s17">[17]</a></td><td>共享照度，接收端常数查询；以空间/角度带宽、泄漏、滞后和存储为代价。</td><td>很适合间接光或体积/透明的低频近似；固定 32 的旧直接照度插值已有近灯失败。重写拟合并不能自动成为成熟方案。</td><td><span class="pill no">保留间接光用途</span><br>本轮不再以加密或补亮修直接光。</td></tr>
+<tr><td>源空间可见性缓存<a class="cite" href="#s20">[20]</a></td><td>减少部分场景遍历；仍是 G × L × 12，且需要更新、内存和回退。</td><td>已有本机收益，但结构性硬条件未满足。它是局部可见性优化，不是多灯聚合表示。</td><td><span class="pill no">不作为最终主线</span><br>保留独立基线，不继续叠补丁。</td></tr>
+</tbody></table></div>
+<div class="prose small" style="margin-top:20px"><p>Stochastic Lightcuts 也证明了“用随机噪声替代层次近似的相关性伪影”是一条既有研究路线；但不能因此把它等同于已经适配本项目的平台、实时预算和草缓存。<a class="cite" href="#s14">[14]</a>本轮没有发现一个可以同时免去许可审核、接口适配和原生性能验证的现成通用库。</p></div>
+</section>
+
+<section id="route">
+<div class="section-head"><span class="number">05</span><h2>推荐路径：先用官方已有的世界空间采样入口</h2></div>
+<p class="prose">完整目标是成熟的随机直接光管线，而不是承诺“一条光线就够”。当前接口最自然的起点是 RTXDI 文档已经定义的 buffer-less 采样模式：与完整屏幕 ReSTIR 区分命名，不冒充已经获得时空重采样的全部质量优势。<a class="cite" href="#s3">[3]</a></p>
+<div class="flow" role="group" aria-label="推荐工作组织的三阶段">
+<article class="card"><h3>共享：准备候选分布</h3><p>收集权威光源，建立全局功率预采样池或等价的已知概率分布。灯数/空间规模足够大后，再选 ReGIR 局部样本池。</p><div class="terms">输入：L 盏光<br>输出：ID + 权重 / PDF<br>不是：最终照度</div></article>
+<article class="card"><h3>草接收点：固定预算重选</h3><p>每个输出读取固定 M 个候选；各候选只评估抽中的一个发光样本，按此处的距离、法线和材质重加权。不在 PDF 内重做十二点积分或阴影遍历。</p><div class="terms">固定 M × K 次候选评估<br>有界随机访问光源记录<br>不枚举 L，不扫整格样本池</div></article>
+<article class="card"><h3>最终样本：可见性 + 重建</h3><p>每个接收点最多 K 条选定连接，复用现有 Contree / Glass 传输接口；正确加权后与原有 DDGI 合成，再处理噪声。</p><div class="terms">K 条最终连接<br>不是 K 盏 × 12 条射线<br>不以全灯回退填补缺样</div></article>
+</div>
+<div class="formula"><strong>T ≈ T<sub>shared</sub>(L) + G · K · [M · C<sub>candidate</sub> + C<sub>visibility</sub>] + T<sub>reconstruction</sub></strong><br>若采用 ReGIR，T<sub>shared</sub> 还包括网格槽位数 × 每槽构建候选数；共享分布的全灯处理不再乘上 G。</div>
+<p class="caption">这是目标工作量模型，不是已实现的复杂度证明。成立前提：共享分布取样本身有界、M/K 固定、不隐藏全灯回退；可见性遍历仍随几何复杂度变化。完整 ReSTIR 的邻域验证/纠偏射线和降噪要另计，不包含在这个 RIS-only 模型里。</p>
+<div class="grid" style="margin-top:23px">
+<article class="card"><h3>为什么不会重演“近灯响应插成 0”</h3><p>ReGIR/RIS 存的是光源 ID 和采样权重，不是周围探针的向上照度。真正的距离衰减、接收法线和发光面方向在<strong>草的位置</strong>重算，因此不依赖“下方有一个有效暖色照度探针”。</p><p><strong>但这只排除了旧的机制性丢光：</strong>候选分布仍可能对近处小灯给得太少，有限帧也可能没有抽中。源 PDF 和目标 PDF 不能在真实贡献非零处错误归零；统计噪声和有限样本偏差仍需测量。<a class="cite" href="#s4">[4]</a><a class="cite" href="#s6">[6]</a></p></article>
+<article class="card"><h3>保留现有发光模型，不同时改题</h3><p>现有盒状发光体有十二点参考积分和二十四个稳定源身份。接入时将其作为明确的离散采样域，保留面积权重、功率归一化、范围窗和端点所有权规则，再做概率校正。</p><p>不能只选一盏灯后继续跑十二点；也不能改成更亮的点光源来获得“差不多的暖光”。若以后采用连续面积采样，应作为单独的模型变化与参考比较，而不是悄悄混进优化。</p></article>
+</div>
+<div class="callout warning"><h3>ReGIR 不是默认必装的第二个“大场”</h3><p>官方文档说明，一个格子会保留数百至数千样本；附近挤着很多灯时，它也不擅长从这些灯中替真实表面做最终选择。当前仅八盏选中灯，先比较较简单的均匀/功率 RIS 与共享预采样；只有空间分布导致的浪费明显，才增加 ReGIR。这样既遵守成熟方法，也避免把新网格的固定开销误当作免费。<a class="cite" href="#s3">[3]</a></p></div>
+<div class="prose"><p><strong>超出网格、尚未准备好或样本不足时：</strong>仍采用固定预算的全局功率/均匀采样，而不是回到原先的全灯积分。SDK 的实际初始采样代码也有这类有界全局采样路径。原始积分只保留为明确 A/B 基线或稀疏审计，不允许成为多数接收点的隐蔽“兜底”。<a class="cite" href="#s7">[7]</a></p></div>
+</section>
+
+<section id="quality">
+<div class="section-head"><span class="number">06</span><h2>可以退化，但必须知道在退化什么</h2></div>
+<div class="grid">
+<article class="card"><span class="pill">有明确理由的取舍</span><h3 style="margin-top:13px">用统计误差换掉重复积分</h3><ul><li><strong>有限样本噪声：</strong>原来稳定的十二点积分变成少量加权连接；空间/时间上会有亮度波动。</li><li><strong>历史与重建：</strong>降噪可能抹掉细节，时域积累可能滞后或拖影；风动细草尤其敏感。</li><li><strong>复杂度升高时质量下降：</strong>预算不变，更多互相遮挡的亮灯需要争夺样本，不可能维持任意场景下同等误差。</li><li><strong>有偏设置：</strong>ReGIR 有限池和某些复用/可见性复用可有偏差，必须把偏差计入接受结果，不能统一称“无偏”。</li></ul></article>
+<article class="card"><span class="pill no">不属于可接受的算法取舍</span><h3 style="margin-top:13px">不把错误包装成近似</h3><ul><li>灯边持续失去暖光，再靠全局亮度或曝光补偿。</li><li>源 PDF 错误归零、漏乘权重、范围错误、删除灯后仍发光。</li><li>多数接收点退回全灯十二点，再宣称固定预算。</li><li>换成更少的参与计算灯、更粗的草、更低的测试画质，却与原模式直接报加速比。</li><li>用“生产中常见近似”豁免 NaN、无效资源、跨版本读写或存档改动。</li></ul></article>
+</div>
+<div class="callout"><p><strong>本项目优先交换：</strong>首先允许少量可度量的采样噪声；其次才考虑受控的时间重建。不要先选择确定性 top-K 删灯、近灯能量损失或空间照度过度模糊。前者有清晰的统计误差机制和样本预算旋钮，后者可能直接改变花园的照明设计。最终噪声/延迟可接受程度仍要通过实际画面和原生测试决定，本报告不预先签发质量合格证。</p></div>
+<div class="prose"><p>RTXDI 的噪声指南明确警告：初始采样并不保证复杂场景的实时画面质量；时空重采样是重要降噪手段，历史和可见性处理又会引入各自的偏差及成本。Epic 对 MegaLights 的公开说明同样列出模糊、噪声和拖影。这些是选择该范式时应接受并管理的产品取舍，而不是接入后才发现的意外。<a class="cite" href="#s4">[4]</a><a class="cite" href="#s10">[10]</a></p></div>
+<details><summary>为什么完整屏幕 ReSTIR + NRD 不能现在就称为“最小改动”</summary><div class="small"><p>标准时空管线需要当前/前帧表面、运动信息和光源身份映射。NRD 需要逐像素法线、粗糙度、viewZ、motion 等引导。当前草带顶点读取准备好的颜色，草片元只输出颜色；这条接口不提供完整的草表面 G-buffer。引擎其他地方存在深度或相机矩阵，不等于细草已经有正确的逐像素历史。</p><p>风摆、弯曲、修剪、换层和遮挡暴露都必须处理历史失效。把 reservoir 改放到草的世界空间缓存并自创邻域重投影，也不是“照接标准屏幕 ReSTIR”；那会变成另一项需论证的适配工作。本轮不沿这个方向即兴发明。<a class="cite" href="#s3">[3]</a><a class="cite" href="#s5">[5]</a><a class="cite" href="#s18">[18]</a></p></div></details>
+</section>
+
+<section id="cost">
+<div class="section-head"><span class="number">07</span><h2>固定接收预算，不代表全系统没有成本</h2></div>
+<div class="prose"><p>原始光源上传、分布构建、空间池更新、历史缓冲、同步和重建都还存在。采样也没有令几何可见性变成常数时间。以下只是从已核查结构推算的<strong>容量账本</strong>，不是新方案的本机显存或耗时实测。</p></div>
+<div class="table-scroll" role="region" aria-label="理论容量估算，可横向滚动" tabindex="0"><table class="costs"><thead><tr><th scope="col">结构 / 假设</th><th scope="col">仅载荷估算</th><th scope="col">未包含什么</th></tr></thead><tbody>
+<tr><td>ReGIR：16³ 格 × 512 槽 × 8 B</td><td>16 MiB</td><td>额外紧凑光源数据、常量、全局池、历史与在途资源</td></tr>
+<tr><td>上述 ReGIR，每槽 8 个构建候选</td><td>16,777,216 次候选评估 / 帧</td><td>假定全槽更新；便宜评估不等于阴影射线，也不等于免费</td></tr>
+<tr><td>DI reservoir：24 B × 2 数组 × 2560×1440</td><td>168.75 MiB</td><td>块线性 pitch、额外数组、G-buffer、运动/历史与降噪资源</td></tr>
+<tr><td>相同假设，512×288</td><td>6.75 MiB</td><td>低分辨率地形画面不代表完整草覆盖；重建细草还要付代价</td></tr>
+</tbody></table></div>
+<p class="caption">ReGIR 的槽位写入为 <code>uint2</code>；可选紧凑光源数据单独存储。DI reservoir 的被核查结构为 6 个 32 位字段。上述双数组是简化使用情形，实际必须使用 SDK pitch/布局，不能按这张表直接分配。<a class="cite" href="#s3">[3]</a><a class="cite" href="#s7">[7]</a></p>
+<div class="grid" style="margin-top:23px">
+<article class="card"><h3>目前可以确定</h3><p>固定 M、K 且使用有界分布查询后，普通草无需做全灯十二点积分。选中的灯和发光点仍用真实接收项和实际几何传输。模型与代码入口都有成熟依据。</p></article>
+<article class="card"><h3>目前不可以确定</h3><p>哪组 M/K 的噪声足够好、ReGIR 是否值得、M4 Pro 上是否更快、连续编辑是否吞掉收益，都没有本项目新实现的数据。论文或 SDK 的其他 GPU 数字不能填补这个空白。</p></article>
+</div>
+</section>
+
+<section id="licensing">
+<div class="section-head"><span class="number">08</span><h2>一个会改变“直接拿来用”结论的发现</h2></div>
+<div class="callout danger"><h3>GPL-3.0 项目，不能默认直接合入 RTXDI / NRD</h3><p>本项目代码采用 GPL-3.0。所核查的 RTXDI-Library 标注 <code>LicenseRef-NvidiaProprietary</code>，其 NVIDIA RTX SDK 许可 §4(e) 对使 SDK 承受特定开源义务的使用有限制；NRD 的已核查版本也采用 NVIDIA RTX SDK 许可。<strong>这不是 MIT/BSD 组件的常规 vendoring，未取得兼容授权与许可审查前，不应合入发行路径。</strong><a class="cite" href="#s8">[8]</a><a class="cite" href="#s18">[18]</a><a class="cite" href="#s20">[20]</a></p></div>
+<div class="grid">
+<article class="card"><h3>算法选择，与代码许可分开</h3><p>RIS/ReGIR/ReSTIR 是可以研究的成熟方法；不等于每份实现都能按 GPL 分发。可以针对公开数学方法独立表达兼容实现，但不复制受限 SDK 源码，也不把这件事当作“现在可以发明一个新估计器”的许可。</p><p>如要求直接采用 SDK，先拿到适用的兼容授权。论文、书章和 SDK 的许可不同，算法名称也不提供专利清权保证；本报告不是法律意见。</p></article>
+<article class="card"><h3>连“书里的代码是 MIT”也要核查</h3><p>Apress 配套仓库说代码通常采用 MIT，除非章节另有说明；但本轮取得的目录没有找到 Chapter_23，未能确立一个可直接取用的 MIT ReGIR 实现。</p><p>作者托管的 ReGIR 书章 PDF 则标注 CC BY-NC-ND 4.0。因此报告只链接资料，不把其插图、伪代码或 SDK 源码当作可自由搬入项目的资产。<a class="cite" href="#s6">[6]</a><a class="cite" href="#s19">[19]</a></p></article>
+</div>
+<div class="prose" style="margin-top:23px"><p><strong>平台也不能跳过。</strong>RTXDI 样例的官方路径是 Windows/Linux、D3D12/Vulkan，经 NVRHI 与 DXC；应用自行提供采样、表面和可见性桥接。项目则是 Rust + Slang + Vulkan/MoltenVK + 自定义 Contree/Glass 传输。算法不强制使用硬件 RT，但<strong>官方 Vulkan 样例成功不等于 macOS/Slang/MoltenVK 已验证</strong>，更不保证软件遍历后的速度。<a class="cite" href="#s5">[5]</a><a class="cite" href="#s9">[9]</a></p>
+<p>Cycles 的已核查 light-tree 文件标注 Apache-2.0，是值得保留的许可较清晰备选；仍须逐依赖检查，不能据一个文件推定整套移植都已过审。它的对数树选择成本也不满足严格的常数查询要求。<a class="cite" href="#s15">[15]</a></p></div>
+<p class="summary-line">因此，明确推荐算法路线；明确否决“未经审查直接把 RTXDI SDK 接进当前 GPL 工程”的交付方式。</p>
+</section>
+
+<section id="acceptance">
+<div class="section-head"><span class="number">09</span><h2>下一轮只有这些证据齐全，才算实现成功</h2></div>
+<p class="prose">本轮到调研和选型为止，不启动渲染实现。以下是实施前后的准入清单，不是已完成的功能清单，也不以测试计划代替性能结论。</p>
+<ol class="rules">
+<li><strong>结构门：昂贵工作真的从全灯积分里移出</strong><span class="small">生产 shader 和编译产物证明普通路径只使用固定 M/K；统计真实候选、最终射线、异常路径和全灯回退次数。常规全灯回退应为零，不以少量快样本掩盖多数草仍跑原积分。</span></li>
+<li><strong>模型门：比较同一个照明问题</strong><span class="small">DDGI spacing 32、发光体、强度、曝光、间接项、草密度与几何保持一致。先验证离散源域的高样本期望与原十二点参考一致，再比较采样噪声；不能沿用旧缓存“同帧 RGB 几乎完全相等”的审计目标要求随机估计器每帧相等。</span></li>
+<li><strong>近场与质量门：双向误差，不是“够暖就通过”</strong><span class="small">回放无障碍近灯失败样例；实测默认/seed 7 的真实草位置和法线。比较参考的线性 RGB/能量、区域误差分布、置信区间、静态噪声和运动拖影；暗区使用绝对误差，不能除以接近零的基线。更多灯时同时报告质量下降。</span></li>
+<li><strong>生命周期门：删灯不是慢慢忘掉</strong><span class="small">在采样结构生效后执行新增、移动、强度/颜色变化、删除与遮挡编辑。光源身份和版本一致；失效历史不能继续贡献已删除光。历史丢弃后的正常收敛噪声，与使用陈旧数据是两回事。种植、修剪、风摆和显隐变化也要覆盖。</span></li>
+<li><strong>成本门：实际上传灯数 × 实际草接收点的伸缩测试</strong><span class="small">以较小矩阵比较 K = 2/4/8、每输出 M = 4/8/16 作为候选预算，而非预设胜出配置。测当前八灯与真正上传的更多灯，区分候选 ALU、可见性、分布/网格构建、滤波、内存与同步。先选择质量达标的设置，再比较速度。</span></li>
+<li><strong>原生门：全程 Release，完整成本入账</strong><span class="small">串行交错 A/B、同二进制/相机/配置、独立且只读的真实生产输出审计；报告稳态、冷启动和持续编辑。保留原生错误检查，不用 debug 或单测时间替代 GPU 证据。seed 7 + Glass 已知 DDGI 非有限值基线问题单独披露，不称本轮已修复。</span></li>
+<li><strong>停止门：不因路线成熟就继续叠复杂性</strong><span class="small">若 RIS 在能接受的 K 下仍无法稳定近灯，或者新增 ReGIR/降噪成本抵消收益，就暂停这个具体接入方案，评估完整屏幕管线或光树的明确成本放宽。不要退回大面积精确积分后宣布固定成本，也不要重新自研一套补偿场。</span></li>
+</ol>
+<div class="callout"><h3>结论的置信边界</h3><p><strong>高置信：</strong>旧结构未改变全灯十二点消费；成熟随机采样可以把最终可见性限制为固定预算；RTXDI 有官方 buffer-less / ReGIR 入口；当前草接口与标准屏幕降噪有明显差距；SDK 许可必须先处理。</p><p><strong>工程判断：</strong>先用共享预采样 + RIS，比立即建设完整 ReGIR/屏幕 ReSTIR 更适合当前八灯世界空间草缓存。<strong>尚无证据：</strong>本项目最终质量、M/K、平台兼容性和新方案加速幅度。本轮没有用外部论文数字冒充这些结果。</p></div>
+</section>
+
+<section id="references">
+<div class="section-head"><span class="number">10</span><h2>一手资料与可复核证据</h2></div>
+<p class="prose small">查阅日期：2026-11-03。优先作者论文、官方文档和源代码。Epic 页面当时显示 UE 5.8；下列 SDK 源码使用固定提交，避免后续许可证和接口漂移。搜索摘要只用于发现资料，不作为最终证据。图示均为原创 HTML/CSS，不是新算法画面；未复制论文插图、导入 SDK 或引入外部字体/脚本。</p>
+<div class="sources">
+<article class="source" id="s1"><h3>[1] ReSTIR DI · SIGGRAPH 2020</h3><a href="https://research.nvidia.com/labs/rtr/publication/bitterli2020spatiotemporal/">Bitterli et al. · 作者研究页</a><p>支持时空 reservoir 重采样、有偏/无偏变体。论文速度和射线数不迁移成本项目结果。</p></article>
+<article class="source" id="s2"><h3>[2] 为生产重构重采样 · HPG 2021</h3><a href="https://research.nvidia.com/labs/rtr/publication/wyman2021rearchitecting/">Wyman &amp; Panteleev</a><p>讨论生产化的成本、一致性、射线预算和质量/性能取舍。</p></article>
+<article class="source" id="s3"><h3>[3] RTXDI · Integration</h3><a href="https://github.com/NVIDIA-RTX/RTXDI/blob/a6efab966b7c3b272da0461578eb56ac61c7cbff/Doc/Integration.md">固定版本集成文档</a><p>重点：World-Space sampling and ReGIR。无需 G-buffer 的采样、每帧重建、空间池并非照度场。</p></article>
+<article class="source" id="s4"><h3>[4] RTXDI · Noise and Bias</h3><a href="https://github.com/NVIDIA-RTX/RTXDI/blob/a6efab966b7c3b272da0461578eb56ac61c7cbff/Doc/NoiseAndBias.md">固定版本噪声与偏差指南</a><p>目标 PDF 的支持域、初始采样局限、时空/可见性复用偏差、纠偏的额外成本。</p></article>
+<article class="source" id="s5"><h3>[5] RTXDI · Application Bridge</h3><a href="https://github.com/NVIDIA-RTX/RTXDI/blob/a6efab966b7c3b272da0461578eb56ac61c7cbff/Doc/RtxdiApplicationBridge.md">固定版本桥接接口</a><p>应用负责光源/表面、采样/PDF、可见性与历史身份映射，非完整渲染器。</p></article>
+<article class="source" id="s6"><h3>[6] ReGIR · Ray Tracing Gems II，2021</h3><a href="https://research.nvidia.com/labs/rtr/publication/boksansky2021rendering/">研究页</a> · <a href="https://boksajak.github.io/files/RTG2_ReGIRGridBasedReservoirs.pdf">作者托管全文</a><p>第 23 章，pp. 351–365。两级 RIS、空间池、参数、动态/时域问题、偏差与局限；书章 CC BY-NC-ND 4.0。</p></article>
+<article class="source" id="s7"><h3>[7] RTXDI-Library · 算法实际实现</h3><a href="https://github.com/NVIDIA-RTX/RTXDI-Library/blob/f12037fa8e97ebc08e9e3edfd2de528ed1772a4b/Include/Rtxdi/DI/InitialSampling.hlsli">接收端 InitialSampling</a> · <a href="https://github.com/NVIDIA-RTX/RTXDI-Library/blob/f12037fa8e97ebc08e9e3edfd2de528ed1772a4b/Include/Rtxdi/LightSampling/PresamplingFunctions.hlsli">共享构建</a> · <a href="https://github.com/NVIDIA-RTX/RTXDI-Library/blob/f12037fa8e97ebc08e9e3edfd2de528ed1772a4b/Include/Rtxdi/ReGIR/ReGIR.h">ReGIR 参数</a> · <a href="https://github.com/NVIDIA-RTX/RTXDI-Library/blob/f12037fa8e97ebc08e9e3edfd2de528ed1772a4b/Include/Rtxdi/RtxdiParameters.h">Reservoir 布局</a><p>核查真实循环上限、网格外全局采样、槽位 uint2 与默认参数，不只读宣传。</p></article>
+<article class="source" id="s8"><h3>[8] NVIDIA SDK 许可</h3><a href="https://github.com/NVIDIA-RTX/RTXDI-Library/blob/f12037fa8e97ebc08e9e3edfd2de528ed1772a4b/LICENSE.txt">RTXDI-Library LICENSE</a><p>尤其 §1、§2、§4(e)。被检查的头文件标注 LicenseRef-NvidiaProprietary；不可默认 MIT/BSD。</p></article>
+<article class="source" id="s9"><h3>[9] RTXDI · 样例构建与平台</h3><a href="https://github.com/NVIDIA-RTX/RTXDI/blob/a6efab966b7c3b272da0461578eb56ac61c7cbff/README.md">固定版本 README</a><p>Windows/Linux，D3D12/Vulkan，NVRHI + DXC；不是 Slang/MoltenVK 的兼容性验收。</p></article>
+<article class="source" id="s10"><h3>[10] Epic · MegaLights</h3><a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/megalights-in-unreal-engine">UE 官方文档 · 访问时为 5.8</a><p>固定预算、采样导向、降噪与质量限制；推荐硬件 RT，也描述软件路径；与 Forward Renderer 不兼容。</p></article>
+<article class="source" id="s11"><h3>[11] Practical Clustered Shading · 2013</h3><a href="https://www.humus.name/Articles/PracticalClusteredShading.pdf">Emil Persson / Avalanche · 原始演讲</a><p>空间光列表及前向/透明适配。Just Cause 2 的四灯/格是历史产品预算，不是精确光源聚合。</p></article>
+<article class="source" id="s12"><h3>[12] LTC · SIGGRAPH 2016</h3><a href="https://eheitzresearch.wordpress.com/415-2/">Heitz et al. · 作者项目页</a><p>通过变换余弦分布高效积分多边形光源 BRDF；不是任意遮挡或全部多光源问题的完整解。</p></article>
+<article class="source" id="s13"><h3>[13] Lightcuts · SIGGRAPH 2005</h3><a href="https://www.cs.cornell.edu/~kb/projects/lightcuts/">Walter et al. · Cornell 作者页</a><p>二叉光树、成组近似和误差控制。自适应工作量不等于无条件常数上限。</p></article>
+<article class="source" id="s14"><h3>[14] Stochastic Lightcuts</h3><a href="https://www.cemyuksel.com/research/stochasticlightcuts/">Cem Yuksel · 作者项目页</a><p>层次光源采样与噪声/相关性取舍。仅作独立候选路线，不替代本项目实现证据。</p></article>
+<article class="source" id="s15"><h3>[15] Cycles · Light Tree</h3><a href="https://docs.blender.org/manual/en/4.2/render/cycles/render_settings/sampling.html">Blender 4.2 手册</a> · <a href="https://github.com/blender/blender/blob/v4.2.0/intern/cycles/kernel/light/tree.h">v4.2.0 实现</a><p>已集成的生产渲染器能力；该源文件 Apache-2.0。并非实时草的性能证明，许可仍需逐依赖检查。</p></article>
+<article class="source" id="s16"><h3>[16] Epic · Volumetric Lightmaps</h3><a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/volumetric-lightmaps-in-unreal-engine">UE 官方文档 · 访问时为 5.8</a><p>预计算间接照明、空间插值与几何附近加密；不等于固定 32 下的动态直接光方案。</p></article>
+<article class="source" id="s17"><h3>[17] idTech 8 GI · SIGGRAPH 2025</h3><a href="https://advances.realtimerendering.com/s2025/content/SOUSA_SIGGRAPH_2025_Final.pdf">Tiago Sousa · 官方课程 PDF</a><p>pp. 12–24、29、32。已发售作品的光列表/辐射缓存/照度体/gather 分工，非本项目计时证据。</p></article>
+<article class="source" id="s18"><h3>[18] NVIDIA NRD · v4.18.0 源码快照</h3><a href="https://github.com/NVIDIA-RTX/NRD/blob/1b6c1865cb59cd14081f2e2eecd02e37b8ca6853/README.md">接口 / 输入要求</a> · <a href="https://github.com/NVIDIA-RTX/NRD/blob/1b6c1865cb59cd14081f2e2eecd02e37b8ca6853/LICENSE.txt">许可</a><p>逐像素 normal、roughness、viewZ、motion；RELAX 为 RTXDI 设计。此版本许可并非默认 MIT。</p></article>
+<article class="source" id="s19"><h3>[19] Apress 配套源码 · 负面核查</h3><a href="https://github.com/Apress/Ray-Tracing-Gems-II">官方仓库</a><p>根说明通常 MIT，但本轮取得的目录未找到 Chapter_23，不能据搜索摘要宣称已有 MIT ReGIR 源码。</p></article>
+<article class="source" id="s20"><h3>[20] 项目基线与研究记录</h3><a href="../../../LICENSE">GPL-3.0</a> · <a href="../local-light-field-32/index.html">固定 32 的负面证据</a> · <a href="../visibility-performance-fix/index.html">旧缓存性能证据</a> · <a href="../../research/many-light-rendering.md">来源与决策笔记</a><p>本地代码基线 6cb6edd9；历史实验与本轮研究明确分开，无新算法性能或画面合格声明。</p></article>
+</div>
+<details><summary>源码版本、研究方法与可复核边界</summary><div class="small"><p>研究依次核查算法目标、实际实现、项目调用接口、参数/成本和许可。没有执行 SDK 样例，也没有实现、截图比较或 benchmark 新算法；没有通过更改场景、默认值或发布二进制来制造研究结果。</p><p class="hash">re-flora: 6cb6edd93e59e5d85b0a7930092c282314b230e4<br>RTXDI docs/sample: a6efab966b7c3b272da0461578eb56ac61c7cbff<br>RTXDI-Library: f12037fa8e97ebc08e9e3edfd2de528ed1772a4b<br>NRD: 1b6c1865cb59cd14081f2e2eecd02e37b8ca6853</p><p>动态网页可能随引擎版本更新；固定源码链接用于约束这里的接口和许可结论。没有找到已核实的、同时满足本项目 GPL 发行、Slang/MoltenVK、世界空间草缓存和固定消费预算的免适配库，不能把“未找到”写成“绝对不存在”。</p></div></details>
+</section>
+</main>
+<footer class="wrap"><div class="footer-top"><strong>结论：换采样范式，不再在旧的 G × L × 12 结构里打补丁。</strong><a href="#decision">回到结论 ↑</a></div><p>本轮交付为调研报告与来源笔记。未修改渲染器、场景、材质、默认配置或存档；尚未进行新算法的本机质量/性能验收。图表是工作组织与容量估算，不是效果截图或性能预测。</p></footer>
+</body>
+</html>
