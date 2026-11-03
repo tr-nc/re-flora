@@ -174,6 +174,35 @@ public float3 traceVoxelGlassEmitterConnection(
         ? float3(0.0) : t.transmittance;
 }
 
+// One authoritative analytic-point segment policy for exact and sampled consumers.
+public float3 traceVoxelPointLightConnection(U_LightGpu light,
+    StructuredBuffer<ContreeNode> nodes, StructuredBuffer<uint> leaves,
+    readonly RWTexture3D<uint2> scene, float3 origin, float offset, uint lane)
+{
+    float3 segment=light.position-origin;
+    float distance=length(segment);
+    if(distance<=light.source_radius) return float3(1.0);
+    float3 direction=segment/distance;
+    MarchingResult hit=marchScene(nodes,leaves,scene,origin,direction,1.0/direction,lane);
+    return !hit.is_hit || hit.distance+max(offset,1.0e-5)>=max(0.0,distance-light.source_radius)
+        ? float3(1.0) : float3(0.0);
+}
+
+public float3 traceVoxelGlassPointLightConnection(U_LocalLightInfo info,U_LightGpu light,
+    StructuredBuffer<ContreeNode> nodes, StructuredBuffer<uint> leaves,
+    readonly RWTexture3D<uint2> scene, readonly RWTexture3D<uint> atlas,
+    float3 origin, uint lane)
+{
+    float3 segment=light.position-origin;
+    float distance=length(segment);
+    if(distance<=light.source_radius) return float3(1.0);
+    SceneStraightTransport t=traceVoxelStraightTransport(nodes,leaves,scene,atlas,
+        origin,segment/distance,max(0.0,distance-light.source_radius),
+        (info.flags & LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS)!=0u,lane);
+    return t.exhausted!=0u || t.terminal.kind==SCENE_QUERY_EVENT_OPAQUE
+        ? float3(0.0) : t.transmittance;
+}
+
 // Finite-emitter visibility uses the same published scene and finite segments as
 // analytic points. No screen-space blur, ambient fill, or shadow-strength floor.
 LocalLightVoxelEvaluation evaluateVoxelFiniteEmitter(
@@ -235,26 +264,9 @@ public LocalLightVoxelEvaluation evaluateVoxelVisibleLocalLightAtIndex(
 
         float3 shadowOrigin = terrainRayOriginFromPosition(
             receiverPosition, receiverNormal, rayOriginOffsetWorld);
-        float3 shadowToLight = light.position - shadowOrigin;
-        float segmentLength = length(shadowToLight);
-        if (segmentLength <= light.source_radius)
-        {
-            result.visible += 1u;
-            result.irradiance += sample.irradiance;
-            return result;
-        }
-        float3 shadowDirection = shadowToLight / segmentLength;
-        MarchingResult shadowHit = marchScene(
-            nodeData, leafData, sceneTexture, shadowOrigin,
-            shadowDirection, 1.0 / shadowDirection,
-            localInvocationIndex);
-        // A hit in the final source-radius sphere belongs to the emitter geometry itself. A hit
-        // before that endpoint volume remains an independent blocker.
-        float endpointStart = max(0.0, segmentLength - light.source_radius);
-        float visibility = !shadowHit.is_hit ||
-            shadowHit.distance + max(rayOriginOffsetWorld, 1.0e-5) >= endpointStart
-            ? 1.0 : 0.0;
-        if (visibility > 0.0)
+        float3 transmittance = traceVoxelPointLightConnection(light,nodeData,leafData,
+            sceneTexture,shadowOrigin,rayOriginOffsetWorld,localInvocationIndex);
+        if (any(transmittance > float3(0.0)))
         {
             result.visible += 1u;
             result.irradiance += sample.irradiance;
@@ -385,23 +397,8 @@ public LocalLightVoxelEvaluation evaluateVoxelGlassVisibleLocalLightAtIndex(
 
         float3 shadowOrigin = terrainRayOriginFromPosition(
             receiverPosition, receiverNormal, rayOriginOffsetWorld);
-        float3 shadowToLight = light.position - shadowOrigin;
-        float segmentLength = length(shadowToLight);
-        if (segmentLength <= light.source_radius)
-        {
-            result.visible += 1u;
-            result.irradiance += sample.irradiance;
-            return result;
-        }
-        float3 shadowDirection = shadowToLight / segmentLength;
-        float endpointStart = max(0.0, segmentLength - light.source_radius);
-        SceneStraightTransport transport = traceVoxelStraightTransport(
-            nodeData, leafData, sceneTexture, chunkAtlas,
-            shadowOrigin, shadowDirection, endpointStart, (info.flags & LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS) != 0u,
-            localInvocationIndex);
-        float3 transmittance = transport.exhausted != 0u ||
-            transport.terminal.kind == SCENE_QUERY_EVENT_OPAQUE
-            ? float3(0.0) : transport.transmittance;
+        float3 transmittance = traceVoxelGlassPointLightConnection(info,light,
+            nodeData,leafData,sceneTexture,chunkAtlas,shadowOrigin,localInvocationIndex);
         if (any(transmittance > float3(0.0)))
         {
             result.visible += 1u;

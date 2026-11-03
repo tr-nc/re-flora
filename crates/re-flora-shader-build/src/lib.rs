@@ -280,6 +280,18 @@ pub const NATIVE_SHADERS: &[ShaderConfig] = &[
         stage: ShaderStage::Compute,
     },
     ShaderConfig {
+        logical_path: "shader/foliage/flora_ris_audit.comp",
+        source_path: "shader/slang/flora_ris_audit.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
+        logical_path: "shader/foliage/flora_ris_audit_glass.comp",
+        source_path: "shader/slang/flora_ris_audit_glass.comp.slang",
+        module_path: "shader/slang",
+        stage: ShaderStage::Compute,
+    },
+    ShaderConfig {
         logical_path: "shader/foliage/flora_ris_cache.comp",
         source_path: "shader/slang/flora_ris_cache.comp.slang",
         module_path: "shader/slang",

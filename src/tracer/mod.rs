@@ -89,6 +89,7 @@ pub(crate) mod model_pixel_views;
 pub use dynamic_fruit_resources::*;
 
 mod flora_lighting_cache;
+mod light_ris_audit;
 mod local_light_field;
 use flora_lighting_cache::FloraLightingCache;
 mod fruit_release;
@@ -1804,6 +1805,7 @@ pub struct Tracer {
     environment_lighting: AuthoredEnvironmentLighting,
     flora_lighting_cache: FloraLightingCache,
     local_light_field: local_light_field::LocalLightField,
+    light_ris_audit: light_ris_audit::LightRisAudit,
     grass_local_light_field: bool,
     grass_light_ris: bool,
     grass_band_cache: grass_band_cache::GrassBandCache,
@@ -2197,6 +2199,7 @@ impl Tracer {
             environment_lighting: AuthoredEnvironmentLighting::default(),
             flora_lighting_cache: FloraLightingCache::default(),
             local_light_field: local_light_field::LocalLightField::default(),
+            light_ris_audit: light_ris_audit::LightRisAudit::default(),
             grass_local_light_field: false,
             grass_light_ris: false,
             grass_band_cache: grass_band_cache::GrassBandCache::default(),
@@ -5112,6 +5115,21 @@ impl Tracer {
                 required_lighting_cache_entries,
             );
             let cache_buffer = self.flora_lighting_cache.buffer(gpu_profiler_frame_slot);
+            let ris_audit_buffer =
+                (self.grass_light_ris && light_ris_audit::LightRisAudit::enabled()).then(|| {
+                    self.pipeline_topology
+                        .compute()
+                        .flora_ris_audit_ppl
+                        .as_ref()
+                        .unwrap()
+                        .begin_transient_descriptor_frame(gpu_profiler_frame_slot);
+                    self.light_ris_audit.prepare(
+                        self.vulkan_ctx.device().clone(),
+                        self.allocator.clone(),
+                        gpu_profiler_frame_slot,
+                        cmdbuf,
+                    )
+                });
             self.pipeline_topology
                 .compute()
                 .flora_lighting(false, consumer_mode)
@@ -5221,6 +5239,24 @@ impl Tracer {
                         Some(bytemuck::bytes_of(&push_constant)),
                     )
                     .expect("flora lighting transient descriptors must match reflection");
+                if let Some(buffer) = &ris_audit_buffer {
+                    // The audit has no pose descriptor and cannot overwrite normal output.
+                    let mut audit_descriptors = descriptors.clone();
+                    audit_descriptors.retain(|(name, _)| *name != "grass_band_pose_cache");
+                    audit_descriptors.push(("light_ris_audit", DescriptorResource::Buffer(buffer)));
+                    self.pipeline_topology
+                        .compute()
+                        .flora_ris_audit_ppl
+                        .as_ref()
+                        .unwrap()
+                        .record_with_descriptors(
+                            cmdbuf,
+                            &audit_descriptors,
+                            Extent3D::new(batch.mesh_voxel_count(), batch.instance_count(), 1),
+                            Some(bytemuck::bytes_of(&push_constant)),
+                        )
+                        .expect("RIS output/reference audit descriptors");
+                }
                 if audit_pending {
                     descriptors.push((
                         "local_light_field_audit",
@@ -5242,6 +5278,10 @@ impl Tracer {
             }
             self.local_light_field
                 .record_audit_readback(cmdbuf, gpu_profiler_frame_slot);
+            if ris_audit_buffer.is_some() {
+                self.light_ris_audit
+                    .record_readback(cmdbuf, gpu_profiler_frame_slot);
+            }
             if let (Some(profiler), Some(scope)) = (gpu_profiler.as_deref_mut(), cache_scope) {
                 profiler.end_scope(
                     gpu_profiler_frame_slot,

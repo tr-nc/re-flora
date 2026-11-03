@@ -2,16 +2,14 @@
 import light_reservoir;
 import local_emitter;
 import terrain_ray_origin;
-import marching_result;
-import scene_marching;
-import scene_query;
 
 struct LightProposal
 {
     uint light_index;
     float inverse_probability;
 };
-[[vk::binding(47, 0)]] StructuredBuffer<LightProposal> local_light_proposals;
+// 47 is raster_tree_cells, even in a grass compute shader via scene_marching.
+[[vk::binding(57, 0)]] StructuredBuffer<LightProposal> local_light_proposals;
 groupshared uint3 light_ris_pool[256];
 
 // All lanes participate, INCLUDING lanes outside the partial dispatch extent.
@@ -73,22 +71,13 @@ float3 floraRisVisibility(U_LocalLightInfo info, U_LightGpu light,
             contree_leaf_data,scene_tex,origin,endpoint,lane);
 #endif
     }
-    // Reuse the authoritative analytic-point transport, but never the finite
-    // evaluator (which would trace all twelve taps after choosing one light).
-    float3 segment=endpoint-origin;
-    float distance=length(segment);
-    if(distance<=light.source_radius) return float3(1.0);
-    float end=max(0.0,distance-light.source_radius);
+    // Shared segment policy, not the exhaustive finite-emitter evaluator.
 #if RE_FLORA_GLASS_TRANSPORT
-    SceneStraightTransport t=traceVoxelStraightTransport(contree_node_data,contree_leaf_data,
-        scene_tex,chunk_atlas,origin,segment/distance,max(end,1.0e-6),
-        (info.flags & LOCAL_LIGHT_FLAG_LEGACY_SAND_GLASS)!=0u,lane);
-    return t.exhausted!=0u || t.terminal.kind==SCENE_QUERY_EVENT_OPAQUE
-        ? float3(0.0) : t.transmittance;
+    return traceVoxelGlassPointLightConnection(info,light,contree_node_data,
+        contree_leaf_data,scene_tex,chunk_atlas,origin,lane);
 #else
-    MarchingResult hit=marchScene(contree_node_data,contree_leaf_data,scene_tex,
-        origin,segment/distance,distance/segment,lane);
-    return !hit.is_hit || hit.distance+max(offset,1.0e-5)>=end ? float3(1.0) : float3(0.0);
+    return traceVoxelPointLightConnection(light,contree_node_data,
+        contree_leaf_data,scene_tex,origin,offset,lane);
 #endif
 }
 
@@ -112,11 +101,18 @@ float3 evaluateFloraRis(U_LocalLightInfo info,float3 position,float3 normal,
             U_LightGpu light=local_lights[proposal.x];
             FloraRisConnection c=floraRisConnection(light,proposal.y,position,normal);
             float invPdf=asfloat(proposal.z)*(light.shape_params.w>0.5 ? 12.0 : 1.0);
+#if RE_FLORA_RIS_AUDIT
+            if(lightSamplingTarget(c.response)>0.0 && invPdf>0.0)
+                InterlockedAdd(light_ris_audit[14],1u);
+#endif
             streamLightCandidate(reservoir,index,lightSamplingTarget(c.response),invPdf,
                 lightSamplingRandom(state));
         }
         float normalization=lightReservoirNormalization(reservoir,candidates);
         if(normalization<=0.0) continue;
+#if RE_FLORA_RIS_AUDIT
+        InterlockedAdd(light_ris_audit[15],1u);
+#endif
         uint3 selected=light_ris_pool[reservoir.selected];
         U_LightGpu light=local_lights[selected.x];
         FloraRisConnection c=floraRisConnection(light,selected.y,position,normal);

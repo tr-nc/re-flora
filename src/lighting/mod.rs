@@ -959,9 +959,20 @@ mod tests {
         let evaluator = include_str!("../../shader/slang/local_lighting.slang");
         assert!(evaluator.contains("for (uint lightIndex = 0u;"));
         assert!(evaluator.contains("marchScene("));
-        assert!(evaluator.contains("shadowHit.distance"));
-        assert!(evaluator.contains("light.position - shadowOrigin"));
-        assert!(evaluator.contains("segmentLength - light.source_radius"));
+        let sampled = include_str!("../../shader/slang/flora_light_ris.slang");
+        for segment_policy in [
+            "traceVoxelPointLightConnection",
+            "traceVoxelGlassPointLightConnection",
+        ] {
+            assert!(
+                evaluator.matches(segment_policy).count() >= 2,
+                "exact evaluator must use {segment_policy}"
+            );
+            assert!(
+                sampled.contains(segment_policy),
+                "RIS must use the same {segment_policy}"
+            );
+        }
 
         let diagnostic =
             include_str!("../../shader/slang/local_light_visibility_diagnostic.comp.slang");

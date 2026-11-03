@@ -13,6 +13,9 @@ import grass_visibility;
 #ifndef RE_FLORA_LIGHT_RIS
 #define RE_FLORA_LIGHT_RIS 0
 #endif
+#ifndef RE_FLORA_RIS_AUDIT
+#define RE_FLORA_RIS_AUDIT 0
+#endif
 
 #ifndef RE_FLORA_STEM_BAND_CACHE
 #define RE_FLORA_STEM_BAND_CACHE 0
@@ -52,7 +55,7 @@ readonly GLSLShaderStorageBuffer<B_ManualFloraInstances, Std430DataLayout>
     flora_instances;
 
 [[vk::binding(2, 1)]]
-#if RE_FLORA_LOCAL_VISIBILITY == 2
+#if RE_FLORA_LOCAL_VISIBILITY == 2 || RE_FLORA_RIS_AUDIT
 StructuredBuffer<float4> flora_lighting_cache;
 #else
 RWStructuredBuffer<float4> flora_lighting_cache;
@@ -68,6 +71,9 @@ RWStructuredBuffer<float4> flora_lighting_cache;
 
 #if RE_FLORA_LIGHT_RIS
 #include "flora_light_ris.slang"
+#endif
+#if RE_FLORA_RIS_AUDIT
+#include "flora_ris_audit.slang"
 #endif
 
 [shader("compute")]
@@ -94,6 +100,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_Gro
     bool audit=local_light_field_audit[15]!=0u &&
         ((localInstanceIndex*1664525u+dispatchThreadId.x*1013904223u)&1023u)==0u;
     if(!audit) return;
+#endif
+#if RE_FLORA_RIS_AUDIT
+    // Rotate the audit subset, not the production sampler. Partial groups must
+    // already have crossed the shared-proposal barrier before this early exit.
+    if((lightSamplingHash(localInstanceIndex ^ dispatchThreadId.x*1013904223u ^
+        uint(floraPc.time*60.0)) & 255u)!=0u) return;
 #endif
     uint instanceIndex = instanceType * MAX_FLORA_INSTANCES_PER_SPECIES +
                          localInstanceIndex;
@@ -122,6 +134,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_Gro
         ? float3(0.0)
         : sampleFloraEnvironment(
             prepared.voxel_position, prepared.shading_normal);
+#if RE_FLORA_RIS_AUDIT
+    float3 environment=irradiance;
+#endif
     if (!prepared.should_trim)
     {
 #if RE_FLORA_LIGHT_RIS
@@ -152,7 +167,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_Gro
 #endif
     }
     uint outputIndex=floraLightingCacheIndex(floraPc,dispatchThreadId.y,dispatchThreadId.x);
-#if RE_FLORA_LOCAL_VISIBILITY == 2
+#if RE_FLORA_RIS_AUDIT
+    auditFloraRis(environment,irradiance,flora_lighting_cache[outputIndex].xyz,prepared,localIndex);
+#elif RE_FLORA_LOCAL_VISIBILITY == 2
     float3 rendered=flora_lighting_cache[outputIndex].xyz;
     float3 delta=abs(rendered-irradiance);
     float error=all(isfinite(rendered)) && all(isfinite(irradiance))

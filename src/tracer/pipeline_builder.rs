@@ -444,6 +444,8 @@ impl PipelineBuilder {
             );
             ShaderModule::from_precompiled(vulkan_ctx.device(), &path, "main").unwrap()
         };
+        let flora_ris_audit_sm = super::light_ris_audit::LightRisAudit::enabled()
+            .then(|| load_visibility_shader("flora_ris_audit"));
         let flora_ris_cache_sm = load_visibility_shader("flora_ris_cache");
         let flora_ris_band_cache_sm = load_visibility_shader("flora_ris_band_cache");
         let flora_visibility_cache_sm = load_visibility_shader("flora_visibility_cache");
@@ -783,6 +785,7 @@ impl PipelineBuilder {
             flora_frag_sm,
             local_light_field_sm,
             flora_lighting_cache_sm,
+            flora_ris_audit_sm,
             flora_ris_cache_sm,
             flora_ris_band_cache_sm,
             flora_visibility_cache_sm,
@@ -989,6 +992,10 @@ impl PipelineBuilder {
             pipeline
         };
         let flora_lighting_cache_ppl = make_flora_lighting(&shader_modules.flora_lighting_cache_sm);
+        let flora_ris_audit_ppl = shader_modules
+            .flora_ris_audit_sm
+            .as_ref()
+            .map(&make_flora_lighting);
         let flora_ris_cache_ppl = make_flora_lighting(&shader_modules.flora_ris_cache_sm);
         let flora_ris_band_cache_ppl = make_flora_lighting(&shader_modules.flora_ris_band_cache_sm);
         let flora_visibility_cache_ppl =
@@ -1274,6 +1281,7 @@ impl PipelineBuilder {
             local_light_field_ppl,
             flora_lighting_cache_ppl,
             flora_lighting_band_cache_ppl,
+            flora_ris_audit_ppl,
             flora_ris_cache_ppl,
             flora_ris_band_cache_ppl,
             flora_visibility_cache_ppl,
@@ -2146,6 +2154,7 @@ declare_ddgi_consumer_registry! {
     ],
     optional: [
         GlassResolve => Compute(compute.glass_resolve_ppl),
+        FloraRisAudit => Compute(compute.flora_ris_audit_ppl),
         FloraVisibilityAudit => Compute(compute.flora_visibility_audit_ppl),
         GrassBandVisibilityAudit => Compute(compute.flora_visibility_band_audit_ppl),
     ]
@@ -3194,6 +3203,7 @@ pub struct ShaderModules {
     pub flora_frag_sm: ShaderModule,
     pub local_light_field_sm: ShaderModule,
     pub flora_lighting_cache_sm: ShaderModule,
+    pub flora_ris_audit_sm: Option<ShaderModule>,
     pub flora_ris_cache_sm: ShaderModule,
     pub flora_ris_band_cache_sm: ShaderModule,
     pub flora_visibility_cache_sm: ShaderModule,
@@ -3318,7 +3328,7 @@ pipeline_collection! {
         vegetation_response_ppl,
         post_processing_ppl
     ];
-    optional: [glass_resolve_ppl, flora_visibility_audit_ppl, flora_visibility_band_audit_ppl]
+    optional: [glass_resolve_ppl, flora_visibility_audit_ppl, flora_visibility_band_audit_ppl, flora_ris_audit_ppl]
 }
 
 impl ComputePipelines {

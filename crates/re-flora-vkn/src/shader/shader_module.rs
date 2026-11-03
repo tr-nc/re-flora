@@ -1032,6 +1032,42 @@ mod tests {
     }
 
     #[test]
+    fn ris_programs_isolate_proposals_and_read_only_audits() {
+        for glass in ["", "_glass"] {
+            for (name, ris, audit) in [
+                ("flora_lighting_cache", false, false),
+                ("flora_lighting_band_cache", false, false),
+                ("flora_visibility_cache", false, false),
+                ("flora_ris_cache", true, false),
+                ("flora_ris_band_cache", true, false),
+                ("flora_ris_audit", true, true),
+            ] {
+                let path = format!("shader/foliage/{name}{glass}.comp");
+                let artifact = find_precompiled_shader(&path).unwrap();
+                for bytes in [artifact.reflection_spirv, artifact.optimized_spirv] {
+                    let module = ReflectShaderModule::load_u8_data(bytes).unwrap();
+                    let bindings = module.enumerate_descriptor_bindings(None).unwrap();
+                    let decorations = parse_descriptor_access_decorations(bytes).unwrap();
+                    let mut occupied = std::collections::HashMap::new();
+                    for binding in &bindings {
+                        let previous = occupied.insert((binding.set,binding.binding),&binding.name);
+                        assert!(previous.is_none(), "{path}: set {} binding {} aliases {:?} and {}", binding.set,binding.binding,previous,binding.name);
+                    }
+                    assert_eq!(bindings.iter().any(|b| b.name == "local_light_proposals"), ris, "{path}");
+                    assert_eq!(bindings.iter().any(|b| b.set == 1 && b.binding == 13), audit, "{path}");
+                    if audit {
+                        let output = bindings.iter().find(|b| b.set == 1 && b.binding == 2).unwrap();
+                        assert_eq!(reflected_descriptor_access(output, &decorations), DescriptorAccess::ReadOnly);
+                    }
+                    if ris {
+                        assert!(!bindings.iter().any(|b| b.set == 1 && [11,12].contains(&b.binding)), "{path}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn leaf_vertex_shaders_reflect_only_the_compact_packed_input() {
         for shader_path in [
             "shader/foliage/leaves.vert",

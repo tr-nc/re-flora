@@ -393,7 +393,7 @@ impl App {
                 let (lag, coalesced) = self.tracer.local_light_transport_observability();
                 assert_eq!(lag, 0);
                 log::info!(
-                    "[LOCAL_LIGHT_SCALE] complete counts=0,1,2,4,8 samples_per_count={} final_source_revision={} final_registry_revision={} final_transport_revision={} revision_lag=0 coalesced_live_revisions={} final_zero=true mixed_in_flight=false",
+                    "[LOCAL_LIGHT_SCALE] complete sampled_counts=see_count_records samples_per_count={} final_source_revision={} final_registry_revision={} final_transport_revision={} revision_lag=0 coalesced_live_revisions={} final_zero=true mixed_in_flight=false",
                     LOCAL_LIGHT_SCALING_SAMPLE_FRAMES,
                     state.expected_source_revision,
                     state.expected_registry_revision,
