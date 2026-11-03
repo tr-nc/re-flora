@@ -935,6 +935,15 @@ mod tests {
     }
 
     #[test]
+    fn flora_traversal_scratch_is_owned_by_the_full_workgroup_invocation() {
+        let flora = include_str!("../../shader/slang/flora_lighting_cache.comp.slang");
+        assert!(flora.contains("localIndex : SV_GroupIndex"));
+        assert!(!flora.contains("floraTerrainRayOriginOffsetWorld(), dispatchThreadId.x"));
+        // The kernel is 8x4: four distinct receivers share each x coordinate.
+        // x is a layer index, not a unique index into Contree groupshared scratch.
+    }
+
+    #[test]
     fn production_consumers_share_the_voxel_visible_local_light_evaluator() {
         for source in [
             include_str!("../../shader/slang/tracer.slang"),
