@@ -104,7 +104,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_Gro
 #if RE_FLORA_RIS_AUDIT
     // Rotate the audit subset, not the production sampler. Partial groups must
     // already have crossed the shared-proposal barrier before this early exit.
-    if((lightSamplingHash(localInstanceIndex ^ dispatchThreadId.x*1013904223u ^
+    uint auditHash=lightSamplingHash(localInstanceIndex ^ dispatchThreadId.x*1013904223u);
+    if(light_ris_audit[16]!=0u)
+    {
+        if((auditHash&1023u)!=0u) return;
+    }
+    else if((lightSamplingHash(localInstanceIndex ^ dispatchThreadId.x*1013904223u ^
         uint(floraPc.time*60.0)) & 255u)!=0u) return;
 #endif
     uint instanceIndex = instanceType * MAX_FLORA_INSTANCES_PER_SPECIES +
@@ -168,7 +173,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_Gro
     }
     uint outputIndex=floraLightingCacheIndex(floraPc,dispatchThreadId.y,dispatchThreadId.x);
 #if RE_FLORA_RIS_AUDIT
-    auditFloraRis(environment,irradiance,flora_lighting_cache[outputIndex].xyz,prepared,localIndex);
+    auditFloraRis(environment,irradiance,flora_lighting_cache[outputIndex].xyz,
+        prepared,localIndex,instancePosition,instanceType,dispatchThreadId.x,dispatchThreadId.y);
 #elif RE_FLORA_LOCAL_VISIBILITY == 2
     float3 rendered=flora_lighting_cache[outputIndex].xyz;
     float3 delta=abs(rendered-irradiance);

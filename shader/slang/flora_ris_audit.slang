@@ -11,7 +11,7 @@ void risAuditSum(uint index,float value)
     } while(old!=assumed);
 }
 void auditFloraRis(float3 environment,float3 evaluated,float3 rendered,
-    PreparedFloraVertex prepared,uint lane)
+    PreparedFloraVertex prepared,uint lane,uint3 root,uint species,uint layer,uint row)
 {
     float3 reference=float3(0.0);
     if(!prepared.should_trim)
@@ -43,4 +43,35 @@ void auditFloraRis(float3 environment,float3 evaluated,float3 rendered,
         risAuditSum(7u+channel,direct[channel]);
     }
     risAuditSum(10u,abs(lightSamplingTarget(direct)-lightSamplingTarget(reference)));
+    if(light_ris_audit[16]!=0u)
+    {
+        uint record; InterlockedAdd(light_ris_audit[12],1u,record);
+        if(record>=4096u) return;
+        uint base=20u+record*24u;
+        light_ris_audit[base+0u]=root.x;
+        light_ris_audit[base+1u]=root.y;
+        light_ris_audit[base+2u]=root.z;
+        light_ris_audit[base+3u]=species;
+        light_ris_audit[base+4u]=layer;
+        for(uint c=0u;c<3u;++c)
+        {
+            light_ris_audit[base+5u+c]=asuint(prepared.voxel_position[c]);
+            light_ris_audit[base+8u+c]=asuint(prepared.shading_normal[c]);
+            light_ris_audit[base+11u+c]=asuint(reference[c]);
+            light_ris_audit[base+14u+c]=asuint(rendered[c]-environment[c]);
+        }
+        uint pool=0u;
+        uint n=clamp(gui_input.grass_light_ris_rays,1u,8u)*
+            clamp(gui_input.grass_light_ris_candidates,1u,32u);
+        for(uint i=0u;i<n;++i)
+            pool=lightSamplingHash(pool^light_ris_pool[i].x^
+                lightSamplingHash(light_ris_pool[i].y)^light_ris_pool[i].z);
+        light_ris_audit[base+17u]=pool;
+        light_ris_audit[base+18u]=floraLocalLightInfo().live_revision_low;
+        light_ris_audit[base+19u]=floraLocalLightInfo().live_revision_high;
+        light_ris_audit[base+20u]=shading_info.ddgi_geometry_revision;
+        light_ris_audit[base+21u]=asuint(error);
+        light_ris_audit[base+22u]=row;
+        light_ris_audit[base+23u]=asuint(floraPushConstants().time);
+    }
 }
