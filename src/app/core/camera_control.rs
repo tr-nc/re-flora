@@ -250,8 +250,11 @@ impl Default for CameraControlRuntime {
             max_orbit_elevation: ORBIT_CAMERA_ELEVATION_LIMIT_DEGREES.to_radians(),
             walk_entry_pending: false,
             zoom_transition: None,
-            zoom_review: (std::env::var("RE_FLORA_CAMERA_ZOOM_REVIEW").as_deref() == Ok("1"))
-                .then_some((0, 0)),
+            // REVIEW owns the historical empty fixture; AUDIT runs the same real
+            // input/capsule path in the ordinary authored garden for receiver tests.
+            zoom_review: (std::env::var("RE_FLORA_CAMERA_ZOOM_REVIEW").as_deref() == Ok("1")
+                || std::env::var("RE_FLORA_CAMERA_ZOOM_AUDIT").as_deref() == Ok("1"))
+            .then_some((0, 0)),
             walk_entry_review: (std::env::var("RE_FLORA_WALK_ENTRY_REVIEW").as_deref() == Ok("1"))
                 .then_some(0),
             orbit_limit_review: (std::env::var("RE_FLORA_ORBIT_LIMIT_REVIEW").as_deref()

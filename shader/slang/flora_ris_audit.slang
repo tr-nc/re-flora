@@ -72,7 +72,9 @@ void auditFloraRis(float3 environment,float3 evaluated,float3 rendered,
         light_ris_audit[base+18u]=floraLocalLightInfo().live_revision_low;
         light_ris_audit[base+19u]=floraLocalLightInfo().live_revision_high;
         light_ris_audit[base+20u]=shading_info.ddgi_geometry_revision;
-        light_ris_audit[base+21u]=asuint(error);
+        // Relative direct-light error can exaggerate an almost-dark source.
+        // Retain total reference illumination to also quantify the visible scale.
+        light_ris_audit[base+21u]=asuint(lightSamplingTarget(environment+reference));
         light_ris_audit[base+22u]=row;
         light_ris_audit[base+23u]=asuint(floraPushConstants().time);
     }

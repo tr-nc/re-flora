@@ -17,6 +17,7 @@ struct Record {
     rendered: [f32; 3],
     pool: u32,
     revisions: [u32; 3],
+    total_reference_luma: f32,
 }
 #[derive(Debug, Default)]
 pub(super) struct Observation {
@@ -27,6 +28,11 @@ pub(super) struct Observation {
     pub pool_changed: usize,
     pub max_relative_delta: f32,
     pub error_delta_sum: f32,
+    pub lit_matched: usize,
+    pub moving_lit: usize,
+    pub lit_error_delta_sum: f32,
+    pub max_moving_error_delta: f32,
+    pub max_moving_total_error_delta: f32,
 }
 fn luma(rgb: [f32; 3]) -> f32 {
     rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722
@@ -48,14 +54,34 @@ impl TemporalAudit {
                 rendered: std::array::from_fn(|i| f32::from_bits(w[14 + i])),
                 pool: w[17],
                 revisions: w[18..21].try_into().unwrap(),
+                total_reference_luma: f32::from_bits(w[21]),
             };
             if let Some(old) = self.previous.get(&key) {
                 result.matched += 1;
                 let scale = luma(record.reference).max(luma(old.reference)).max(1.0e-5);
-                result.error_delta_sum += ((luma(record.rendered) - luma(record.reference))
+                let error_delta = ((luma(record.rendered) - luma(record.reference))
                     - (luma(old.rendered) - luma(old.reference)))
                 .abs()
                     / scale;
+                result.error_delta_sum += error_delta;
+                if luma(record.reference).max(luma(old.reference)) > 1.0e-6
+                    && old.revisions == record.revisions
+                {
+                    result.lit_matched += 1;
+                    result.lit_error_delta_sum += error_delta;
+                    if old.surface != record.surface {
+                        result.moving_lit += 1;
+                        result.max_moving_error_delta =
+                            result.max_moving_error_delta.max(error_delta);
+                        let total_scale = record
+                            .total_reference_luma
+                            .max(old.total_reference_luma)
+                            .max(1.0e-5);
+                        result.max_moving_total_error_delta = result
+                            .max_moving_total_error_delta
+                            .max(error_delta * scale / total_scale);
+                    }
+                }
                 if old.surface == record.surface
                     && old.revisions == record.revisions
                     && close(old.reference, record.reference)
@@ -86,6 +112,7 @@ mod tests {
     fn receiver(id: u32, value: f32) -> [u32; RECORD_WORDS] {
         let mut r = [0; RECORD_WORDS];
         r[0] = id;
+        r[21] = 10.0f32.to_bits();
         for i in 0..3 {
             r[11 + i] = 1.0f32.to_bits();
             r[14 + i] = value.to_bits();
@@ -108,6 +135,27 @@ mod tests {
         assert_eq!(result.changed, 1);
         assert_eq!(result.pool_changed, 1);
         assert!(result.max_relative_delta > 0.2);
+    }
+    #[test]
+    fn moving_lit_error_does_not_hide_in_unlit_samples_or_legitimate_light_changes() {
+        let mut audit = TemporalAudit::default();
+        audit.observe(&receiver(1, 1.0));
+        let mut moved = receiver(1, 2.0);
+        moved[5] = 1;
+        for i in 11..14 {
+            moved[i] = 2.0f32.to_bits();
+        }
+        let result = audit.observe(&moved);
+        assert_eq!(result.moving_lit, 1);
+        assert_eq!(result.lit_error_delta_sum, 0.0);
+        moved[5] = 2;
+        for i in 14..17 {
+            moved[i] = 3.0f32.to_bits();
+        }
+        let result = audit.observe(&moved);
+        assert_eq!(result.lit_matched, 1);
+        assert!((result.max_moving_error_delta - 0.5).abs() < 1.0e-6);
+        assert!((result.max_moving_total_error_delta - 0.1).abs() < 1.0e-6);
     }
     #[test]
     fn changed_pose_lighting_or_geometry_are_not_static_failures() {

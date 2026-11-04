@@ -66,10 +66,13 @@ impl LightRisAudit {
                     .collect();
                 let end = HEADER_WORDS + v[12] as usize * RECORD_WORDS;
                 let observation = self.temporal.observe(&words[HEADER_WORDS..end]);
-                log::info!("[LIGHT_RIS][TEMPORAL] records={} matched={} stationary={} lit_stationary={} changed={} pool_changed={} max_relative_delta={} mean_error_delta={}",
+                log::info!("[LIGHT_RIS][TEMPORAL] records={} matched={} stationary={} lit_stationary={} changed={} pool_changed={} max_relative_delta={} mean_error_delta={} lit_matched={} moving_lit={} max_moving_error_delta={} mean_lit_error_delta={} max_moving_total_error_delta={}",
                     v[12], observation.matched, observation.stationary, observation.lit_stationary,
                     observation.changed, observation.pool_changed, observation.max_relative_delta,
-                    observation.error_delta_sum / observation.matched.max(1) as f32);
+                    observation.error_delta_sum / observation.matched.max(1) as f32,
+                    observation.lit_matched, observation.moving_lit, observation.max_moving_error_delta,
+                    observation.lit_error_delta_sum / observation.lit_matched.max(1) as f32,
+                    observation.max_moving_total_error_delta);
             }
             let f = |i| f32::from_bits(v[i]);
             log::info!("[LIGHT_RIS][RECEIVERS] samples={} non_finite={} rendered_mismatches={} reference_nonzero={} ris_nonzero={} reference_rgb={:?} ris_rgb={:?} sum_abs_luma_error={} max_rendered_error={} positive_proposals={} selected={}",
