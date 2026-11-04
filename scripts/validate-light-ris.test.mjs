@@ -2,14 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
-import {setSavedValue,auditMetrics,perfMetrics,scalingMetrics,nativeArguments} from './validate-light-ris.mjs';
+import {setSavedValue,auditMetrics,perfMetrics,scalingMetrics,stabilityMetrics,nativeArguments} from './validate-light-ris.mjs';
 const cli=(...args)=>spawnSync(process.execPath,['scripts/validate-light-ris.mjs',...args],{encoding:'utf8'});
 
 test('help and invalid invocations explain recovery without starting a game',()=>{
   assert.equal(cli('--help').status,0);
-  for(const args of [['--case','oops'],['--seconds','0'],['--case','audit','--repeats','2'],['--light-budget','65'],['--case','scaling','--light-budget','8'],['--unknown']]) {
+  for(const args of [['--case','oops'],['--stability','oops'],['--seconds','0'],['--case','audit','--repeats','2'],['--light-budget','65'],['--case','scaling','--light-budget','8'],['--unknown']]) {
     const run=cli(...args);assert.equal(run.status,2);assert.match(run.stderr,/Usage:.*validate-light-ris/);
   }
+});
+test('adaptive classifications require real current receiver evidence',()=>{
+  const line='[LIGHT_RIS][STABILITY_AUDIT] approximate=90 exact=10 invalid=0\n';
+  assert.deepEqual(stabilityMetrics(line.repeat(2)),{approximate:180,exact:20,exactFraction:0.1});
+  assert.throws(()=>stabilityMetrics(''),/Missing adaptive/);
+  assert.throws(()=>stabilityMetrics(line.repeat(2).replace('invalid=0','invalid=1')),/stale receiver/);
 });
 test('native launch arguments respect scenario and screenshot exclusions',()=>{
   const scaling=nativeArguments('scaling',180,['--perf','--environment-lighting-test-scene','local-light-scaling']);

@@ -14,12 +14,15 @@ pub(super) enum ConsumerMode {
     Original,
     Shared,
     Ris,
+    StableRis,
     Audit,
 }
 
 impl ConsumerMode {
-    pub fn primary(shared: bool, ris: bool) -> Self {
-        if ris {
+    pub fn primary(shared: bool, ris: bool, stability: bool) -> Self {
+        if ris && stability {
+            Self::StableRis
+        } else if ris {
             Self::Ris
         } else if shared {
             Self::Shared
@@ -225,12 +228,30 @@ mod tests {
     use super::*;
     #[test]
     fn primary_renderer_never_selects_the_audit_program() {
-        assert_eq!(ConsumerMode::primary(false, false), ConsumerMode::Original);
-        assert_eq!(ConsumerMode::primary(true, false), ConsumerMode::Shared);
-        for shared in [false, true] {
-            assert_eq!(ConsumerMode::primary(shared, true), ConsumerMode::Ris);
-            for ris in [false, true] {
-                assert_ne!(ConsumerMode::primary(shared, ris), ConsumerMode::Audit);
+        for stability in [false, true] {
+            assert_eq!(
+                ConsumerMode::primary(false, false, stability),
+                ConsumerMode::Original
+            );
+            assert_eq!(
+                ConsumerMode::primary(true, false, stability),
+                ConsumerMode::Shared
+            );
+            for shared in [false, true] {
+                assert_eq!(
+                    ConsumerMode::primary(shared, true, stability),
+                    if stability {
+                        ConsumerMode::StableRis
+                    } else {
+                        ConsumerMode::Ris
+                    }
+                );
+                for ris in [false, true] {
+                    assert_ne!(
+                        ConsumerMode::primary(shared, ris, stability),
+                        ConsumerMode::Audit
+                    );
+                }
             }
         }
     }

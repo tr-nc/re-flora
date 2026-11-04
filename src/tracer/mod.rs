@@ -88,6 +88,7 @@ pub use model_surface_cache::Options as ModelSurfaceCacheOptions;
 pub(crate) mod model_pixel_views;
 pub use dynamic_fruit_resources::*;
 
+mod flora_light_stability;
 mod flora_lighting_cache;
 mod light_ris_audit;
 mod local_light_field;
@@ -1523,6 +1524,7 @@ pub struct FloraAppearanceFrameInput {
     pub local_light_budget: u32,
     pub grass_light_ris_rays: u32,
     pub grass_light_ris_candidates: u32,
+    pub grass_light_ris_stability: bool,
     pub grass_band_pixelization: bool,
     pub grass_moisture_response: bool,
     pub growth_override_enabled: bool,
@@ -1809,6 +1811,8 @@ pub struct Tracer {
     light_ris_audit: light_ris_audit::LightRisAudit,
     grass_local_light_field: bool,
     grass_light_ris: bool,
+    grass_light_ris_stability: bool,
+    flora_light_stability: flora_light_stability::FloraLightStability,
     grass_band_cache: grass_band_cache::GrassBandCache,
     grass_visibility: grass_visibility::GrassVisibility,
     vegetation_response: VegetationResponse,
@@ -2203,6 +2207,8 @@ impl Tracer {
             light_ris_audit: light_ris_audit::LightRisAudit::default(),
             grass_local_light_field: false,
             grass_light_ris: false,
+            grass_light_ris_stability: false,
+            flora_light_stability: flora_light_stability::FloraLightStability::default(),
             grass_band_cache: grass_band_cache::GrassBandCache::default(),
             grass_visibility: grass_visibility::GrassVisibility::default(),
             vegetation_response: VegetationResponse::new(chunk_bound),
@@ -3360,9 +3366,16 @@ impl Tracer {
         }
         self.grass_local_light_field = vegetation.appearance.grass_local_light_field;
         if self.grass_light_ris != vegetation.appearance.grass_light_ris {
-            log::info!("[LIGHT_RIS] enabled={} proposals=power_table identity=world_root_species_layer slots=4096 history=none probe_spacing=unchanged", vegetation.appearance.grass_light_ris);
+            log::info!("[LIGHT_RIS] enabled={} proposals=power_table identity=world_root_species_layer slots=4096 probe_spacing=unchanged", vegetation.appearance.grass_light_ris);
         }
         self.grass_light_ris = vegetation.appearance.grass_light_ris;
+        if self.grass_light_ris_stability != vegetation.appearance.grass_light_ris_stability {
+            log::info!(
+                "[LIGHT_RIS][STABILITY] enabled={} mode=adaptive_exact radiance_history=none",
+                vegetation.appearance.grass_light_ris_stability
+            );
+        }
+        self.grass_light_ris_stability = vegetation.appearance.grass_light_ris_stability;
         self.flower_spawn_overshoot_voxels = vegetation
             .growth
             .spawn_overshoot_min_voxels
@@ -5031,11 +5044,16 @@ impl Tracer {
         // No local-light preparation (including shared RIS proposals) when the
         // global policy publishes zero. Keep the saved A/B preferences intact.
         let ris_active = self.grass_light_ris && live.count > 0;
+        self.flora_light_stability
+            .begin_frame(ris_active && self.grass_light_ris_stability);
         let visibility_cache_active = self.grass_local_light_field && live.count > 0;
         let audit_enabled =
             local_light_field::LocalLightField::audit_enabled() && !ris_active && live.count > 0;
-        let consumer_mode =
-            local_light_field::ConsumerMode::primary(visibility_cache_active, ris_active);
+        let consumer_mode = local_light_field::ConsumerMode::primary(
+            visibility_cache_active,
+            ris_active,
+            self.grass_light_ris_stability,
+        );
         let field_enabled = visibility_cache_active && !ris_active && lighting_cache_enabled;
         let field_key = field_enabled.then_some((
             live.live_revision.unwrap_or(0),
@@ -5194,6 +5212,21 @@ impl Tracer {
                 push_constant.grass_visibility_offset = batch.visibility_offset();
                 let cached = band_cache_buffer.is_some()
                     && species::is_grass_species_index(species_index as u32);
+                let stability_buffer = (ris_active
+                    && (self.grass_light_ris_stability || ris_audit_buffer.is_some()))
+                .then(|| {
+                    self.flora_light_stability.ensure(
+                        self.vulkan_ctx.device().clone(),
+                        self.allocator.clone(),
+                        cmdbuf,
+                        (batch.chunk_index(), species_index),
+                        batch
+                            .instance_count()
+                            .checked_mul(batch.mesh_voxel_count())
+                            .expect("stability entries fit u32"),
+                        self.grass_light_ris_stability,
+                    )
+                });
                 let mut descriptors = vec![
                     (
                         "grass_visible_instances",
@@ -5218,6 +5251,12 @@ impl Tracer {
                     self.vegetation_response.descriptors()[0],
                     self.vegetation_response.descriptors()[1],
                 ];
+                if self.grass_light_ris_stability && ris_active {
+                    descriptors.push((
+                        "flora_ris_stability",
+                        DescriptorResource::Buffer(stability_buffer.as_ref().unwrap()),
+                    ));
+                }
                 if consumer_mode == local_light_field::ConsumerMode::Shared {
                     descriptors.push((
                         "local_light_field",
@@ -5247,6 +5286,12 @@ impl Tracer {
                     let mut audit_descriptors = descriptors.clone();
                     audit_descriptors.retain(|(name, _)| *name != "grass_band_pose_cache");
                     audit_descriptors.push(("light_ris_audit", DescriptorResource::Buffer(buffer)));
+                    if !self.grass_light_ris_stability {
+                        audit_descriptors.push((
+                            "flora_ris_stability",
+                            DescriptorResource::Buffer(stability_buffer.as_ref().unwrap()),
+                        ));
+                    }
                     self.pipeline_topology
                         .compute()
                         .flora_ris_audit_ppl

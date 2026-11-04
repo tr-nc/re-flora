@@ -145,6 +145,7 @@ pub(super) fn freeze_render_frame_inputs(
             local_light_budget: gui.local_light_budget.value,
             grass_light_ris_rays: gui.grass_light_ris_rays.value,
             grass_light_ris_candidates: gui.grass_light_ris_candidates.value,
+            grass_light_ris_stability: gui.grass_light_ris_stability.value,
             grass_band_pixelization: false,
             stem_experiment: crate::flora::models::StemExperiment {
                 pixelized: false,
@@ -736,6 +737,7 @@ mod tests {
                     local_light_budget: 8,
                     grass_light_ris_rays: 4,
                     grass_light_ris_candidates: 8,
+                    grass_light_ris_stability: false,
                     grass_band_pixelization: false,
                     stem_experiment: crate::flora::models::StemExperiment {
                         pixelized: false,

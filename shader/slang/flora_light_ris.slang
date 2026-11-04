@@ -69,8 +69,9 @@ float3 floraRisVisibility(U_LocalLightInfo info, U_LightGpu light,
 }
 
 float3 evaluateFloraRis(U_LocalLightInfo info,float3 position,float3 normal,
-    float offset,uint seed,uint lane)
+    float offset,uint seed,uint lane,out uint4 signature)
 {
+    signature=uint4(0u);
     uint count=localLightCount(info);
     if(count==0u) return float3(0.0);
     uint rays=clamp(gui_input.grass_light_ris_rays,1u,8u);
@@ -103,8 +104,20 @@ float3 evaluateFloraRis(U_LocalLightInfo info,float3 position,float3 normal,
         uint3 selected=floraRisProposal(seed,reservoir.selected);
         U_LightGpu light=local_lights[selected.x];
         FloraRisConnection c=floraRisConnection(light,selected.y,position,normal);
-        result+=c.response*normalization*floraRisVisibility(info,light,
+        float3 visibility=floraRisVisibility(info,light,
             position,normal,c.endpoint,offset,lane);
+#if RE_FLORA_LIGHT_STABILITY || RE_FLORA_RIS_AUDIT
+        if(gui_input.grass_light_ris_stability!=0u)
+        {
+            uint source=light.shape_params.w>0.5
+                ? localEmitterSourceId(light.position,position,selected.y)+1u:0u;
+            signature.x=lightSamplingHash(signature.x ^ selected.x ^ (source<<6u));
+            signature.y=lightSamplingHash(signature.y ^ asuint(visibility.x));
+            signature.z=lightSamplingHash(signature.z ^ asuint(visibility.y));
+            signature.w=lightSamplingHash(signature.w ^ asuint(visibility.z));
+        }
+#endif
+        result+=c.response*normalization*visibility;
     }
     return result/float(rays);
 }

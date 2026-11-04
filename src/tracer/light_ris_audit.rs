@@ -57,7 +57,19 @@ impl LightRisAudit {
         });
         if frame.pending {
             let data = frame.readback.read_back().expect("RIS audit readback");
-            let v: [u32; 16] = bytemuck::pod_read_unaligned(&data[..64]);
+            let v: [u32; HEADER_WORDS] = bytemuck::pod_read_unaligned(&data[..HEADER_WORDS * 4]);
+            if v[17] + v[18] > 0 {
+                log::info!(
+                    "[LIGHT_RIS][STABILITY_AUDIT] approximate={} exact={} invalid={}",
+                    v[17],
+                    v[18],
+                    v[19]
+                );
+                assert_eq!(
+                    v[19], 0,
+                    "RIS classification must address this frame's real receiver"
+                );
+            }
             if Self::temporal_enabled() {
                 assert!((v[12] as usize) <= MAX_RECORDS, "temporal audit overflow");
                 let words: Vec<u32> = data
@@ -66,13 +78,16 @@ impl LightRisAudit {
                     .collect();
                 let end = HEADER_WORDS + v[12] as usize * RECORD_WORDS;
                 let observation = self.temporal.observe(&words[HEADER_WORDS..end]);
-                log::info!("[LIGHT_RIS][TEMPORAL] records={} matched={} stationary={} lit_stationary={} changed={} pool_changed={} max_relative_delta={} mean_error_delta={} lit_matched={} moving_lit={} max_moving_error_delta={} mean_lit_error_delta={} max_moving_total_error_delta={}",
+                log::info!("[LIGHT_RIS][TEMPORAL] records={} matched={} stationary={} lit_stationary={} changed={} pool_changed={} max_relative_delta={} mean_error_delta={} lit_matched={} moving_lit={} max_moving_error_delta={} mean_lit_error_delta={} max_moving_total_error_delta={} max_total_excess_delta={}",
                     v[12], observation.matched, observation.stationary, observation.lit_stationary,
                     observation.changed, observation.pool_changed, observation.max_relative_delta,
                     observation.error_delta_sum / observation.matched.max(1) as f32,
                     observation.lit_matched, observation.moving_lit, observation.max_moving_error_delta,
                     observation.lit_error_delta_sum / observation.lit_matched.max(1) as f32,
-                    observation.max_moving_total_error_delta);
+                    observation.max_moving_total_error_delta, observation.max_total_excess_delta);
+                if let Some(spike) = observation.moving_spike {
+                    log::info!("[LIGHT_RIS][MOTION_SPIKE] {spike}");
+                }
             }
             let f = |i| f32::from_bits(v[i]);
             log::info!("[LIGHT_RIS][RECEIVERS] samples={} non_finite={} rendered_mismatches={} reference_nonzero={} ris_nonzero={} reference_rgb={:?} ris_rgb={:?} sum_abs_luma_error={} max_rendered_error={} positive_proposals={} selected={}",

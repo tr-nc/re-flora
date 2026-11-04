@@ -16,6 +16,9 @@ import grass_visibility;
 #ifndef RE_FLORA_RIS_AUDIT
 #define RE_FLORA_RIS_AUDIT 0
 #endif
+#ifndef RE_FLORA_LIGHT_STABILITY
+#define RE_FLORA_LIGHT_STABILITY 0
+#endif
 
 #ifndef RE_FLORA_STEM_BAND_CACHE
 #define RE_FLORA_STEM_BAND_CACHE 0
@@ -71,6 +74,27 @@ RWStructuredBuffer<float4> flora_lighting_cache;
 
 #if RE_FLORA_LIGHT_RIS
 #include "flora_light_ris.slang"
+#if RE_FLORA_LIGHT_STABILITY || RE_FLORA_RIS_AUDIT
+import flora_light_stability;
+[[vk::binding(14, 1)]]
+#if RE_FLORA_RIS_AUDIT
+StructuredBuffer<FloraLightStability> flora_ris_stability;
+#else
+RWStructuredBuffer<FloraLightStability> flora_ris_stability;
+#endif
+float3 floraRisExact(float3 position,float3 normal,uint lane)
+{
+#if RE_FLORA_GLASS_TRANSPORT
+    return evaluateVoxelGlassVisibleLocalLightIrradiance(floraLocalLightInfo(),
+        local_lights,contree_node_data,contree_leaf_data,scene_tex,chunk_atlas,
+        position,normal,floraTerrainRayOriginOffsetWorld(),lane);
+#else
+    return evaluateVoxelVisibleLocalLightIrradiance(floraLocalLightInfo(),
+        local_lights,contree_node_data,contree_leaf_data,scene_tex,
+        position,normal,floraTerrainRayOriginOffsetWorld(),lane);
+#endif
+}
+#endif
 #endif
 #if RE_FLORA_RIS_AUDIT
 #include "flora_ris_audit.slang"
@@ -143,9 +167,41 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_Gro
     if (!prepared.should_trim)
     {
 #if RE_FLORA_LIGHT_RIS
-        irradiance += evaluateFloraRis(floraLocalLightInfo(),prepared.voxel_position,
+        U_LocalLightInfo lightInfo=floraLocalLightInfo();
+        uint4 signature;
+        float3 direct=evaluateFloraRis(lightInfo,prepared.voxel_position,
             prepared.shading_normal,floraTerrainRayOriginOffsetWorld(),
-            lightSeed,localIndex);
+            lightSeed,localIndex,signature);
+#if RE_FLORA_LIGHT_STABILITY || RE_FLORA_RIS_AUDIT
+        if(gui_input.grass_light_ris_stability!=0u)
+        {
+            // Source index only addresses storage. Root/spawn/revisions validate
+            // classification; no old lighting is ever applied to a new surface.
+            uint stateIndex=localInstanceIndex*voxelCount+dispatchThreadId.x;
+            uint4 receiver=uint4(instancePosition,instance.spawn_start_ms);
+            uint3 revision=uint3(lightInfo.live_revision_low,lightInfo.live_revision_high,
+                shading_info.ddgi_geometry_revision);
+            FloraLightStability state=flora_ris_stability[stateIndex];
+            bool valid=floraLightStabilityMatches(state,receiver,revision);
+#if RE_FLORA_RIS_AUDIT
+            if(!valid)InterlockedAdd(light_ris_audit[19],1u);
+            bool exact=state.revision_mode.w==2u;
+            InterlockedAdd(light_ris_audit[exact?18u:17u],1u);
+            if(exact)direct=floraRisExact(prepared.voxel_position,prepared.shading_normal,localIndex);
+#else
+            bool exact=!valid || floraLightStabilityNeedsExact(state,signature);
+            float3 reference=float3(0.0);
+            if(exact)reference=floraRisExact(prepared.voxel_position,prepared.shading_normal,localIndex);
+            if(!valid)exact=floraLightStabilityCalibration(reference,direct,irradiance);
+            state.receiver=receiver;
+            state.revision_mode=uint4(revision,exact?2u:1u);
+            state.signature=signature;
+            flora_ris_stability[stateIndex]=state;
+            if(exact)direct=reference;
+#endif
+        }
+#endif
+        irradiance+=direct;
 #elif RE_FLORA_LOCAL_VISIBILITY
 #if RE_FLORA_LOCAL_VISIBILITY != 2
         const bool audit=false;

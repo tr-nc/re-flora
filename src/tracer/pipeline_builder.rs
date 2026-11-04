@@ -448,6 +448,8 @@ impl PipelineBuilder {
             .then(|| load_visibility_shader("flora_ris_audit"));
         let flora_ris_cache_sm = load_visibility_shader("flora_ris_cache");
         let flora_ris_band_cache_sm = load_visibility_shader("flora_ris_band_cache");
+        let flora_ris_stable_cache_sm = load_visibility_shader("flora_ris_stable_cache");
+        let flora_ris_stable_band_cache_sm = load_visibility_shader("flora_ris_stable_band_cache");
         let flora_visibility_cache_sm = load_visibility_shader("flora_visibility_cache");
         let flora_visibility_band_cache_sm = load_visibility_shader("flora_visibility_band_cache");
         let audit = super::local_light_field::LocalLightField::audit_enabled();
@@ -788,6 +790,8 @@ impl PipelineBuilder {
             flora_ris_audit_sm,
             flora_ris_cache_sm,
             flora_ris_band_cache_sm,
+            flora_ris_stable_cache_sm,
+            flora_ris_stable_band_cache_sm,
             flora_visibility_cache_sm,
             flora_visibility_band_cache_sm,
             flora_visibility_audit_sm,
@@ -998,6 +1002,10 @@ impl PipelineBuilder {
             .map(&make_flora_lighting);
         let flora_ris_cache_ppl = make_flora_lighting(&shader_modules.flora_ris_cache_sm);
         let flora_ris_band_cache_ppl = make_flora_lighting(&shader_modules.flora_ris_band_cache_sm);
+        let flora_ris_stable_cache_ppl =
+            make_flora_lighting(&shader_modules.flora_ris_stable_cache_sm);
+        let flora_ris_stable_band_cache_ppl =
+            make_flora_lighting(&shader_modules.flora_ris_stable_band_cache_sm);
         let flora_visibility_cache_ppl =
             make_flora_lighting(&shader_modules.flora_visibility_cache_sm);
         let flora_visibility_band_cache_ppl =
@@ -1284,6 +1292,8 @@ impl PipelineBuilder {
             flora_ris_audit_ppl,
             flora_ris_cache_ppl,
             flora_ris_band_cache_ppl,
+            flora_ris_stable_cache_ppl,
+            flora_ris_stable_band_cache_ppl,
             flora_visibility_cache_ppl,
             flora_visibility_band_cache_ppl,
             flora_visibility_audit_ppl,
@@ -2135,6 +2145,8 @@ declare_ddgi_consumer_registry! {
         GrassBandPreparation => Compute(compute.flora_lighting_band_cache_ppl),
         FloraRisLighting => Compute(compute.flora_ris_cache_ppl),
         GrassBandRisLighting => Compute(compute.flora_ris_band_cache_ppl),
+        FloraStableRisLighting => Compute(compute.flora_ris_stable_cache_ppl),
+        GrassBandStableRisLighting => Compute(compute.flora_ris_stable_band_cache_ppl),
         FloraSharedVisibility => Compute(compute.flora_visibility_cache_ppl),
         GrassBandSharedVisibility => Compute(compute.flora_visibility_band_cache_ppl),
         TreeLeafLightingCache => Compute(compute.tree_leaf_lighting_cache_ppl),
@@ -3206,6 +3218,8 @@ pub struct ShaderModules {
     pub flora_ris_audit_sm: Option<ShaderModule>,
     pub flora_ris_cache_sm: ShaderModule,
     pub flora_ris_band_cache_sm: ShaderModule,
+    pub flora_ris_stable_cache_sm: ShaderModule,
+    pub flora_ris_stable_band_cache_sm: ShaderModule,
     pub flora_visibility_cache_sm: ShaderModule,
     pub flora_visibility_band_cache_sm: ShaderModule,
     pub flora_visibility_audit_sm: Option<ShaderModule>,
@@ -3295,6 +3309,8 @@ pipeline_collection! {
         flora_lighting_band_cache_ppl,
         flora_ris_cache_ppl,
         flora_ris_band_cache_ppl,
+        flora_ris_stable_cache_ppl,
+        flora_ris_stable_band_cache_ppl,
         flora_visibility_cache_ppl,
         flora_visibility_band_cache_ppl,
         grass_visibility_ppl,
@@ -3343,6 +3359,8 @@ impl ComputePipelines {
             (true, ConsumerMode::Original) => &self.flora_lighting_band_cache_ppl,
             (false, ConsumerMode::Ris) => &self.flora_ris_cache_ppl,
             (true, ConsumerMode::Ris) => &self.flora_ris_band_cache_ppl,
+            (false, ConsumerMode::StableRis) => &self.flora_ris_stable_cache_ppl,
+            (true, ConsumerMode::StableRis) => &self.flora_ris_stable_band_cache_ppl,
             (false, ConsumerMode::Shared) => &self.flora_visibility_cache_ppl,
             (true, ConsumerMode::Shared) => &self.flora_visibility_band_cache_ppl,
             (false, ConsumerMode::Audit) => self

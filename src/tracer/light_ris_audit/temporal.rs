@@ -33,6 +33,8 @@ pub(super) struct Observation {
     pub lit_error_delta_sum: f32,
     pub max_moving_error_delta: f32,
     pub max_moving_total_error_delta: f32,
+    pub moving_spike: Option<String>,
+    pub max_total_excess_delta: f32,
 }
 fn luma(rgb: [f32; 3]) -> f32 {
     rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722
@@ -69,6 +71,15 @@ impl TemporalAudit {
                 {
                     result.lit_matched += 1;
                     result.lit_error_delta_sum += error_delta;
+                    let total_scale = record
+                        .total_reference_luma
+                        .max(old.total_reference_luma)
+                        .max(1.0e-5);
+                    let output_delta = (luma(record.rendered) - luma(old.rendered)).abs();
+                    let reference_delta = (luma(record.reference) - luma(old.reference)).abs();
+                    result.max_total_excess_delta = result
+                        .max_total_excess_delta
+                        .max((output_delta - reference_delta).max(0.0) / total_scale);
                     if old.surface != record.surface {
                         result.moving_lit += 1;
                         result.max_moving_error_delta =
@@ -77,9 +88,18 @@ impl TemporalAudit {
                             .total_reference_luma
                             .max(old.total_reference_luma)
                             .max(1.0e-5);
-                        result.max_moving_total_error_delta = result
-                            .max_moving_total_error_delta
-                            .max(error_delta * scale / total_scale);
+                        let total_error_delta = error_delta * scale / total_scale;
+                        if total_error_delta > result.max_moving_total_error_delta {
+                            result.max_moving_total_error_delta = total_error_delta;
+                            if total_error_delta > 0.02 {
+                                result.moving_spike = Some(format!(
+                                    "key={key:?} total={total_scale} old_position={:?} position={:?} old_rendered={:?} rendered={:?} old_reference={:?} reference={:?} output_delta={} reference_delta={} error_delta={total_error_delta}",
+                                    &old.surface[..3], &record.surface[..3], old.rendered, record.rendered,
+                                    old.reference, record.reference,
+                                    (luma(record.rendered)-luma(old.rendered))/total_scale,
+                                    (luma(record.reference)-luma(old.reference))/total_scale));
+                            }
+                        }
                     }
                 }
                 if old.surface == record.surface
@@ -156,6 +176,19 @@ mod tests {
         assert_eq!(result.lit_matched, 1);
         assert!((result.max_moving_error_delta - 0.5).abs() < 1.0e-6);
         assert!((result.max_moving_total_error_delta - 0.1).abs() < 1.0e-6);
+    }
+    #[test]
+    fn a_reference_only_shadow_step_is_not_excess_rendered_variation() {
+        let mut audit = TemporalAudit::default();
+        audit.observe(&receiver(1, 1.0));
+        let mut moved = receiver(1, 1.0);
+        moved[5] = 1;
+        for channel in 11..14 {
+            moved[channel] = 2.0f32.to_bits();
+        }
+        let result = audit.observe(&moved);
+        assert!(result.max_moving_total_error_delta > 0.09);
+        assert_eq!(result.max_total_excess_delta, 0.0);
     }
     #[test]
     fn changed_pose_lighting_or_geometry_are_not_static_failures() {

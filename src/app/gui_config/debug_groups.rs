@@ -71,9 +71,9 @@ const GROUPS: &[ControlGroup] = &[
     ControlGroup {
         parent: None,
         title: "Local Lighting",
-        description: "Uncheck Local lighting to skip local lights for every object and new DDGI fields; sun/sky and visible lamps remain. Direct light switches immediately; GI follows publication. Sources and quality settings are preserved. RIS uses fixed-budget receiver sampling (default off); grain is possible. RIS takes priority over the separate visibility cache.",
+        description: "Uncheck Local lighting to skip local lights for every object and new DDGI fields; sun/sky and visible lamps remain. Direct light switches immediately; GI follows publication. Sources and quality settings are preserved. RIS uses fixed-budget receiver sampling (default off); grain is possible. Adaptive shadow stability is a separate A/B: calibrate new receivers, then switch unstable connections to exact current-frame direct light. It retains quality classification, never old colors/shadows. The ray budget is not fixed in this mode. RIS takes priority over the separate visibility cache.",
         initially_open: false,
-        params: &["local_lighting_enabled", "local_light_budget", "grass_light_ris", "grass_light_ris_rays", "grass_light_ris_candidates", "grass_local_light_field"],
+        params: &["local_lighting_enabled", "local_light_budget", "grass_light_ris", "grass_light_ris_rays", "grass_light_ris_candidates", "grass_light_ris_stability", "grass_local_light_field"],
     },
     ControlGroup {
         parent: None,

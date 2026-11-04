@@ -7,6 +7,7 @@ public struct U_GuiInput
     public uint grass_local_light_field;
     public uint grass_light_ris_rays;
     public uint grass_light_ris_candidates;
+    public uint grass_light_ris_stability;
     public uint flora_growth_override_enabled;
     public float flora_growth_override;
     public uint raster_tree_static;

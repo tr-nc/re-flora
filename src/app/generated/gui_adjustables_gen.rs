@@ -224,6 +224,12 @@ pub static GENERATED_GUI_PARAMS: &[GeneratedGuiParamDescriptor] = &[
     },
     GeneratedGuiParamDescriptor {
         section: "Debug",
+        id: "grass_light_ris_stability",
+        kind: "bool",
+        label: "Grass RIS: adaptive shadow stability (A/B)",
+    },
+    GeneratedGuiParamDescriptor {
+        section: "Debug",
         id: "grass_local_light_field",
         kind: "bool",
         label: "Grass: Source Visibility Cache (A/B)",
@@ -1867,6 +1873,7 @@ pub struct GuiAdjustables {
     pub grass_light_ris: crate::gui_adjustables::BoolParam,
     pub grass_light_ris_rays: crate::gui_adjustables::UintParam,
     pub grass_light_ris_candidates: crate::gui_adjustables::UintParam,
+    pub grass_light_ris_stability: crate::gui_adjustables::BoolParam,
     pub grass_local_light_field: crate::gui_adjustables::BoolParam,
     pub grass_band_pose_reuse: crate::gui_adjustables::BoolParam,
     pub flower_stem_model_resolution: crate::gui_adjustables::UintParam,
@@ -2181,6 +2188,7 @@ impl GuiAdjustables {
         let mut grass_light_ris_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut grass_light_ris_rays_field: Option<crate::gui_adjustables::UintParam> = None;
         let mut grass_light_ris_candidates_field: Option<crate::gui_adjustables::UintParam> = None;
+        let mut grass_light_ris_stability_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut grass_local_light_field_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut grass_band_pose_reuse_field: Option<crate::gui_adjustables::BoolParam> = None;
         let mut flower_stem_model_resolution_field: Option<crate::gui_adjustables::UintParam> = None;
@@ -2660,6 +2668,11 @@ impl GuiAdjustables {
                             let min = min.unwrap_or(0);
                             let max = max.unwrap_or(100);
                             grass_light_ris_candidates_field = Some(crate::gui_adjustables::UintParam::new(*value, min..=max));
+                        }
+                    }
+                    "grass_light_ris_stability" => {
+                        if let (GuiParamKind::Bool, GuiParamValue::Bool { value }) = (&param.kind, &param.value) {
+                            grass_light_ris_stability_field = Some(crate::gui_adjustables::BoolParam::new(*value));
                         }
                     }
                     "grass_local_light_field" => {
@@ -4481,6 +4494,7 @@ impl GuiAdjustables {
             grass_light_ris: grass_light_ris_field.expect("Missing parameter: grass_light_ris"),
             grass_light_ris_rays: grass_light_ris_rays_field.expect("Missing parameter: grass_light_ris_rays"),
             grass_light_ris_candidates: grass_light_ris_candidates_field.expect("Missing parameter: grass_light_ris_candidates"),
+            grass_light_ris_stability: grass_light_ris_stability_field.expect("Missing parameter: grass_light_ris_stability"),
             grass_local_light_field: grass_local_light_field_field.expect("Missing parameter: grass_local_light_field"),
             grass_band_pose_reuse: grass_band_pose_reuse_field.expect("Missing parameter: grass_band_pose_reuse"),
             flower_stem_model_resolution: flower_stem_model_resolution_field.expect("Missing parameter: flower_stem_model_resolution"),
@@ -5045,6 +5059,7 @@ pub fn get_bool_param<'a>(adjustables: &'a crate::app::GuiAdjustables, id: &str)
         "grass_band_pixelization" => Some(&adjustables.grass_band_pixelization),
         "local_lighting_enabled" => Some(&adjustables.local_lighting_enabled),
         "grass_light_ris" => Some(&adjustables.grass_light_ris),
+        "grass_light_ris_stability" => Some(&adjustables.grass_light_ris_stability),
         "grass_local_light_field" => Some(&adjustables.grass_local_light_field),
         "grass_band_pose_reuse" => Some(&adjustables.grass_band_pose_reuse),
         "flower_stem_test_branches" => Some(&adjustables.flower_stem_test_branches),
@@ -5393,6 +5408,7 @@ pub fn get_bool_param_mut<'a>(adjustables: &'a mut crate::app::GuiAdjustables, i
         "grass_band_pixelization" => Some(&mut adjustables.grass_band_pixelization),
         "local_lighting_enabled" => Some(&mut adjustables.local_lighting_enabled),
         "grass_light_ris" => Some(&mut adjustables.grass_light_ris),
+        "grass_light_ris_stability" => Some(&mut adjustables.grass_light_ris_stability),
         "grass_local_light_field" => Some(&mut adjustables.grass_local_light_field),
         "grass_band_pose_reuse" => Some(&mut adjustables.grass_band_pose_reuse),
         "flower_stem_test_branches" => Some(&mut adjustables.flower_stem_test_branches),

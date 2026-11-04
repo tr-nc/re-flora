@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 
-const help = `Usage: node scripts/validate-light-ris.mjs [--case perf|audit|scaling|capture] [--output NEW_DIR] [--repeats N] [--seconds N] [--light-budget N]
+const help = `Usage: node scripts/validate-light-ris.mjs [--case perf|audit|scaling|capture] [--output NEW_DIR] [--repeats N] [--seconds N] [--light-budget N] [--stability off|on]
 Uses target/release/re-flora, hidden/muted native rendering, local lighting enabled, spacing 32 and night 0.95.
 Temporarily changes config/gui.toml and restores its exact bytes, including on failure.
 Do not overlap app/build/GPU jobs. Build with cargo build --release first.
@@ -25,6 +25,8 @@ Do not overlap app/build/GPU jobs. Build with cargo build --release first.
 --repeats applies only to perf; --seconds >=12 for perf, >=8 otherwise.
 --light-budget 1..64 (default 8) applies to perf/audit/capture; scaling forces 64.
 A higher budget does not invent lights: metrics report the actual final uploaded count.
+--stability on enables adaptive exact fallback (A/B, default off). This trades
+some additional tracing/memory for quality; it has no fixed ray-budget promise.
 Exit 0: evidence collected (perf regression is reported as performancePassed=false).
 Exit 1: native/validation failure; inspect retained .log files before retrying in a NEW_DIR.
 Exit 2: invalid arguments. No visible game is launched and nothing is pushed.
@@ -92,6 +94,14 @@ export function auditMetrics(text) {
     relativeSignedRgbError:ris.map((v,i)=>reference[i]>0 ? v/reference[i]-1 : null),
     nonFinite:0,renderedMismatches:0};
 }
+export function stabilityMetrics(text) {
+  const rows=[...text.matchAll(/\[LIGHT_RIS\]\[STABILITY_AUDIT\] approximate=(\d+) exact=(\d+) invalid=(\d+)/g)];
+  assert.ok(rows.length>=2,'Missing adaptive receiver classification evidence');
+  assert.ok(rows.every(r=>+r[3]===0),'Adaptive state belongs to a stale receiver');
+  const approximate=rows.reduce((n,r)=>n+(+r[1]),0),exact=rows.reduce((n,r)=>n+(+r[2]),0);
+  assert.ok(approximate+exact>0,'No actual adaptive receivers');
+  return {approximate,exact,exactFraction:exact/(approximate+exact)};
+}
 export function scalingMetrics(text) {
   nativeChecks(text);
   assert.match(text,/\[LOCAL_LIGHT_SCALE\] complete /,'Scaling timed out before final removal/publication');
@@ -114,9 +124,10 @@ function main() {
   let options;
   try {
     options=parseArgs({options:{case:{type:'string',default:'perf'},output:{type:'string'},
-      repeats:{type:'string',default:'3'},seconds:{type:'string'},'light-budget':{type:'string',default:'8'},help:{type:'boolean',short:'h'}}}).values;
+      repeats:{type:'string',default:'3'},seconds:{type:'string'},'light-budget':{type:'string',default:'8'},stability:{type:'string',default:'off'},help:{type:'boolean',short:'h'}}}).values;
     if(options.help) {console.log(help);return;}
     assert.ok(['perf','audit','scaling','capture'].includes(options.case),'Unknown --case');
+    assert.ok(['off','on'].includes(options.stability),'Invalid --stability: use off or on');
     options.seconds=+(options.seconds ?? ({perf:20,audit:10,scaling:180,capture:10}[options.case]));
     assert.ok(Number.isInteger(+options.repeats) && +options.repeats>=1,'--repeats must be an integer >=1');
     assert.ok(Number.isFinite(options.seconds) && options.seconds>=(options.case==='perf'?12:8),'Invalid --seconds');
@@ -136,7 +147,8 @@ function main() {
     const binaryHash=hash(binary),cameraHash=hash('config/camera_snapshots.toml'), rows=[];
     let base=original.toString();
     for(const [id,value] of Object.entries({time_of_day:0.95,local_lighting_enabled:true,grass_local_light_field:false,
-      local_light_budget:options.case==='scaling'?64:+options['light-budget'],grass_light_ris_rays:4,grass_light_ris_candidates:8}))
+      local_light_budget:options.case==='scaling'?64:+options['light-budget'],grass_light_ris_rays:4,grass_light_ris_candidates:8,
+      grass_light_ris_stability:options.stability==='on'}))
       base=setSavedValue(base,id,String(value));
     const run=(name,on,extra=[],seed=20260519)=>{
       const saved=setSavedValue(base,'grass_light_ris',String(on));
@@ -155,6 +167,10 @@ function main() {
       assert.equal(hash('config/camera_snapshots.toml'),cameraHash,'Camera changed during validation');
       nativeChecks(text);
       if(on)assert.match(text,/\[LIGHT_RIS\] enabled=true/);
+      if(on && options.stability==='on'){
+        assert.match(text,/\[LIGHT_RIS\]\[STABILITY\] enabled=true/);
+        if(options.case==='audit')stabilityMetrics(text);
+      }
       return text;
     };
     if(options.case==='perf') {
@@ -167,17 +183,20 @@ function main() {
       const summary=Object.fromEntries(['off','on'].map(mode=>[mode,Object.fromEntries(
         ['grassGpuMs','actualFps','wholeProfiledFps'].map(key=>[key,median(rows.filter(r=>r.mode===mode).map(r=>r[key]))]))]));
       const performancePassed=summary.on.grassGpuMs<=summary.off.grassGpuMs && summary.on.actualFps>=summary.off.actualFps && summary.on.wholeProfiledFps>=summary.off.wholeProfiledFps;
-      const report={binaryHash,cameraHash,rows,summary,performancePassed};
+      const report={binaryHash,cameraHash,stability:options.stability,rows,summary,performancePassed};
       writeFileSync(path.join(output,'summary.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
     } else {
-      if(options.case==='audit') for(const seed of [20260519,7]) rows.push({seed,...auditMetrics(run(`audit-${seed}`,true,[],seed))});
+      if(options.case==='audit') for(const seed of [20260519,7]) {
+        const text=run(`audit-${seed}`,true,[],seed);
+        rows.push({seed,...auditMetrics(text),...(options.stability==='on'?{adaptive:stabilityMetrics(text)}:{})});
+      }
       if(options.case==='scaling') for(const mode of ['off','on']) rows.push({mode,counts:scalingMetrics(run(mode,mode==='on',['--perf','--environment-lighting-test-scene','local-light-scaling']))});
       if(options.case==='capture') for(const mode of ['off','on']) {
         const file=path.join(output,`${mode}.png`);
         run(mode,mode==='on',['--screenshot','garden-arrival',file,'--screenshot-delay','6']);
         rows.push({mode,file:path.basename(file),sha256:hash(file)});
       }
-      const report={binaryHash,cameraHash,case:options.case,rows};
+      const report={binaryHash,cameraHash,stability:options.stability,case:options.case,rows};
       writeFileSync(path.join(output,'summary.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
     }
   } catch(error) {console.error(`${error.stack}\nInspect retained logs in ${output}; retry with a NEW --output directory.\n${help}`);process.exitCode=1;}
