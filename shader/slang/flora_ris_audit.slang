@@ -11,7 +11,7 @@ void risAuditSum(uint index,float value)
     } while(old!=assumed);
 }
 void auditFloraRis(float3 environment,float3 evaluated,float3 rendered,
-    PreparedFloraVertex prepared,uint lane,uint3 root,uint species,uint layer,uint row)
+    PreparedFloraVertex prepared,uint lane,uint3 root,uint species,uint layer,uint row,uint lightSeed)
 {
     float3 reference=float3(0.0);
     if(!prepared.should_trim)
@@ -64,8 +64,10 @@ void auditFloraRis(float3 environment,float3 evaluated,float3 rendered,
         uint n=clamp(gui_input.grass_light_ris_rays,1u,8u)*
             clamp(gui_input.grass_light_ris_candidates,1u,32u);
         for(uint i=0u;i<n;++i)
-            pool=lightSamplingHash(pool^light_ris_pool[i].x^
-                lightSamplingHash(light_ris_pool[i].y)^light_ris_pool[i].z);
+        {
+            uint3 proposal=floraRisProposal(lightSeed,i);
+            pool=lightSamplingHash(pool^proposal.x^lightSamplingHash(proposal.y)^proposal.z);
+        }
         light_ris_audit[base+17u]=pool;
         light_ris_audit[base+18u]=floraLocalLightInfo().live_revision_low;
         light_ris_audit[base+19u]=floraLocalLightInfo().live_revision_high;

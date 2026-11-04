@@ -3360,7 +3360,7 @@ impl Tracer {
         }
         self.grass_local_light_field = vegetation.appearance.grass_local_light_field;
         if self.grass_light_ris != vegetation.appearance.grass_light_ris {
-            log::info!("[LIGHT_RIS] enabled={} proposals=power_shared slots=4096 history=none probe_spacing=unchanged", vegetation.appearance.grass_light_ris);
+            log::info!("[LIGHT_RIS] enabled={} proposals=power_table identity=world_root_species_layer slots=4096 history=none probe_spacing=unchanged", vegetation.appearance.grass_light_ris);
         }
         self.grass_light_ris = vegetation.appearance.grass_light_ris;
         self.flower_spawn_overshoot_voxels = vegetation

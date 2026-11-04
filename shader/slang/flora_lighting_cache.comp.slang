@@ -78,15 +78,11 @@ RWStructuredBuffer<float4> flora_lighting_cache;
 
 [shader("compute")]
 [numthreads(8, 4, 1)]
-void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_GroupIndex,
-    uint3 groupId : SV_GroupID)
+void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_GroupIndex)
 {
     PushConstantFlora floraPc = floraPushConstants();
     uint voxelCount = floraLightingCacheVoxelCount(floraPc);
     uint instanceCount = grassVisibleCount(floraPc);
-#if RE_FLORA_LIGHT_RIS
-    presampleFloraLights(localIndex,groupId,floraPc);
-#endif
     if (dispatchThreadId.x >= voxelCount || dispatchThreadId.y >= instanceCount) return;
 
     // Grass bands are authored axial layers, not vertices in a voxel mesh.
@@ -102,8 +98,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_Gro
     if(!audit) return;
 #endif
 #if RE_FLORA_RIS_AUDIT
-    // Rotate the audit subset, not the production sampler. Partial groups must
-    // already have crossed the shared-proposal barrier before this early exit.
+    // Rotate the energy audit subset, but keep temporal receiver identities fixed.
     uint auditHash=lightSamplingHash(localInstanceIndex ^ dispatchThreadId.x*1013904223u);
     if(light_ris_audit[16]!=0u)
     {
@@ -120,6 +115,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_Gro
     uint3 instancePosition = surfaceFloraStemWorldPosition(
         packedLocalPosition, chunkWorldOffset);
     uint seed = instanceSeed(instancePosition);
+#if RE_FLORA_LIGHT_RIS
+    uint lightSeed=floraLightReceiverSeed(instancePosition,instanceType,dispatchThreadId.x);
+#endif
     uint growthProgress = unpackInstanceGrowthProgress(packedLocalPosition);
     uint3 instanceLocalBase = unpackInstanceLocalPosition(packedLocalPosition);
     float competitionFactor = floraCompetitionGrowthFactor(
@@ -147,7 +145,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_Gro
 #if RE_FLORA_LIGHT_RIS
         irradiance += evaluateFloraRis(floraLocalLightInfo(),prepared.voxel_position,
             prepared.shading_normal,floraTerrainRayOriginOffsetWorld(),
-            lightSamplingHash(seed ^ lightSamplingHash(dispatchThreadId.x)),localIndex);
+            lightSeed,localIndex);
 #elif RE_FLORA_LOCAL_VISIBILITY
 #if RE_FLORA_LOCAL_VISIBILITY != 2
         const bool audit=false;
@@ -174,7 +172,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID, uint localIndex : SV_Gro
     uint outputIndex=floraLightingCacheIndex(floraPc,dispatchThreadId.y,dispatchThreadId.x);
 #if RE_FLORA_RIS_AUDIT
     auditFloraRis(environment,irradiance,flora_lighting_cache[outputIndex].xyz,
-        prepared,localIndex,instancePosition,instanceType,dispatchThreadId.x,dispatchThreadId.y);
+        prepared,localIndex,instancePosition,instanceType,dispatchThreadId.x,dispatchThreadId.y,lightSeed);
 #elif RE_FLORA_LOCAL_VISIBILITY == 2
     float3 rendered=flora_lighting_cache[outputIndex].xyz;
     float3 delta=abs(rendered-irradiance);

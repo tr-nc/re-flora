@@ -1,5 +1,6 @@
 // Included only by dedicated RIS programs: reference kernels remain untouched.
 import light_reservoir;
+import flora_light_sampling;
 import local_emitter;
 import terrain_ray_origin;
 
@@ -10,27 +11,13 @@ struct LightProposal
 };
 // 47 is raster_tree_cells, even in a grass compute shader via scene_marching.
 [[vk::binding(57, 0)]] StructuredBuffer<LightProposal> local_light_proposals;
-groupshared uint3 light_ris_pool[256];
-
-// All lanes participate, INCLUDING lanes outside the partial dispatch extent.
-// The workgroup shares proposals, never final irradiance or visibility.
-void presampleFloraLights(uint lane, uint3 groupId, PushConstantFlora pc)
+// The shared power table remains 4096 entries. Draw from it by receiver identity
+// instead of a workgroup-local pool: compaction may assign a new group every frame.
+uint3 floraRisProposal(uint seed,uint index)
 {
-    uint rays=clamp(gui_input.grass_light_ris_rays,1u,8u);
-    uint candidates=clamp(gui_input.grass_light_ris_candidates,1u,32u);
-    uint groupSeed=lightSamplingHash(groupId.x ^ lightSamplingHash(groupId.y) ^
-        lightSamplingHash(pc.instance_ty & FLORA_INSTANCE_TYPE_MASK) ^
-        lightSamplingHash(pc.chunk_world_offset.x) ^ lightSamplingHash(pc.chunk_world_offset.y+17u) ^
-        lightSamplingHash(pc.chunk_world_offset.z+31u));
-    for(uint i=lane;i<rays*candidates;i+=32u)
-    {
-        uint state=lightSamplingHash(groupSeed ^ lightSamplingHash(i));
-        uint slot=lightSamplingHash(state) & 4095u;
-        LightProposal p=local_light_proposals[slot];
-        uint tap=min(uint(lightSamplingRandom(state)*12.0),11u);
-        light_ris_pool[i]=uint3(p.light_index,tap,asuint(p.inverse_probability));
-    }
-    GroupMemoryBarrierWithGroupSync();
+    uint2 random=floraLightProposalRandom(seed,index);
+    LightProposal p=local_light_proposals[random.x];
+    return uint3(p.light_index,random.y,asuint(p.inverse_probability));
 }
 
 struct FloraRisConnection
@@ -89,14 +76,14 @@ float3 evaluateFloraRis(U_LocalLightInfo info,float3 position,float3 normal,
     uint rays=clamp(gui_input.grass_light_ris_rays,1u,8u);
     uint candidates=clamp(gui_input.grass_light_ris_candidates,1u,32u);
     float3 result=float3(0.0);
-    uint state=seed;
+    uint state=lightSamplingHash(seed ^ 0xbb67ae85u);
     for(uint ray=0u;ray<rays;++ray)
     {
         LightReservoir reservoir={};
         for(uint j=0u;j<candidates;++j)
         {
             uint index=ray*candidates+j;
-            uint3 proposal=light_ris_pool[index];
+            uint3 proposal=floraRisProposal(seed,index);
             if(proposal.x>=count) continue;
             U_LightGpu light=local_lights[proposal.x];
             FloraRisConnection c=floraRisConnection(light,proposal.y,position,normal);
@@ -113,7 +100,7 @@ float3 evaluateFloraRis(U_LocalLightInfo info,float3 position,float3 normal,
 #if RE_FLORA_RIS_AUDIT
         InterlockedAdd(light_ris_audit[15],1u);
 #endif
-        uint3 selected=light_ris_pool[reservoir.selected];
+        uint3 selected=floraRisProposal(seed,reservoir.selected);
         U_LightGpu light=local_lights[selected.x];
         FloraRisConnection c=floraRisConnection(light,selected.y,position,normal);
         result+=c.response*normalization*floraRisVisibility(info,light,
