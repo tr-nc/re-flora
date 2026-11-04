@@ -1,0 +1,979 @@
+{
+  "recordedAt": "2026-11-04T06:11:53.157Z",
+  "sourceCommit": "9d215610e19421ef96b1b158472d6c5540dfa79a",
+  "binaryHash": "1baaec0d305a77434268bb6174e5f254c6fed5f22cc58a0f7c20c58f07390fd2",
+  "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+  "environment": {
+    "device": "Apple M4 Pro",
+    "cpuCores": 14,
+    "gpuCores": 20,
+    "memoryGiB": 48,
+    "os": "macOS 26.6.2",
+    "backend": "Vulkan / MoltenVK",
+    "vulkanSdk": "1.4.321.0",
+    "slangNative": "2025.11-12-gc5295eae2",
+    "screen": "2560x1440",
+    "scene": "512x288",
+    "camera": "garden-arrival",
+    "timeOfDay": 0.95,
+    "autoDayNight": false,
+    "proposalRays": 4,
+    "candidatesPerRay": 8
+  },
+  "archiveRoot": "target/ris-temporal-20261104",
+  "cases": {
+    "sync-validation": {
+      "binaryHash": "1baaec0d305a77434268bb6174e5f254c6fed5f22cc58a0f7c20c58f07390fd2",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "adaptive": {
+        "approximate": 225217,
+        "exact": 6142,
+        "exactFraction": 0.026547486806218906
+      },
+      "motion": "static",
+      "visibility": "compact",
+      "seed": 20260519,
+      "stability": "on",
+      "uploadedLights": 8,
+      "frames": 96,
+      "matched": 171360,
+      "stationary": 152248,
+      "litStationary": 3691,
+      "changed": 0,
+      "poolChanged": 0,
+      "maxRelativeDelta": 0,
+      "meanErrorDelta": 2.6164226389583335e-10,
+      "litMatched": 3744,
+      "movingLit": 53,
+      "maxMovingErrorDelta": 0.000011588208,
+      "meanLitErrorDelta": 1.1975164902083335e-8,
+      "maxMovingTotalErrorDelta": 6.9858864e-8,
+      "maxTotalExcessDelta": 7.912547e-8,
+      "sources": [
+        {
+          "file": "sync-validation/native.log",
+          "sha256": "aad6205ab4334dbe2826578245e27334b5f598755da36387842e46280cb2e1c7",
+          "nativeErrors": 0
+        }
+      ],
+      "requestedEnvironment": {
+        "VK_LAYER_ENABLES": "VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT"
+      }
+    },
+    "baseline-static": {
+      "binaryHash": "567c4ba57d0aadfbf582d00534956c11dfea9c3c29e974b7f1bf8e01bfbfbe1a",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "motion": "static",
+      "uploadedLights": 8,
+      "frames": 121,
+      "matched": 216348,
+      "stationary": 191724,
+      "litStationary": 4006,
+      "changed": 3797,
+      "poolChanged": 189334,
+      "maxRelativeDelta": 10.197286,
+      "meanErrorDelta": 0.01702316192561983,
+      "sources": [
+        {
+          "file": "baseline-static/native.log",
+          "sha256": "4978e0fadd3fc2996c69268e89108cbf2e39efe15db2f9af839ef4cc58798cbf",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "baseline-source-control": {
+      "binaryHash": "567c4ba57d0aadfbf582d00534956c11dfea9c3c29e974b7f1bf8e01bfbfbe1a",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "motion": "static",
+      "visibility": "source",
+      "uploadedLights": 8,
+      "frames": 101,
+      "matched": 267347,
+      "stationary": 208740,
+      "litStationary": 5451,
+      "changed": 0,
+      "poolChanged": 0,
+      "maxRelativeDelta": 0,
+      "meanErrorDelta": 2.037076781485148e-7,
+      "sources": [
+        {
+          "file": "baseline-source-control/native.log",
+          "sha256": "825e7dab6bb19ae4e0d1463937c1f8ddd09352232161b70d599d34885ebef597",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "baseline-wind": {
+      "binaryHash": "567c4ba57d0aadfbf582d00534956c11dfea9c3c29e974b7f1bf8e01bfbfbe1a",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "motion": "wind",
+      "visibility": "compact",
+      "uploadedLights": 8,
+      "frames": 123,
+      "matched": 217051,
+      "stationary": 181639,
+      "litStationary": 3620,
+      "changed": 3449,
+      "poolChanged": 179508,
+      "maxRelativeDelta": 10.815584,
+      "meanErrorDelta": 0.01826016329851048,
+      "sources": [
+        {
+          "file": "baseline-wind/native.log",
+          "sha256": "4bd33d9b9fc10ab77cbe434483c4f327a72763b125349b51fa853acef4691220",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "stable-static": {
+      "binaryHash": "688eadce68cb08cdb9af4ae89f128490faba15eedbf0f34516f1320008b04a07",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "motion": "static",
+      "visibility": "compact",
+      "uploadedLights": 8,
+      "frames": 136,
+      "matched": 239904,
+      "stationary": 213625,
+      "litStationary": 4588,
+      "changed": 0,
+      "poolChanged": 0,
+      "maxRelativeDelta": 0,
+      "meanErrorDelta": 1.3458567930882354e-8,
+      "sources": [
+        {
+          "file": "stable-static/native.log",
+          "sha256": "7378604640fdde7ea7a1ff366b56758c5b714bbe329f6d69d30e901461dd0a5f",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "stable-wind": {
+      "binaryHash": "688eadce68cb08cdb9af4ae89f128490faba15eedbf0f34516f1320008b04a07",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "motion": "wind",
+      "visibility": "compact",
+      "uploadedLights": 8,
+      "frames": 135,
+      "matched": 241110,
+      "stationary": 203835,
+      "litStationary": 4663,
+      "changed": 0,
+      "poolChanged": 0,
+      "maxRelativeDelta": 0,
+      "meanErrorDelta": 4.350498734369926e-7,
+      "sources": [
+        {
+          "file": "stable-wind/native.log",
+          "sha256": "73ca1d815b2add57ae75f2703552dadbfc52aae8f55d3d9bcec3e8930b62778a",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "stable-many-static": {
+      "binaryHash": "688eadce68cb08cdb9af4ae89f128490faba15eedbf0f34516f1320008b04a07",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "motion": "static",
+      "visibility": "compact",
+      "uploadedLights": 17,
+      "frames": 102,
+      "matched": 180540,
+      "stationary": 158986,
+      "litStationary": 7745,
+      "changed": 0,
+      "poolChanged": 0,
+      "maxRelativeDelta": 0,
+      "meanErrorDelta": 3.310527007e-8,
+      "sources": [
+        {
+          "file": "stable-many-static/native.log",
+          "sha256": "31067c54e09bd176521ec3cce952270bbcaa0a80f1d4d92d968a97371246c618",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "stable-many-wind": {
+      "binaryHash": "688eadce68cb08cdb9af4ae89f128490faba15eedbf0f34516f1320008b04a07",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "motion": "wind",
+      "visibility": "compact",
+      "uploadedLights": 17,
+      "frames": 102,
+      "matched": 182407,
+      "stationary": 150780,
+      "litStationary": 6447,
+      "changed": 0,
+      "poolChanged": 0,
+      "maxRelativeDelta": 0,
+      "meanErrorDelta": 0.000003981824776920372,
+      "sources": [
+        {
+          "file": "stable-many-wind/native.log",
+          "sha256": "c56065d4e88797d4f24fd7d6d9b41eee21954a8831c96f896f599f43d9c074e6",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "final-unchecked-wind": {
+      "binaryHash": "1baaec0d305a77434268bb6174e5f254c6fed5f22cc58a0f7c20c58f07390fd2",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "motion": "wind",
+      "visibility": "compact",
+      "seed": 20260519,
+      "stability": "off",
+      "uploadedLights": 17,
+      "frames": 249,
+      "matched": 444216,
+      "stationary": 272092,
+      "litStationary": 5043,
+      "changed": 0,
+      "poolChanged": 0,
+      "maxRelativeDelta": 0,
+      "meanErrorDelta": 0.000006245745209397589,
+      "litMatched": 19671,
+      "movingLit": 14628,
+      "maxMovingErrorDelta": 0.41207883,
+      "meanLitErrorDelta": 0.00014037578344176715,
+      "maxMovingTotalErrorDelta": 0.06886824,
+      "maxTotalExcessDelta": 0.06886822,
+      "sources": [
+        {
+          "file": "final-unchecked-wind/native.log",
+          "sha256": "f4bcc854b1cbe3702c88f4da017b10bbb91c48b6aae9a41f451c7f2d3aca51d0",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "final-adaptive-many-wind": {
+      "binaryHash": "1baaec0d305a77434268bb6174e5f254c6fed5f22cc58a0f7c20c58f07390fd2",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "adaptive": {
+        "approximate": 340900,
+        "exact": 22842,
+        "exactFraction": 0.06279725739672624
+      },
+      "motion": "wind",
+      "visibility": "compact",
+      "seed": 20260519,
+      "stability": "on",
+      "uploadedLights": 17,
+      "frames": 153,
+      "matched": 270939,
+      "stationary": 146371,
+      "litStationary": 299,
+      "changed": 0,
+      "poolChanged": 0,
+      "maxRelativeDelta": 0,
+      "meanErrorDelta": 0.0000026429393700999838,
+      "litMatched": 12981,
+      "movingLit": 12682,
+      "maxMovingErrorDelta": 0.037310384,
+      "meanLitErrorDelta": 0.000051893062160542304,
+      "maxMovingTotalErrorDelta": 0.00004866294,
+      "maxTotalExcessDelta": 0.000048662998,
+      "sources": [
+        {
+          "file": "final-adaptive-many-wind/native.log",
+          "sha256": "0e99cad3d8cf9ebb9e1da7e25be4e4336f18d3eb88a3dedc24db7406cbf8a62c",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "final-adaptive-seed7-wind": {
+      "binaryHash": "1baaec0d305a77434268bb6174e5f254c6fed5f22cc58a0f7c20c58f07390fd2",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "adaptive": {
+        "approximate": 353887,
+        "exact": 20266,
+        "exactFraction": 0.0541650073632979
+      },
+      "motion": "wind",
+      "visibility": "compact",
+      "seed": 7,
+      "stability": "on",
+      "uploadedLights": 17,
+      "frames": 156,
+      "matched": 277720,
+      "stationary": 150388,
+      "litStationary": 661,
+      "changed": 0,
+      "poolChanged": 0,
+      "maxRelativeDelta": 0,
+      "meanErrorDelta": 0.0000011276484437325366,
+      "litMatched": 11856,
+      "movingLit": 11195,
+      "maxMovingErrorDelta": 0.0040672603,
+      "meanLitErrorDelta": 0.00002439069456025641,
+      "maxMovingTotalErrorDelta": 0.000008446756,
+      "maxTotalExcessDelta": 3.9843795e-7,
+      "sources": [
+        {
+          "file": "final-adaptive-seed7-wind/native.log",
+          "sha256": "3c5dc6bf14b6f3ac79af019827269b946f9886f05bd5dfb11d1bed4bc258772a",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "final-adaptive-wind8": {
+      "binaryHash": "1baaec0d305a77434268bb6174e5f254c6fed5f22cc58a0f7c20c58f07390fd2",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "adaptive": {
+        "approximate": 231374,
+        "exact": 6426,
+        "exactFraction": 0.027022708158116065
+      },
+      "motion": "wind",
+      "visibility": "compact",
+      "seed": 20260519,
+      "stability": "on",
+      "uploadedLights": 8,
+      "frames": 100,
+      "matched": 178601,
+      "stationary": 147363,
+      "litStationary": 3220,
+      "changed": 0,
+      "poolChanged": 0,
+      "maxRelativeDelta": 0,
+      "meanErrorDelta": 1.2644674248611675e-7,
+      "litMatched": 3900,
+      "movingLit": 680,
+      "maxMovingErrorDelta": 0.0005085767,
+      "meanLitErrorDelta": 0.000001157172950836,
+      "maxMovingTotalErrorDelta": 0.0000024333885,
+      "maxTotalExcessDelta": 0.0000014514103,
+      "sources": [
+        {
+          "file": "final-adaptive-wind8/native.log",
+          "sha256": "3517336064c3b30af1024a0cb5f4192ca8aaf1c6419575bcf81327ea6a5f3e59",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "final-adaptive-camera": {
+      "binaryHash": "1baaec0d305a77434268bb6174e5f254c6fed5f22cc58a0f7c20c58f07390fd2",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "adaptive": {
+        "approximate": 500554,
+        "exact": 9418,
+        "exactFraction": 0.018467680578541566
+      },
+      "motion": "camera-wind",
+      "visibility": "compact",
+      "seed": 20260519,
+      "stability": "on",
+      "uploadedLights": 17,
+      "frames": 794,
+      "matched": 757749,
+      "stationary": 440580,
+      "litStationary": 9131,
+      "changed": 0,
+      "poolChanged": 0,
+      "maxRelativeDelta": 0,
+      "meanErrorDelta": 0.000009110218787478378,
+      "litMatched": 10859,
+      "movingLit": 1728,
+      "maxMovingErrorDelta": 0.00152545,
+      "meanLitErrorDelta": 0.0000028008235548928265,
+      "maxMovingTotalErrorDelta": 0.0000032323862,
+      "maxTotalExcessDelta": 0.0000032323862,
+      "sources": [
+        {
+          "file": "final-adaptive-camera/native.log",
+          "sha256": "c048e81f9e9aacee40d35861104a3275e6a234d3e2250de8200dd33074ea8600",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "final-adaptive-static": {
+      "binaryHash": "1baaec0d305a77434268bb6174e5f254c6fed5f22cc58a0f7c20c58f07390fd2",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "adaptive": {
+        "approximate": 240494,
+        "exact": 6558,
+        "exactFraction": 0.026545018862425725
+      },
+      "motion": "static",
+      "visibility": "compact",
+      "seed": 20260519,
+      "stability": "on",
+      "uploadedLights": 8,
+      "frames": 102,
+      "matched": 181662,
+      "stationary": 161147,
+      "litStationary": 3989,
+      "changed": 0,
+      "poolChanged": 0,
+      "maxRelativeDelta": 0,
+      "meanErrorDelta": 4.931312298137255e-10,
+      "litMatched": 4080,
+      "movingLit": 91,
+      "maxMovingErrorDelta": 0.000005998988,
+      "meanLitErrorDelta": 9.82432361764706e-9,
+      "maxMovingTotalErrorDelta": 7.2166976e-8,
+      "maxTotalExcessDelta": 7.2166976e-8,
+      "sources": [
+        {
+          "file": "final-adaptive-static/native.log",
+          "sha256": "b739d5cc3f5ce2443c74585955a77b935644ae03e8ecdd03bcc3eb0d22cbdcf8",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "final-unchecked-static": {
+      "binaryHash": "1baaec0d305a77434268bb6174e5f254c6fed5f22cc58a0f7c20c58f07390fd2",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "motion": "static",
+      "visibility": "compact",
+      "seed": 20260519,
+      "stability": "off",
+      "uploadedLights": 8,
+      "frames": 134,
+      "matched": 237180,
+      "stationary": 211431,
+      "litStationary": 5367,
+      "changed": 0,
+      "poolChanged": 0,
+      "maxRelativeDelta": 0,
+      "meanErrorDelta": 5.987997871641791e-9,
+      "litMatched": 5494,
+      "movingLit": 127,
+      "maxMovingErrorDelta": 0.000053984666,
+      "meanLitErrorDelta": 2.585062499626865e-7,
+      "maxMovingTotalErrorDelta": 0.0000017557965,
+      "maxTotalExcessDelta": 0.0000017557965,
+      "sources": [
+        {
+          "file": "final-unchecked-static/native.log",
+          "sha256": "62587200afefa49c49bef1d86b830e0c483ce6564ab1c7f84ca0bdd53e8b65ef",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "final-quality-8": {
+      "binaryHash": "1baaec0d305a77434268bb6174e5f254c6fed5f22cc58a0f7c20c58f07390fd2",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "stability": "on",
+      "case": "audit",
+      "rows": [
+        {
+          "seed": 20260519,
+          "frames": 69,
+          "samples": 459408,
+          "referenceRgb": [
+            39.642169020000026,
+            4.242627732,
+            0.2773132550000001
+          ],
+          "risRgb": [
+            39.638894239999985,
+            4.2422772160000015,
+            0.2772903247999999
+          ],
+          "relativeSignedRgbError": [
+            -0.0000826084969868246,
+            -0.00008261766578165908,
+            -0.00008268699597580031
+          ],
+          "nonFinite": 0,
+          "renderedMismatches": 0,
+          "adaptive": {
+            "approximate": 690570,
+            "exact": 16699,
+            "exactFraction": 0.023610535736756453
+          }
+        },
+        {
+          "seed": 7,
+          "frames": 69,
+          "samples": 459089,
+          "referenceRgb": [
+            41.45078954000001,
+            4.4361917800000015,
+            0.2899652888
+          ],
+          "risRgb": [
+            41.44735100999999,
+            4.43582387,
+            0.2899412473
+          ],
+          "relativeSignedRgbError": [
+            -0.00008295451155881928,
+            -0.00008293374548418164,
+            -0.0000829116481476655
+          ],
+          "nonFinite": 0,
+          "renderedMismatches": 0,
+          "adaptive": {
+            "approximate": 688367,
+            "exact": 16628,
+            "exactFraction": 0.023585982879311202
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "final-quality-8/audit-20260519.log",
+          "sha256": "5da0554970a2dd440a5d73b66a9472023b4af43a7384dce7f30cf7d5d8dc8dbb",
+          "nativeErrors": 0
+        },
+        {
+          "file": "final-quality-8/audit-7.log",
+          "sha256": "a1562c5c796fece5784a70b028368af8d50f830e2f33f3551c22454846310019",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "final-quality-many": {
+      "binaryHash": "1baaec0d305a77434268bb6174e5f254c6fed5f22cc58a0f7c20c58f07390fd2",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "stability": "on",
+      "case": "audit",
+      "rows": [
+        {
+          "seed": 20260519,
+          "frames": 40,
+          "samples": 266214,
+          "referenceRgb": [
+            78.0091874,
+            8.348784290000001,
+            0.545706359
+          ],
+          "risRgb": [
+            78.00516729999998,
+            8.34835444,
+            0.5456782515
+          ],
+          "relativeSignedRgbError": [
+            -0.00005153367358390337,
+            -0.00005148653804798453,
+            -0.000051506638206411104
+          ],
+          "nonFinite": 0,
+          "renderedMismatches": 0,
+          "adaptive": {
+            "approximate": 414415,
+            "exact": 23229,
+            "exactFraction": 0.053077387100017366
+          }
+        },
+        {
+          "seed": 7,
+          "frames": 39,
+          "samples": 259760,
+          "referenceRgb": [
+            75.9261648,
+            8.12585309,
+            0.5311347275
+          ],
+          "risRgb": [
+            75.92065680000002,
+            8.12526334,
+            0.5310962325
+          ],
+          "relativeSignedRgbError": [
+            -0.00007254416200908054,
+            -0.00007257699511276083,
+            -0.00007247690276468433
+          ],
+          "nonFinite": 0,
+          "renderedMismatches": 0,
+          "adaptive": {
+            "approximate": 406909,
+            "exact": 22729,
+            "exactFraction": 0.05290267620648081
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "final-quality-many/audit-20260519.log",
+          "sha256": "dc2bc65cf31984d41dacc98f8ab5125e10e51caca1a0f73e82691e7729572a1d",
+          "nativeErrors": 0
+        },
+        {
+          "file": "final-quality-many/audit-7.log",
+          "sha256": "8a645cadb0f484bd3f0b7221cf1eb703021875b1231995b062a5f8d5f7fb4f7f",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "final-perf-8": {
+      "binaryHash": "1baaec0d305a77434268bb6174e5f254c6fed5f22cc58a0f7c20c58f07390fd2",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "stability": "on",
+      "rows": [
+        {
+          "repeat": 0,
+          "mode": "off",
+          "screen": "2560x1440",
+          "scene": "512x288",
+          "uploadedLights": 8,
+          "grassGpuMs": 28.451,
+          "gpuSamples": 141,
+          "actualFps": 17.632241813602015,
+          "wholeProfiledFps": 17.930538429921906
+        },
+        {
+          "repeat": 0,
+          "mode": "on",
+          "screen": "2560x1440",
+          "scene": "512x288",
+          "uploadedLights": 8,
+          "grassGpuMs": 21.5995,
+          "gpuSamples": 156,
+          "actualFps": 19.511581067472306,
+          "wholeProfiledFps": 19.965772960638905
+        },
+        {
+          "repeat": 1,
+          "mode": "on",
+          "screen": "2560x1440",
+          "scene": "512x288",
+          "uploadedLights": 8,
+          "grassGpuMs": 21.759,
+          "gpuSamples": 155,
+          "actualFps": 19.354027899962297,
+          "wholeProfiledFps": 19.826390672350918
+        },
+        {
+          "repeat": 1,
+          "mode": "off",
+          "screen": "2560x1440",
+          "scene": "512x288",
+          "uploadedLights": 8,
+          "grassGpuMs": 28.4285,
+          "gpuSamples": 140,
+          "actualFps": 17.486476286325324,
+          "wholeProfiledFps": 17.76702029045216
+        },
+        {
+          "repeat": 2,
+          "mode": "off",
+          "screen": "2560x1440",
+          "scene": "512x288",
+          "uploadedLights": 8,
+          "grassGpuMs": 28.475,
+          "gpuSamples": 139,
+          "actualFps": 17.271589486858574,
+          "wholeProfiledFps": 17.2680412371134
+        },
+        {
+          "repeat": 2,
+          "mode": "on",
+          "screen": "2560x1440",
+          "scene": "512x288",
+          "uploadedLights": 8,
+          "grassGpuMs": 21.7265,
+          "gpuSamples": 156,
+          "actualFps": 19.433299899699097,
+          "wholeProfiledFps": 19.75550626708619
+        }
+      ],
+      "summary": {
+        "off": {
+          "grassGpuMs": 28.451,
+          "actualFps": 17.486476286325324,
+          "wholeProfiledFps": 17.76702029045216
+        },
+        "on": {
+          "grassGpuMs": 21.7265,
+          "actualFps": 19.433299899699097,
+          "wholeProfiledFps": 19.826390672350918
+        }
+      },
+      "performancePassed": true,
+      "sources": [
+        {
+          "file": "final-perf-8/0-off.log",
+          "sha256": "ce66105430ffe365f4f3dcaf9aef49c7d282c64e31eb72fecb861b19e876b9ea",
+          "nativeErrors": 0
+        },
+        {
+          "file": "final-perf-8/0-on.log",
+          "sha256": "6b9bbd0fdc207ea060e6d2e4ac21dce87eddedd4e3793976a608ef344a3ffe7a",
+          "nativeErrors": 0
+        },
+        {
+          "file": "final-perf-8/1-off.log",
+          "sha256": "061c48e09e5f0e1f568757692c4da5385a46a4bd0391b885dd668e6d5cd172e0",
+          "nativeErrors": 0
+        },
+        {
+          "file": "final-perf-8/1-on.log",
+          "sha256": "f0391c7a9c613d8709963973f254e79a70e3121366c94b98ba73630e6867315b",
+          "nativeErrors": 0
+        },
+        {
+          "file": "final-perf-8/2-off.log",
+          "sha256": "cac7257148be23b77d6783482109c8431a0e14fe718ff1105778620e22f41e79",
+          "nativeErrors": 0
+        },
+        {
+          "file": "final-perf-8/2-on.log",
+          "sha256": "3b449fcf7b48ef535381902f4d8bc04f52a8d9ef3c456b94000e26bd3dc96433",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "final-perf-many": {
+      "binaryHash": "1baaec0d305a77434268bb6174e5f254c6fed5f22cc58a0f7c20c58f07390fd2",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "stability": "on",
+      "rows": [
+        {
+          "repeat": 0,
+          "mode": "off",
+          "screen": "2560x1440",
+          "scene": "512x288",
+          "uploadedLights": 17,
+          "grassGpuMs": 60.3635,
+          "gpuSamples": 80,
+          "actualFps": 9.969712266532055,
+          "wholeProfiledFps": 10.497746825071692
+        },
+        {
+          "repeat": 0,
+          "mode": "on",
+          "screen": "2560x1440",
+          "scene": "512x288",
+          "uploadedLights": 17,
+          "grassGpuMs": 52.323,
+          "gpuSamples": 81,
+          "actualFps": 10.062893081761006,
+          "wholeProfiledFps": 11.360131592474556
+        },
+        {
+          "repeat": 1,
+          "mode": "on",
+          "screen": "2560x1440",
+          "scene": "512x288",
+          "uploadedLights": 17,
+          "grassGpuMs": 46.33,
+          "gpuSamples": 91,
+          "actualFps": 11.327879169288861,
+          "wholeProfiledFps": 12.038275542751311
+        },
+        {
+          "repeat": 1,
+          "mode": "off",
+          "screen": "2560x1440",
+          "scene": "512x288",
+          "uploadedLights": 17,
+          "grassGpuMs": 68.5985,
+          "gpuSamples": 72,
+          "actualFps": 8.91399874450722,
+          "wholeProfiledFps": 9.552668070463767
+        },
+        {
+          "repeat": 2,
+          "mode": "off",
+          "screen": "2560x1440",
+          "scene": "512x288",
+          "uploadedLights": 17,
+          "grassGpuMs": 60.4895,
+          "gpuSamples": 80,
+          "actualFps": 9.92587008418143,
+          "wholeProfiledFps": 10.505278261760788
+        },
+        {
+          "repeat": 2,
+          "mode": "on",
+          "screen": "2560x1440",
+          "scene": "512x288",
+          "uploadedLights": 17,
+          "grassGpuMs": 45.94,
+          "gpuSamples": 93,
+          "actualFps": 11.530266950745707,
+          "wholeProfiledFps": 12.063099288586452
+        }
+      ],
+      "summary": {
+        "off": {
+          "grassGpuMs": 60.4895,
+          "actualFps": 9.92587008418143,
+          "wholeProfiledFps": 10.497746825071692
+        },
+        "on": {
+          "grassGpuMs": 46.33,
+          "actualFps": 11.327879169288861,
+          "wholeProfiledFps": 12.038275542751311
+        }
+      },
+      "performancePassed": true,
+      "sources": [
+        {
+          "file": "final-perf-many/0-off.log",
+          "sha256": "2a9cc70a67306ada2495a7e9326b5c5fdf047f0f76b6195443fe0732b4d4e641",
+          "nativeErrors": 0
+        },
+        {
+          "file": "final-perf-many/0-on.log",
+          "sha256": "62d36d9e910c3adc7a04fdfe8c75cd270d21c534e7e7381d719bbbef56fb1860",
+          "nativeErrors": 0
+        },
+        {
+          "file": "final-perf-many/1-off.log",
+          "sha256": "53a556454cb0a048e19470b076acf340aed6bd76e340546580117776e8f75cad",
+          "nativeErrors": 0
+        },
+        {
+          "file": "final-perf-many/1-on.log",
+          "sha256": "3cf66d32d52c6efdd43b1e3c5278a56b25b23149e200cdb6777c4272b4030e42",
+          "nativeErrors": 0
+        },
+        {
+          "file": "final-perf-many/2-off.log",
+          "sha256": "2387d332a453a8dbdbac32d07651a8db4930d30af50d6f250c231894b9af14f3",
+          "nativeErrors": 0
+        },
+        {
+          "file": "final-perf-many/2-on.log",
+          "sha256": "45280284c8b21910031eb6045cc02c459023d87b42123b9be2c27893297c3a8a",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "final-unchecked-perf-8": {
+      "binaryHash": "1baaec0d305a77434268bb6174e5f254c6fed5f22cc58a0f7c20c58f07390fd2",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "stability": "off",
+      "rows": [
+        {
+          "repeat": 0,
+          "mode": "off",
+          "screen": "2560x1440",
+          "scene": "512x288",
+          "uploadedLights": 8,
+          "grassGpuMs": 28.447,
+          "gpuSamples": 139,
+          "actualFps": 17.297568312860367,
+          "wholeProfiledFps": 17.63093945504369
+        },
+        {
+          "repeat": 0,
+          "mode": "on",
+          "screen": "2560x1440",
+          "scene": "512x288",
+          "uploadedLights": 8,
+          "grassGpuMs": 9.8325,
+          "gpuSamples": 204,
+          "actualFps": 25.444973677613437,
+          "wholeProfiledFps": 26.000719387492936
+        }
+      ],
+      "summary": {
+        "off": {
+          "grassGpuMs": 28.447,
+          "actualFps": 17.297568312860367,
+          "wholeProfiledFps": 17.63093945504369
+        },
+        "on": {
+          "grassGpuMs": 9.8325,
+          "actualFps": 25.444973677613437,
+          "wholeProfiledFps": 26.000719387492936
+        }
+      },
+      "performancePassed": true,
+      "sources": [
+        {
+          "file": "final-unchecked-perf-8/0-off.log",
+          "sha256": "a0af0825071268e4aaea249941712e5ad2f3b5d076edc10f345b92f7d70e4e9f",
+          "nativeErrors": 0
+        },
+        {
+          "file": "final-unchecked-perf-8/0-on.log",
+          "sha256": "e35a39c522b603e6c5ae4f8cf0f10b463ab8fde4090367b5acec7c67533f317d",
+          "nativeErrors": 0
+        }
+      ]
+    },
+    "final-unchecked-perf-many": {
+      "binaryHash": "1baaec0d305a77434268bb6174e5f254c6fed5f22cc58a0f7c20c58f07390fd2",
+      "cameraHash": "d45b3c3875c2896a7b5c83b19520f8401bf29fc7208063fde5bb95191bf7f29a",
+      "stability": "off",
+      "rows": [
+        {
+          "repeat": 0,
+          "mode": "off",
+          "screen": "2560x1440",
+          "scene": "512x288",
+          "uploadedLights": 17,
+          "grassGpuMs": 60.689,
+          "gpuSamples": 80,
+          "actualFps": 9.92587008418143,
+          "wholeProfiledFps": 10.341634081086644
+        },
+        {
+          "repeat": 0,
+          "mode": "on",
+          "screen": "2560x1440",
+          "scene": "512x288",
+          "uploadedLights": 17,
+          "grassGpuMs": 11.729,
+          "gpuSamples": 155,
+          "actualFps": 19.378381779287782,
+          "wholeProfiledFps": 19.842697784403434
+        }
+      ],
+      "summary": {
+        "off": {
+          "grassGpuMs": 60.689,
+          "actualFps": 9.92587008418143,
+          "wholeProfiledFps": 10.341634081086644
+        },
+        "on": {
+          "grassGpuMs": 11.729,
+          "actualFps": 19.378381779287782,
+          "wholeProfiledFps": 19.842697784403434
+        }
+      },
+      "performancePassed": true,
+      "sources": [
+        {
+          "file": "final-unchecked-perf-many/0-off.log",
+          "sha256": "aeebca8faf78ed9033f07f3b8362725713f625f6f270acc3e9bff1b8f4d74571",
+          "nativeErrors": 0
+        },
+        {
+          "file": "final-unchecked-perf-many/0-on.log",
+          "sha256": "0a4250adc697baf16d63387918f477856d843b724373885b5dd87f4878b3426e",
+          "nativeErrors": 0
+        }
+      ]
+    }
+  },
+  "validation": {
+    "rustAppPassed": 1844,
+    "rustCollisionPassed": 4,
+    "rustIgnored": 15,
+    "vknPassed": 77,
+    "javascriptPassed": 14,
+    "targetedSlangPassed": [
+      "flora_light_sampling",
+      "flora_light_stability",
+      "light_reservoir"
+    ],
+    "pinnedSlangSuite": "blocked before execution: requires 2025.23; local compiler is 2025.11-12-gc5295eae2",
+    "smoke": "native hidden/mute release passed; no-scored-monitor fallback warning in non-windowed smoke only; explicit --windowed measurements have no WARN/ERROR/VUID/SYNC-HAZARD",
+    "visualAcceptance": "not performed by a human; no visible game was launched",
+    "reportBrowser": {
+      "viewports": ["1440x1000", "390x844", "320x800"],
+      "pageOverflow": false,
+      "tableKeyboardHorizontalScrollObservedPixels": 80,
+      "detailsToggle": "passed",
+      "axeViolations": 0,
+      "axeIncomplete": "decorative non-text check glyph contrast; manually inspected",
+      "sessionClosed": true
+    }
+  },
+  "limits": [
+    "Audit work is excluded from production timing.",
+    "Moving-receiver excess variation is a linear-irradiance proxy, not a pixel-error or universal stability guarantee.",
+    "All tests with upload budget 64 actually selected 17 lights.",
+    "Pure RIS final performance is a single-pair spot check; adaptive and exhaustive comparison uses three alternating pairs.",
+    "Exact classification is conservative and can grow with time; worst case is exhaustive lighting plus RIS overhead.",
+    "Classification buffers allocated 198 MiB in the reported garden run; this is allocation accounting, not peak GPU residency.",
+    "No RGB/visibility accumulation, ReSTIR reuse, NRD, or spatial denoiser is shipped by this change.",
+    "Controlled post-startup moving-light, moving-occluder and instance deletion/recreation native scenarios were not individually executed; revision/generation rejection rules have targeted tests.",
+    "Saved existing values and camera file were preserved; the new saved A/B checkbox defaults to false."
+  ]
+}

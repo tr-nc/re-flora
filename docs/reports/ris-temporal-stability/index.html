@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>RIS 时域稳定性闭环 · re-flora · 2026-11-04</title>
+<style>
+:root{--paper:#f5f2e9;--card:#fffdf8;--ink:#203a31;--muted:#55695f;--line:#d2dbce;--green:#205d47;--soft:#e2eddf;--orange:#914719;--warm:#f8e9d8}
+*{box-sizing:border-box}html{scroll-padding-top:24px}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}
+a{color:var(--green);text-underline-offset:4px}a:hover{text-decoration-thickness:2px}
+a:focus-visible,summary:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--orange);outline-offset:5px}
+.wrap{max-width:1140px;padding:0 32px;margin:auto}
+.mast{border-bottom:1px solid var(--line);padding:22px 0}.mast .wrap{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap}
+.brand{font-weight:750;letter-spacing:.06em}.brand span{font-weight:400;color:var(--muted);margin-left:14px}
+nav{display:flex;gap:24px;flex-wrap:wrap;font-size:14px}
+header.hero{padding:64px 0 36px}.eyebrow{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--green);font-weight:750}
+h1{font-size:clamp(34px,4.6vw,58px);line-height:1.2;letter-spacing:-.04em;margin:16px 0 24px;max-width:920px}
+h1 em{font-style:normal;color:var(--green)}.lead{max-width:820px;font-size:18px;color:var(--muted)}
+.state{display:inline-block;background:var(--soft);border:1px solid #bdcfb7;border-radius:24px;padding:4px 13px;font-size:13px;font-weight:650;margin-top:20px}
+.kpis{display:grid;grid-template-columns:1fr 1.6fr 1fr;gap:16px;margin:30px 0}.kpi{background:var(--card);border:1px solid var(--line);border-radius:15px;padding:24px}
+.kpi strong{display:block;font-size:clamp(26px,3vw,38px);line-height:1.3;letter-spacing:-.04em;font-variant-numeric:tabular-nums}.kpi .caption{color:var(--muted);font-size:13px;margin-top:12px}
+.notice{border-left:4px solid var(--orange);background:var(--warm);padding:18px 22px;border-radius:0 10px 10px 0;color:#603d23}.notice p{margin:4px 0}
+section{padding:48px 0;border-top:1px solid var(--line)}h2{font-size:29px;line-height:1.35;letter-spacing:-.025em;margin:0 0 18px}h3{font-size:18px;line-height:1.5;margin:0 0 12px}
+p{margin:12px 0}.muted{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin:25px 0}
+.card{padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--card);min-width:0}.step{font-size:12px;letter-spacing:.07em;color:var(--muted);margin-bottom:14px}
+.big{font-size:30px;line-height:1.3;font-weight:730;font-variant-numeric:tabular-nums}.ok{color:var(--green)}.bad{color:var(--orange)}
+.flow{display:grid;grid-template-columns:1fr 1fr;gap:20px}.flow .card{border-top:4px solid var(--green)}.flow .old{border-top-color:var(--orange)}
+code{font:13px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;background:#e9eee4;padding:2px 5px;border-radius:4px;overflow-wrap:anywhere}
+pre{font:13px/1.8 ui-monospace,SFMono-Regular,Consolas,monospace;background:#1e362c;color:#eff5e9;padding:22px 24px;border-radius:12px;overflow:auto;white-space:pre;max-width:100%}
+pre code{background:none;padding:0;color:inherit;overflow-wrap:normal}
+.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--card);margin:24px 0}
+table{width:100%;border-collapse:collapse;min-width:720px;font-variant-numeric:tabular-nums}
+caption{text-align:left;padding:15px 20px;background:#e8eee2;font-size:14px;font-weight:650}
+th,td{padding:15px 20px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}thead th{font-size:13px;color:var(--muted);background:#f0f3eb}th:first-child{text-align:left}tbody th{font-size:14px;font-weight:550}tbody tr:last-child>*{border:0}
+small{color:var(--muted);font-size:12px;white-space:nowrap}.emphasis{background:#e8f0e4;font-weight:700}.note{font-size:13px;color:var(--muted)}
+.bars{display:grid;gap:17px;margin-top:26px}.bar-label{display:flex;justify-content:space-between;gap:12px;font-size:14px}.track{height:11px;background:#e4e8df;border-radius:8px;margin-top:6px;overflow:hidden}.fill{height:100%;background:#80958a}.fill.ris{background:#408466}.fill.stable{background:#ae733e}
+.two{display:grid;grid-template-columns:1.15fr 1fr;gap:24px}.two>*{min-width:0}.list{padding-left:22px}.list li{margin:10px 0}
+.check{display:inline-block;width:21px;height:21px;background:var(--green);color:white;border-radius:4px;line-height:21px;text-align:center;font-size:14px;margin-right:8px}
+details{border:1px solid var(--line);background:var(--card);border-radius:12px;padding:18px 22px;margin:20px 0}summary{cursor:pointer;font-weight:650}details[open] summary{margin-bottom:16px}
+.pills{display:flex;gap:10px;flex-wrap:wrap}.pill{border:1px solid var(--line);padding:6px 12px;border-radius:6px;background:var(--card);font-size:13px}
+.button{display:inline-block;background:var(--green);color:white;text-decoration:none;border-radius:8px;padding:10px 16px;margin:14px 10px 0 0;font-weight:600;font-size:14px}
+footer{background:#e8ede2;border-top:1px solid var(--line);padding:30px 0;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
+@media(max-width:760px){.wrap{padding:0 20px}header.hero{padding:38px 0 28px}.lead{font-size:16px}.kpis,.grid,.flow,.two{grid-template-columns:1fr}.kpis{gap:10px}.kpi{padding:20px}.kpi strong{font-size:31px}section{padding:34px 0}h2{font-size:25px}h1{font-size:clamp(24px,8.2vw,34px)}.mast .wrap{gap:12px}nav{gap:16px}.brand span{margin-left:8px}th,td{padding:12px 15px}.notice{padding:14px 17px}}
+</style>
+</head>
+<body>
+<header class="mast"><div class="wrap"><div class="brand">re-flora <span>测量与修复记录 / 2026-11-04</span></div><nav aria-label="报告章节"><a href="#cause">主因</a><a href="#motion">动态稳定性</a><a href="#cost">性能代价</a><a href="#try">试用</a><a href="#evidence">证据</a></nav></div></header>
+<main class="wrap">
+<header class="hero">
+<div class="eyebrow">Local Release · Apple M4 Pro · MoltenVK</div>
+<h1>先修复采样身份，<br>再为<em>稳定照明</em>付出预算。</h1>
+<p class="lead">已复现并修复草本 RIS 与 GPU 压缩顺序耦合的主因；再对真实运动方差加入可选的自适应精确路径。没有累积旧颜色，没有冻结旧阴影，也没有把画质改善说成没有成本。</p>
+<div class="state">工程验证完成 · 默认不变 · 视觉体验待用户确认</div>
+<div class="kpis">
+<div class="kpi"><strong>0</strong><div class="caption">修复后所有最终测试：<br>不变接收点的候选池切换</div></div>
+<div class="kpi"><strong>6.887% → 0.0049%</strong><div class="caption">17 灯有风：最坏超额亮度变化<br>同一最终二进制，两次独立诊断运行</div></div>
+<div class="kpi"><strong>46.33 ms</strong><div class="caption">17 灯自适应模式草本 GPU<br>纯 RIS 单对抽查为 11.73 ms</div></div>
+</div>
+<div class="notice"><p><strong>这是有明确取舍的质量 A/B，不是免费的降噪。</strong>新模式默认关闭；高风险接收点使用当前帧精确照明，因此不再保证固定射线预算。当前代码及 Release 二进制已就绪，尚未由玩家做可见体验验收。</p></div>
+</header>
+
+<section id="cause">
+<div class="eyebrow">01 / Confirmed cause</div><h2>相同的草，不应因工作组换位而换一组灯。</h2>
+<p>旧候选池依赖 dispatch group；GPU 原子压缩不保证固定顺序。同一世界根位置、种类、层，可能被排到不同工作组。光源、几何、受光位置、法线与全灯参考不变时，候选池和直接光仍跳变。</p>
+<div class="grid">
+<div class="card"><div class="step">修复前 / 正常 GPU 剔除 / 8 灯</div><div class="big bad">189334</div><p>不变接收点的候选池变更</p><p class="note">受光不变点比较 4006 次；最大直接光跳变约为参考的 10.20 倍。</p></div>
+<div class="card"><div class="step">诊断对照 / 禁用压缩</div><div class="big ok">0</div><p>候选池变更、输出变化</p><p class="note">受光不变点比较 5451 次。禁用剔除仅用于定位，没有作为生产修复。</p></div>
+<div class="card"><div class="step">根因修复 / 保留 GPU 剔除</div><div class="big ok">0</div><p>静止点的候选池和输出跳变</p><p class="note">8 / 17 灯、静态 / 有风的初轮四组回归均通过；最终二进制再次确认。</p></div>
+</div>
+<div class="flow">
+<div class="card old"><h3>旧身份</h3><code>压缩行 → dispatch group → 共享候选池</code><p class="note">执行顺序意外拥有了采样身份。</p></div>
+<div class="card"><h3>新身份</h3><code>世界根位置 + species + layer → power table</code><p class="note">候选采样和 reservoir 随机流分离；工作组不再参与身份。</p></div>
+</div>
+</section>
+
+<section id="motion">
+<div class="eyebrow">02 / Motion is a separate problem</div><h2>稳定 seed 解决主因，不等于消除运动方差。</h2>
+<p>最终二进制关闭新 A/B 时，17 灯有风测试仍失败：某接收点直接光变化约 7.33%，全灯参考只变约 0.45%。另有一些“误差变化”主要来自合法阴影变化，不能一概叫闪烁。</p>
+<div class="two">
+<div class="card"><h3>因此量测的是超额变化</h3><p>对同一真实接收点，排除灯和几何版本改变后，比较直接光亮度的变化幅度与当前全灯参考的变化幅度：</p><code>max(0, |ΔY_render| − |ΔY_ref|) / max(Y_total_old, Y_total_new, 1e−5)</code><p class="note">2% 是本次诊断回归线，不是产品画质规格。该指标不是屏幕像素误差，也不保证所有场景或每个像素稳定。参考独自跳变时，不把一个平稳的实际输出误判为闪烁。</p></div>
+<div class="card"><h3>最终采用：自适应精确照明</h3><ol class="list"><li>新接收点用全灯参考校准；误差高的点直接使用精确路径。</li><li>RIS 选中连接或 RGB 衰减指纹发生变化时，保守升级为精确路径。</li><li>只保存质量分类；精确路径每帧重新计算当前位置、法线和可见性。</li></ol><p class="note">根位置 / spawn generation / 完整灯版本 / 几何版本验证分类。不依赖屏幕历史；不使用旧颜色平滑合法编辑。</p></div>
+</div>
+<div class="table-wrap" tabindex="0" role="region" aria-label="自适应模式时域回归数据，可横向滚动"><table>
+<caption>最终自适应模式 · 实际接收点审计</caption><thead><tr><th scope="col">场景</th><th scope="col">移动受光比较</th><th scope="col">不变受光比较</th><th scope="col">候选池切换</th><th scope="col">最大超额变化</th></tr></thead>
+<tbody><tr><th scope="row">17 灯 · 风</th><td>12682</td><td>299</td><td>0</td><td>0.0049%</td></tr>
+<tr><th scope="row">17 灯 · 风 · seed 7</th><td>11195</td><td>661</td><td>0</td><td>0.0000398%</td></tr>
+<tr><th scope="row">8 灯 · 风</th><td>680</td><td>3220</td><td>0</td><td>0.000145%</td></tr>
+<tr><th scope="row">17 灯 · 相机往返 + 风</th><td>1728</td><td>9131</td><td>0</td><td>0.000323%</td></tr>
+<tr><th scope="row">8 灯 · 关闭风响应</th><td>91</td><td>3989</td><td>0</td><td>0.00000722%</td></tr></tbody></table></div>
+<p class="note">有风 17 灯的两组测试各运行 30 秒；相机往返 + 风运行 40 秒并检查完整序列；其他测试取读回后半段排除启动。各运行风 / 生长进度不是逐帧对齐的。关闭风响应也不代表冻结了整套模拟：仅对确实不变的接收点要求静止一致性。</p>
+<p>四次最终能量审计：<strong>非有限值与实际渲染不一致均为 0</strong>；聚合 RGB 有符号能量误差的绝对值约 <strong>0.0051%–0.0083%</strong>。这是已抽样接收点的聚合证据，不是每个接收点等价或视觉等价的证明。</p>
+</section>
+
+<section id="cost">
+<div class="eyebrow">03 / Production path, no audit work</div><h2>稳定性通过了，速度必须如实看。</h2>
+<p>同一最终 Release、同一相机；输出 <strong>2560 × 1440</strong>，场景 <strong>512 × 288</strong>。未插入审计的生产路径计时，与上面的诊断完全分开。这里所有模式都保留全局本地照明；“全灯参考”只是关闭 RIS，<strong>不是关闭灯光</strong>。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="实际灯数下的生产性能对比，可横向滚动"><table>
+<caption>草本 GPU 毫秒 / 实际帧率 · 越低 / 越高越好</caption><thead><tr><th scope="col">实际上传灯数</th><th scope="col">全灯参考</th><th scope="col">稳定身份 RIS</th><th scope="col">自适应稳定 A/B</th></tr></thead><tbody><tr><th scope="row">8 盏</th><td>28.45 ms<br><small>17.49 FPS</small></td><td>9.83 ms<br><small>25.44 FPS · 单对抽查</small></td><td class="emphasis">21.73 ms<br><small>19.43 FPS</small></td></tr>
+<tr><th scope="row">17 盏</th><td>60.49 ms<br><small>9.93 FPS</small></td><td>11.73 ms<br><small>19.38 FPS · 单对抽查</small></td><td class="emphasis">46.33 ms<br><small>11.33 FPS</small></td></tr></tbody></table></div>
+<p class="note">全灯参考与自适应列：3 对交替运行、每次 20 秒，取最后 8 秒的 GPU 中位数和实际 frame / wall-clock FPS，再取运行中位数。纯 RIS 列为最终二进制 1 对抽查，不能当作完全均衡的三臂实验。前一阶段纯 RIS 的 3 对测量保存在本地归档；本文不混用它替代最终二进制数据。</p>
+<div class="two">
+<div class="card"><h3>17 灯草本 GPU，相对全灯参考</h3><div class="bars">
+<div><div class="bar-label"><span>全灯参考</span><strong>60.49 ms</strong></div><div class="track"><div class="fill" style="width:100%"></div></div></div>
+<div><div class="bar-label"><span>稳定身份 RIS · 单对抽查</span><strong>11.73 ms</strong></div><div class="track"><div class="fill ris" style="width:19.390142090776084%"></div></div></div>
+<div><div class="bar-label"><span>自适应稳定 A/B</span><strong>46.33 ms</strong></div><div class="track"><div class="fill stable" style="width:76.59180518933039%"></div></div></div>
+</div></div>
+<div class="notice"><p><strong>不要把“精确点少”理解成“GPU 代价小”。</strong>17 灯 30 秒诊断中约 5.4%–6.3% 的全部审计观测使用精确路径，包含大量未受光点，不能代表受光计算成本比例。实际 GPU 成本已在左侧计时。</p><p>本花园分类缓存累计分配约 <strong>198 MiB</strong>；不是 GPU 峰值驻留测量。分类可随运行保守增长，最坏退化为精确照明加 RIS 开销。本阶段不在视觉确认前继续隐藏或优化这些成本。</p></div>
+</div>
+<p class="notice"><strong>灯预算 64 ≠ 实测 64 盏灯。</strong>所有本次“大灯数”花园运行实际上传 17 盏。结果不能外推为 64 灯性能，也不能拿 macOS 绝对耗时直接对比 Linux / RTX。</p>
+</section>
+
+<section id="try">
+<div class="eyebrow">04 / Ready to compare</div><h2>Release 已就绪，保留两条可切换路径。</h2>
+<div class="two">
+<div class="card"><h3>Debug → Local Lighting</h3><p><span class="check" aria-hidden="true">✓</span><strong>Grass: fixed-budget RIS lighting (A/B)</strong></p><p><span class="check" aria-hidden="true">✓</span><strong>Grass RIS: adaptive shadow stability (A/B)</strong></p><p>第二项不勾选：稳定身份的纯 RIS。<br>第二项勾选：当前帧自适应精确稳定路径。</p><p class="note">新选项接入声明式设置与统一保存；默认关闭。既有灯预算、风参数、相机和其他已存设置未改动。切换路径无需重启。</p></div>
+<div><h3>复跑关键场景</h3><pre tabindex="0" role="region" aria-label="复跑时域和性能的命令"><code>cargo build --release
+
+node scripts/validate-light-ris-temporal.mjs \
+  --motion wind --light-budget 64 \
+  --stability on --seconds 30 \
+  --output target/NEW-stability
+
+node scripts/validate-light-ris.mjs \
+  --case perf --light-budget 64 \
+  --stability on \
+  --output target/NEW-perf</code></pre><p class="note">每个输出目录必须是新目录；串行运行，勿叠加 GPU 负载。脚本在 finally 中精确恢复输入配置。</p></div>
+</div>
+<p>没有自动打开可见游戏。需要人工体验时，从此工作树执行 <code>cargo run --release</code>；普通试用不带 <code>--perf</code>。数值闭环不是替玩家确认了“看起来完全不闪”。</p>
+</section>
+
+<section id="evidence">
+<div class="eyebrow">05 / Traceable evidence</div><h2>实现、测量与剩余边界分开记录。</h2>
+<div class="pills"><span class="pill">Rust 1844 + 4 passed · 15 ignored</span><span class="pill">Vulkan crate 77 passed</span><span class="pill">JS 14 passed</span><span class="pill">3 个定向 Slang CPU 测试通过</span><span class="pill">Release / hidden smoke 通过</span><span class="pill">显式请求同步验证 · 原生日志干净</span></div>
+<p class="notice"><strong>未通过或未做的部分也保留：</strong>全量 Slang CPU runner 要求 2025.23，本机为 2025.11-12，因版本校验在执行前被阻止。新采样、稳定分类与 reservoir 测试使用本机实际构建编译器单独通过；这不等于固定版本全套通过。默认 hidden smoke 有“无评分显示器，回退窗口尺寸”警告；显式 windowed 的测量日志无 WARN / ERROR / VUID / SYNC-HAZARD。没有进行用户可见体验验收。受控的运行中移动灯、移动遮挡物与删除 / 重建也尚未逐项做原生场景验收；版本与 generation 拒绝规则有定向测试。</p>
+<details><summary>本次本地提交与证据解释</summary>
+<ul class="list"><li><code>ced94ac1</code>：真实接收点时域审计。</li><li><code>7a9d9996</code>：稳定接收点采样身份。</li><li><code>a7f0f246</code>：相机与移动受光点的证据。</li><li><code>9d215610</code>：自适应精确稳定 A/B，独立编译程序保留纯 RIS 原路径。</li></ul>
+<p>这是 2026-11-04 的本地历史测量，不是维护另一份功能规格。最终源树提交 <code>9d215610e19421ef96b1b158472d6c5540dfa79a</code>，Release SHA-256：</p><code>1baaec0d305a77434268bb6174e5f254c6fed5f22cc58a0f7c20c58f07390fd2</code>
+<p>完整本地日志在 <code>target/ris-temporal-20261104/</code>；随报告提交的 JSON 保存各次原始汇总、二进制 / 相机哈希、原生日志 SHA-256 与边界说明，文本保存关键原生回执。原始审计只能建立它实际测到的性质。</p>
+</details>
+<a class="button" href="evidence.json">原始汇总与哈希 · JSON</a><a class="button" href="native-evidence.txt">原生日志摘录 · TXT</a>
+</section>
+</main>
+<footer><div class="wrap">本地工程验证 · Apple M4 Pro / 48 GiB / macOS 26.6.2 / Vulkan SDK 1.4.321.0 · 未推送、未发布。<br>报告仅适用于本次场景、硬件和取样；不宣称数学全局上界、固定预算或工业级 ReSTIR / NRD 实现。</div></footer>
+</body></html>
